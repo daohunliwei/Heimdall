@@ -168,9 +168,9 @@ namespace Heimdall.Repository.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     TaskType = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
-                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "pending"),
+                    status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "pending"),
                     RepositoryId = table.Column<Guid>(type: "uuid", nullable: true),
-                    SourceBranch = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false, defaultValue: "main"),
+                    source_branch = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false, defaultValue: "main"),
                     UserId = table.Column<Guid>(type: "uuid", nullable: true),
                     RequestHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     Provider = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true),
@@ -311,14 +311,14 @@ namespace Heimdall.Repository.Migrations
             migrationBuilder.CreateIndex(
                 name: "idx_one_pending_task_per_repo_branch_type",
                 table: "tasks",
-                columns: new[] { "RepositoryId", "SourceBranch", "TaskType" },
+                columns: new[] { "RepositoryId", "source_branch", "TaskType" },
                 unique: true,
                 filter: "status = 'pending'");
 
             migrationBuilder.CreateIndex(
                 name: "idx_one_running_task_per_repo_branch",
                 table: "tasks",
-                columns: new[] { "RepositoryId", "SourceBranch" },
+                columns: new[] { "RepositoryId", "source_branch" },
                 unique: true,
                 filter: "status = 'running'");
 

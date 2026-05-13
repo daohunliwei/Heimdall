@@ -352,7 +352,8 @@ namespace Heimdall.Repository.Migrations
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
-                        .HasDefaultValue("main");
+                        .HasDefaultValue("main")
+                        .HasColumnName("source_branch");
 
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
@@ -362,7 +363,8 @@ namespace Heimdall.Repository.Migrations
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)")
-                        .HasDefaultValue("pending");
+                        .HasDefaultValue("pending")
+                        .HasColumnName("status");
 
                     b.Property<string>("TaskType")
                         .IsRequired()
