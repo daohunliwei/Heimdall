@@ -10,6 +10,7 @@ using Heimdall.Infrastructure.Providers.ChatProviders;
 using Heimdall.Infrastructure.Providers.EmbeddingProviders;
 using Heimdall.Infrastructure.RepositorySources;
 using Heimdall.Infrastructure.Utilities;
+using Heimdall.Api.Middleware;
 using Heimdall.Core.Services.Auth;
 using Heimdall.Core.Services.Cache;
 using Heimdall.Core.Services.Rag;
@@ -148,43 +149,54 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<TaskQueueService>(
 
 // JWT Authentication
 var authMode = bootstrapConfig[AuthModeKey] ?? "jwt";
-if (!string.Equals(authMode, "none", StringComparison.OrdinalIgnoreCase))
-{
-    var jwtSecret = bootstrapConfig[JwtSecretKey];
-    if (!string.IsNullOrWhiteSpace(jwtSecret))
-    {
-        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
-            {
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-                    ValidateIssuer = true,
-                    ValidIssuer = "heimdall",
-                    ValidateAudience = true,
-                    ValidAudience = "heimdall",
-                    ValidateLifetime = true,
-                    ClockSkew = TimeSpan.Zero
-                };
-            });
+var jwtSecret = bootstrapConfig[JwtSecretKey];
+var useJwt = !string.Equals(authMode, "none", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(jwtSecret);
 
-        builder.Services.AddAuthorization(options =>
+if (useJwt)
+{
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
         {
-            options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-            options.AddPolicy("EditorPlus", policy => policy.RequireRole("Admin", "Editor"));
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+                ValidateIssuer = true,
+                ValidIssuer = "heimdall",
+                ValidateAudience = true,
+                ValidAudience = "heimdall",
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
+            };
         });
-    }
+}
+else
+{
+    // 无认证模式：注册空认证方案，避免 [Authorize] 属性抛出异常
+    builder.Services.AddAuthentication("None")
+        .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, NoOpAuthHandler>("None", null);
+    builder.Services.AddAuthorization(options =>
+    {
+        options.DefaultPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+            .RequireAssertion(_ => true).Build();
+        options.AddPolicy("AdminOnly", policy => policy.RequireAssertion(_ => true));
+        options.AddPolicy("EditorPlus", policy => policy.RequireAssertion(_ => true));
+    });
+}
+
+if (useJwt)
+{
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+        options.AddPolicy("EditorPlus", policy => policy.RequireRole("Admin", "Editor"));
+    });
 }
 
 var app = builder.Build();
 app.UseCors();
-
-if (!string.Equals(authMode, "none", StringComparison.OrdinalIgnoreCase))
-{
-    app.UseAuthentication();
-    app.UseAuthorization();
-}
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 

@@ -11,8 +11,8 @@ public class TaskRecordConfiguration : IEntityTypeConfiguration<TaskRecord>
         builder.ToTable("tasks");
         builder.HasKey(e => e.Id);
         builder.Property(e => e.TaskType).HasMaxLength(16).IsRequired();
-        builder.Property(e => e.Status).HasMaxLength(16).IsRequired().HasDefaultValue("pending");
-        builder.Property(e => e.SourceBranch).HasMaxLength(128).IsRequired().HasDefaultValue("main");
+        builder.Property(e => e.Status).HasColumnName("status").HasMaxLength(16).IsRequired().HasDefaultValue("pending");
+        builder.Property(e => e.SourceBranch).HasColumnName("source_branch").HasMaxLength(128).IsRequired().HasDefaultValue("main");
         builder.Property(e => e.RequestHash).HasMaxLength(64).IsRequired();
         builder.Property(e => e.Provider).HasMaxLength(32);
         builder.Property(e => e.Model).HasMaxLength(64);
