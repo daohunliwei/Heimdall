@@ -90,7 +90,9 @@ Heimdall 当前是一个 AI 智能生成仓库 Wiki 的 MVP 服务，已实现�
 CREATE TABLE users (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username      VARCHAR(64) NOT NULL UNIQUE,
-    password_hash VARCHAR(256) NOT NULL,
+    email         VARCHAR(256),                            -- 用户邮箱
+    password_hash VARCHAR(256),
+    source        SMALLINT NOT NULL DEFAULT 0,            -- 0=本地用户, 1=LDAP用户
     role          VARCHAR(16) NOT NULL DEFAULT 'Viewer',  -- Admin / Editor / Viewer
     is_active     BOOLEAN NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -105,7 +107,9 @@ CREATE TABLE repositories (
     repo_type       VARCHAR(16) NOT NULL,  -- github / gitlab / bitbucket / local
     repo_url        TEXT,
     clone_url       TEXT,
+    default_branch  VARCHAR(128) DEFAULT 'main',
     default_language VARCHAR(8) DEFAULT 'zh',
+    description     TEXT,                  -- 仓库描述
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(owner, repo_name, repo_type)
@@ -117,6 +121,7 @@ CREATE TABLE tasks (
     task_type         VARCHAR(16) NOT NULL,  -- wiki / ask / slides / workshop
     status            VARCHAR(16) NOT NULL DEFAULT 'pending',  -- pending/running/completed/failed/cancelled
     repository_id     UUID REFERENCES repositories(id),
+    source_branch     VARCHAR(128) NOT NULL DEFAULT 'main',  -- 任务针对的分支
     user_id           UUID REFERENCES users(id),
     request_hash      VARCHAR(64) NOT NULL,  -- SHA256 去重键
     provider          VARCHAR(32),
@@ -124,26 +129,70 @@ CREATE TABLE tasks (
     language          VARCHAR(8),
     progress_percent  INT DEFAULT 0,
     progress_message  TEXT,
+    total_prompt_tokens   INT DEFAULT 0,     -- 本次任务累计 Prompt Token
+    total_completion_tokens INT DEFAULT 0,   -- 本次任务累计 Completion Token
     result_json       JSONB,
     error_message     TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at        TIMESTAMPTZ,
-    completed_at      TIMESTAMPTZ,
-    UNIQUE(request_hash, status)  -- 同一请求在 pending/running 时去重
+    completed_at      TIMESTAMPTZ
+);
+-- 并发控制：同一个仓库+分支，同一时间仅允许一个任务 running
+CREATE UNIQUE INDEX idx_one_running_task_per_repo_branch
+    ON tasks (repository_id, source_branch)
+    WHERE status = 'running';
+-- 去重：同一个仓库+分支+任务类型，同一时间仅允许一个 pending 任务
+CREATE UNIQUE INDEX idx_one_pending_task_per_repo_branch_type
+    ON tasks (repository_id, source_branch, task_type)
+    WHERE status = 'pending';
+
+-- Wiki 领域表（一个 Wiki 包含 N 个 WikiPage）
+CREATE TABLE wikis (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title               TEXT NOT NULL,                   -- Wiki 标题，默认取仓库名
+    description         TEXT,                             -- Wiki 描述，默认取仓库描述
+    source_repository_id UUID NOT NULL REFERENCES repositories(id),
+    source_branch       VARCHAR(128) NOT NULL DEFAULT 'main',
+    language            VARCHAR(8) DEFAULT 'zh',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(source_repository_id, source_branch, language)  -- 同一仓库+分支+语言仅一份 Wiki
 );
 
--- Wiki 页面表
+-- Wiki 页面表（Wiki 的子对象）
 CREATE TABLE wiki_pages (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    wiki_id         UUID NOT NULL REFERENCES wikis(id) ON DELETE CASCADE,
+    task_id         UUID REFERENCES tasks(id),          -- 记录由哪个 task 生成（可追溯）
     page_order      INT NOT NULL DEFAULT 0,
     title           TEXT NOT NULL,
     content_markdown TEXT,
     parent_page_id  UUID REFERENCES wiki_pages(id),
     importance      VARCHAR(8) DEFAULT 'medium',
     file_paths      TEXT[],
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- LLM 交互审计表（记录 task 与 LLM 的每次交互）
+CREATE TABLE task_llm_call_logs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id             UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    step_order          INT NOT NULL,                   -- 步骤序号
+    call_type           VARCHAR(32) NOT NULL,           -- structure_generation / page_generation / rag_query / deep_research / slide_generation / workshop_generation
+    provider            VARCHAR(32),
+    model               VARCHAR(64),
+    prompt_tokens       INT DEFAULT 0,
+    completion_tokens   INT DEFAULT 0,
+    total_tokens        INT DEFAULT 0,                   -- prompt_tokens + completion_tokens
+    request_preview     TEXT,                             -- 请求摘要（截断存储）
+    response_preview    TEXT,                             -- 响应摘要（截断存储）
+    latency_ms          INT,                             -- 本次调用耗时
+    is_error            BOOLEAN DEFAULT FALSE,
+    error_message       TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_task_llm_call_logs_task ON task_llm_call_logs (task_id, step_order);
 
 -- 嵌入文档表（pgvector）
 CREATE TABLE embedding_documents (
@@ -165,7 +214,30 @@ CREATE INDEX idx_embedding_documents_embedding
     WITH (lists = 100);
 ```
 
-#### 1.2 任务队列系统
+#### 1.2 任务队列与并发控制系统
+
+##### 并发控制策略
+
+同一个仓库 + 同一个分支，同一时间**仅允许一个 running 任务**。通过数据库唯一索引保证：
+
+```sql
+-- 数据库层面强制约束
+CREATE UNIQUE INDEX idx_one_running_task_per_repo_branch
+    ON tasks (repository_id, source_branch)
+    WHERE status = 'running';
+
+-- 同一仓库+分支+类型，仅允许一个 pending（避免重复入队）
+CREATE UNIQUE INDEX idx_one_pending_task_per_repo_branch_type
+    ON tasks (repository_id, source_branch, task_type)
+    WHERE status = 'pending';
+```
+
+**入队流程**：
+1. 计算请求去重键 = `SHA256(repository_id + source_branch + task_type + provider + model + language + config_hash)`
+2. 查 DB 是否已有 running/pending 的相同 `(repository_id, source_branch, task_type)` 任务
+3. 有 running → 返回已有 `task_id`，前端通过 SSE 订阅进度
+4. 有 pending → 返回已有 `task_id`，前端等待执行
+5. 无 → 写入新任务（利用唯一索引防竞态），成功则入队
 
 ```csharp
 // Services/Tasks/TaskQueueService.cs
@@ -173,37 +245,109 @@ public sealed class TaskQueueService : BackgroundService
 {
     private readonly Channel<TaskEnqueueRequest> _channel;
 
-    // 入队任务，返回 task_id
-    public async Task<Guid> EnqueueAsync(TaskEnqueueRequest request)
+    /// <summary>
+    /// 入队任务，返回 TaskRecord。如果已有 running/pending 任务则返回已有记录。
+    /// </summary>
+    public async Task<TaskRecord> EnqueueAsync(TaskEnqueueRequest request)
     {
-        // 1. 计算 request_hash
-        // 2. 查数据库是否有相同的 pending/running 任务 → 有则直接返回已有 task_id
-        // 3. 无则创建新 task 并写入 channel
+        // 1. 查询是否已有 running/pending 任务
+        // 2. 有 → 直接返回
+        // 3. 无 → 用 UPSERT 语义创建（利用唯一索引防止并发重复插入）
+        // 4. 写入 channel 通知 Worker
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
         {
+            // 执行前再校验：确保没有另一个 Worker 已开始处理同一 repo+branch
             // 根据 task_type 调度到对应 TaskService
             // 更新任务状态和进度
-            // 完成后写入 result_json
+            // 完成后写入结果
         }
     }
 }
 ```
 
-**进度推送**：通过 SSE 端点 `GET /tasks/{id}/stream` 实时推送进度事件：
+**进度推送**：通过 SSE 端点 `GET /tasks/{id}/stream` 实时推送进度事件（含 Token 消耗汇总）：
 
 ```
 event: progress
-data: {"percent":30,"message":"正在生成 Wiki 结构..."}
+data: {"percent":30,"message":"正在生成 Wiki 结构...","tokens":12500}
 
 event: progress
-data: {"percent":60,"message":"正在生成页面 5/12..."}
+data: {"percent":60,"message":"正在生成页面 5/12...","tokens":45600}
 
 event: complete
-data: {"task_id":"xxx"}
+data: {"task_id":"xxx","total_prompt_tokens":85000,"total_completion_tokens":42000,"total_tokens":127000}
+```
+
+##### LLM 交互审计模块
+
+新增 `Services/Tasks/TaskLlmCallLogService.cs`，在每次与 LLM 交互时记录审计日志：
+
+```csharp
+/// <summary>
+/// 记录 task 执行过程中每次 LLM 调用的往来信息与 Token 开销。
+/// </summary>
+public sealed class TaskLlmCallLogService
+{
+    /// <summary>
+    /// 记录一次 LLM 调用。
+    /// </summary>
+    public async Task LogAsync(Guid taskId, LlmCallLogEntry entry)
+    {
+        // 1. 写入 task_llm_call_logs 表（调用类型、Token 数、请求/响应摘要、耗时）
+        // 2. 实时更新 tasks 表的 total_prompt_tokens / total_completion_tokens 累计字段
+    }
+
+    /// <summary>
+    /// 获取某个 task 的所有 LLM 交互明细。
+    /// </summary>
+    public async Task<List<LlmCallLogEntry>> GetTaskCallLogsAsync(Guid taskId)
+    {
+        // 按 step_order 排序返回
+    }
+
+    /// <summary>
+    /// 获取某个 task 的 Token 消耗汇总。
+    /// </summary>
+    public async Task<TokenSummary> GetTokenSummaryAsync(Guid taskId)
+    {
+        // 返回 { prompt_tokens, completion_tokens, total_tokens, call_count, total_cost }
+    }
+}
+```
+
+**调用时机**：在 `TaskLlmService.GenerateTextAsync()` 和 `ChatOrchestratorService.GenerateAsync()` 的每个 LLM 调用点插入日志记录。call_type 区分：
+
+| call_type | 触发场景 |
+|-----------|---------|
+| `structure_generation` | Wiki 结构规划阶段 |
+| `page_generation` | Wiki 逐页内容生成 |
+| `rag_query` | RAG 检索上下文生成 |
+| `deep_research` | Ask 深度研究轮次 |
+| `slide_generation` | Slides 单页生成 |
+| `workshop_generation` | Workshop 内容生成 |
+
+**前端呈现**：Wiki 主页底部展示本次生成任务的 `TaskLlmCallSummary` 组件：
+
+```
+┌─────────────────────────────────────────┐
+│  📊 生成统计                             │
+│  ─────────────────────────────────────  │
+│  Task ID     : abc-123-def             │
+│  状态        : 已完成                    │
+│  Provider    : Open AI / gpt-5.2       │
+│  生成时间    : 2026-05-13 14:30         │
+│  总耗时      : 3m 42s                  │
+│  ─────────────────────────────────────  │
+│  Prompt Token     : 85,000             │
+│  Completion Token : 42,000             │
+│  总 Token         : 127,000            │
+│  LLM 调用次数     : 15 次              │
+│  估算成本         : $0.38              │
+└─────────────────────────────────────────┘
 ```
 
 #### 1.3 向量库迁移
@@ -212,8 +356,9 @@ data: {"task_id":"xxx"}
 
 - **写入**：嵌入向量写入 `embedding_documents` 表（pgvector），替代 JSON 文件
 - **检索**：pgvector 余弦相似度查询，替代全量内存加载 + 遍历计算
-- **降级**：保留 JSON 文件写入作为备份导出，数据库不可用时回退到文件模式
 - **增量更新**：按 `file_path` 对比文件哈希，仅对变更文件重新嵌入
+- **旧数据迁移**：启动时检查 `storage/databases/*.json` 旧缓存文件 → 批量导入 pgvector → 删除源文件
+- **降级**：数据库不可用时抛出明确错误，不再回退到文件模式（数据库是唯一信源）
 
 ```sql
 -- 向量相似度检索语句
@@ -230,12 +375,13 @@ LIMIT 20;
 **新增文件**：
 - `backend/Heimdall.Infrastructure/Heimdall.Infrastructure.csproj`
 - `backend/Heimdall.Infrastructure/Data/AppDbContext.cs`
-- `backend/Heimdall.Infrastructure/Entities/*.cs`（User, Repository, Task, WikiPage, EmbeddingDocument）
+- `backend/Heimdall.Infrastructure/Entities/*.cs`（User, Repository, TaskRecord, TaskLlmCallLog, Wiki, WikiPage, EmbeddingDocument）
+- `backend/Heimdall.Api/Services/Tasks/TaskLlmCallLogService.cs` — LLM 交互审计
 
 **修改文件**：
 - `backend/Heimdall.Api/Program.cs` — 添加 DbContext、BackgroundService 注册
 - `backend/Heimdall.Api/Services/Rag/RepositoryEmbeddingService.cs` — pgvector 读写
-- `backend/Heimdall.Api/Services/Cache/WikiCacheService.cs` — DB 优先 + 文件降级
+- `backend/Heimdall.Api/Services/Cache/WikiCacheService.cs` — 迁移到 DB，移除文件持久化
 - `docker-compose.yml` — 添加 PostgreSQL 容器
 
 **新增环境变量**：
@@ -294,26 +440,22 @@ builder.Services.AddSingleton<IRepositorySource, LocalDirectorySource>();
 
 #### 2.2 Wiki 输出格式简化
 
-**主产物**：自包含的 Markdown 目录树
+**核心变更**：Wiki 内容以数据库为唯一信源（`wikis` + `wiki_pages` 表），前端从 API 实时拉取渲染。本地不再留存 Markdown 文件。
+
+**领域模型关系**：
 
 ```
-output/{owner}_{repo}/
-├── index.md                 ← 目录索引（含所有页面链接）
-├── 01-architecture.md       ← 架构概述
-├── modules/
-│   ├── auth.md              ← 认证模块
-│   ├── api-layer.md         ← API 层
-│   └── data-access.md       ← 数据访问层
-├── workflows/
-│   ├── request-lifecycle.md ← 请求生命周期
-│   └── deployment.md        ← 部署流程
-└── README.md                ← 使用说明索引
+Repository (1) ────────── (N) Wiki
+Wiki (1) ───────────────── (N) WikiPage
+WikiPage (1) ───────────── (N) WikiPage (parent_page_id 自引用)
+Task (1) ───────────────── (N) WikiPage (可追溯生成来源)
 ```
 
-**每页 Markdown 格式**（含 YAML frontmatter）：
+**每页 Markdown 格式**（含 YAML frontmatter，用于导出）：
 ```markdown
 ---
 id: page-auth
+wiki_id: <wiki_uuid>
 title: 认证模块
 importance: high
 related_files:
@@ -331,9 +473,10 @@ related_pages:
 ...
 ```
 
-- JSON 缓存保留用于系统内快速加载（WikiTreeView 侧边栏导航）
-- Markdown 目录作为用户可见的主产物
-- `WikiExportService` 直接打包整个目录为 .zip 下载
+- 数据库 `wiki_pages.content_markdown` 字段存储页面正文
+- 前端 `WikiTreeView` 通过 API 拉取 `wikis` + `wiki_pages` 构建侧边栏树形导航
+- `WikiExportService` 从 DB 查询页面内容，实时拼接为 Markdown 目录树 → 打包为 .zip 下载
+- 本地不保留 Markdown 文件，仓库克隆目录（`storage/repos/`）仅用于任务执行期间暂存，任务完成后可清理
 
 #### 2.3 工程变更
 
@@ -707,6 +850,12 @@ data: {"message":"Provider 调用超时，请检查 API Key 和网络连接"}
 └──────────────────────────────────────┘
 ```
 
+**Wiki 页面底部 TaskLlmCallSummary 组件**：
+- 展示生成该 Wiki 的 Task 基本信息（ID、状态、Provider/Model、生成时间）
+- 展示 Token 消耗汇总（Prompt Token、Completion Token、总 Token、LLM 调用次数）
+- 可展开查看每次 LLM 调用的明细（call_type、Token 数、耗时）
+- 数据来源：`GET /tasks/{id}/token-summary` API
+
 **任务状态持久化**：
 - task_id 写入 URL（`?task=xxx`）
 - 页面刷新后恢复进度
@@ -721,10 +870,11 @@ data: {"message":"Provider 调用超时，请检查 API Key 和网络连接"}
 
 **新增文件**（前端）：
 - `frontend/src/components/TaskProgress.tsx`
+- `frontend/src/components/TaskLlmCallSummary.tsx` — Wiki 页面底部展示 Token 开销
 - `frontend/src/hooks/useTaskStream.ts`
 
 **修改文件**：
-- `frontend/src/app/[owner]/[repo]/page.tsx` — 集成任务进度
+- `frontend/src/app/[owner]/[repo]/page.tsx` — 集成任务进度 + TaskLlmCallSummary 组件
 - `frontend/src/components/Ask.tsx` — 添加取消按钮
 - `frontend/src/app/[owner]/[repo]/slides/page.tsx` — 异步模式
 - `frontend/src/app/[owner]/[repo]/workshop/page.tsx` — 异步模式
@@ -740,11 +890,13 @@ data: {"message":"Provider 调用超时，请检查 API Key 和网络连接"}
 - Docker Compose 单容器即可，本地开发友好
 - 开发环境可选 SQLite（EF Core 无缝切换，但不支持向量检索，需降级到文件模式）
 
-### AD2: 文件系统保留作为降级和备份
+### AD2: 数据库为唯一信源，文件系统仅作临时暂存
 
-- Wiki Markdown 输出始终写入文件系统
-- 嵌入向量主存储为 pgvector，文件 JSON 作为导出/备份
-- `HEIMDALL_USE_DATABASE=false` 时回退到纯文件模式（只读兼容旧版）
+- Wiki 生成内容以数据库落库为**唯一信源**（`wikis` + `wiki_pages` 表）
+- 本地不再留存 Wiki 缓存文件，旧的 `data/wikicache/*.json` 在迁移完成后删除
+- 仓库克隆文件（`storage/repos/`）可暂存但不在长期依赖中，任务完成后可清理
+- 嵌入向量主存储为 pgvector，JSON 文件迁移后删除
+- `HEIMDALL_USE_DATABASE=false` 时回退到纯文件模式（只读兼容旧版，不推荐）
 
 ### AD3: 环境变量体系增强而非替换
 
@@ -873,6 +1025,7 @@ backend/
 │   │   │   ├── TaskPromptService.cs
 │   │   │   ├── TaskProgressService.cs       ← 新增
 │   │   │   ├── TaskQueueService.cs          ← 新增
+│   │   │   ├── TaskLlmCallLogService.cs     ← 新增：LLM 交互审计
 │   │   │   ├── TaskRequestUtilityService.cs
 │   │   │   ├── WikiMarkdownNormalizer.cs
 │   │   │   ├── WikiTaskService.cs
@@ -891,7 +1044,9 @@ backend/
     ├── Entities/
     │   ├── User.cs
     │   ├── Repository.cs
-    │   ├── Task.cs
+    │   ├── TaskRecord.cs
+    │   ├── TaskLlmCallLog.cs
+    │   ├── Wiki.cs
     │   ├── WikiPage.cs
     │   ├── EmbeddingDocument.cs
     │   ├── PromptTemplate.cs
