@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Heimdall.Repository.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260513161715_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260513163024_AddUpdatedAtColumn")]
+    partial class AddUpdatedAtColumn
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
