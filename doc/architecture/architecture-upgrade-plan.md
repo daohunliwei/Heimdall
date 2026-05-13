@@ -350,15 +350,14 @@ public sealed class TaskLlmCallLogService
 └─────────────────────────────────────────┘
 ```
 
-#### 1.3 向量库迁移
+#### 1.3 向量库设计
 
-`RepositoryEmbeddingService` 改造：
+`RepositoryEmbeddingService` 全新实现：
 
-- **写入**：嵌入向量写入 `embedding_documents` 表（pgvector），替代 JSON 文件
-- **检索**：pgvector 余弦相似度查询，替代全量内存加载 + 遍历计算
+- **写入**：嵌入向量直接写入 `embedding_documents` 表（pgvector）
+- **检索**：pgvector 余弦相似度查询，数据库内完成排序
 - **增量更新**：按 `file_path` 对比文件哈希，仅对变更文件重新嵌入
-- **旧数据迁移**：启动时检查 `storage/databases/*.json` 旧缓存文件 → 批量导入 pgvector → 删除源文件
-- **降级**：数据库不可用时抛出明确错误，不再回退到文件模式（数据库是唯一信源）
+- **数据库为唯一信源**：不产生本地文件缓存，无 JSON 中间文件
 
 ```sql
 -- 向量相似度检索语句
@@ -381,12 +380,11 @@ LIMIT 20;
 **修改文件**：
 - `backend/Heimdall.Api/Program.cs` — 添加 DbContext、BackgroundService 注册
 - `backend/Heimdall.Api/Services/Rag/RepositoryEmbeddingService.cs` — pgvector 读写
-- `backend/Heimdall.Api/Services/Cache/WikiCacheService.cs` — 迁移到 DB，移除文件持久化
+- `backend/Heimdall.Api/Services/Cache/WikiCacheService.cs` — 改为读写 DB，不再使用文件持久化
 - `docker-compose.yml` — 添加 PostgreSQL 容器
 
 **新增环境变量**：
 - `HEIMDALL_CONNECTION_STRING` — PostgreSQL 连接字符串
-- `HEIMDALL_USE_DATABASE` — 是否启用数据库模式（默认 true）
 
 ---
 
@@ -636,15 +634,14 @@ builder.Services.AddAuthorization(options =>
 public async Task<ActionResult> GenerateWikiAsync(...) { ... }
 ```
 
-#### 4.4 兼容旧模式
+#### 4.4 认证模式
 
-环境变量 `HEIMDALL_AUTH_MODE` 支持三种模式：
+环境变量 `HEIMDALL_AUTH_MODE` 支持两种模式：
 
 | 值 | 模式 | 说明 |
 |----|------|------|
-| `none` | 无认证 | 所有接口无需认证 |
-| `simple` | 简单码 | 保留原有 auth_code 校验（默认，向后兼容） |
-| `jwt` | JWT | 完整的 JWT + RBAC 认证 |
+| `none` | 无认证 | 所有接口无需认证（调试环境） |
+| `jwt` | JWT | 完整的 JWT + RBAC 认证（生产环境） |
 
 #### 4.5 API 端点
 
@@ -888,15 +885,14 @@ data: {"message":"Provider 调用超时，请检查 API Key 和网络连接"}
 - 关系型数据（用户、任务、仓库）天然适合 PostgreSQL
 - pgvector 提供向量检索能力，不额外引入向量数据库运维负担
 - Docker Compose 单容器即可，本地开发友好
-- 开发环境可选 SQLite（EF Core 无缝切换，但不支持向量检索，需降级到文件模式）
+- 数据库为系统硬依赖，应用启动时连接失败则终止启动
 
 ### AD2: 数据库为唯一信源，文件系统仅作临时暂存
 
-- Wiki 生成内容以数据库落库为**唯一信源**（`wikis` + `wiki_pages` 表）
-- 本地不再留存 Wiki 缓存文件，旧的 `data/wikicache/*.json` 在迁移完成后删除
-- 仓库克隆文件（`storage/repos/`）可暂存但不在长期依赖中，任务完成后可清理
-- 嵌入向量主存储为 pgvector，JSON 文件迁移后删除
-- `HEIMDALL_USE_DATABASE=false` 时回退到纯文件模式（只读兼容旧版，不推荐）
+- Wiki 生成内容以数据库为**唯一信源**（`wikis` + `wiki_pages` 表）
+- 本地不留存 Wiki 缓存文件（`data/wikicache/` 目录不再使用）
+- 仓库克隆目录（`storage/repos/`）仅用于任务执行期间的临时暂存，任务完成后可清理
+- 嵌入向量主存储为 pgvector，不产生本地 JSON 缓存文件
 
 ### AD3: 环境变量体系增强而非替换
 
@@ -908,7 +904,7 @@ data: {"message":"Provider 调用超时，请检查 API Key 和网络连接"}
 | `HEIMDALL_JWT_SECRET` | JWT 签名密钥 | （必须设置） |
 | `HEIMDALL_JWT_EXPIRY_HOURS` | Token 过期时间 | `72` |
 | `HEIMDALL_REGISTRATION_OPEN` | 是否开放注册 | `true` |
-| `HEIMDALL_AUTH_MODE` | 认证模式扩展 | `simple`（`none`/`simple`/`jwt`） |
+| `HEIMDALL_AUTH_MODE` | 认证模式 | `jwt`（`none` 为调试环境无认证） |
 | `HEIMDALL_OLLAMA_CHAT_HOST` | Ollama Chat 服务地址 | 回退到 `OLLAMA_HOST`，再回退 `http://127.0.0.1:11434` |
 | `HEIMDALL_OLLAMA_EMBED_HOST` | Ollama Embedding 服务地址 | 回退到 `OLLAMA_HOST`，再回退 `http://127.0.0.1:11434` |
 
@@ -980,7 +976,7 @@ backend/
 │   │   └── WikiModels.cs
 │   ├── Mappings/                          ← Entity ↔ DTO 映射
 │   │   └── ModelMappingExtensions.cs
-│   ├── config/                            ← JSON 配置文件（过渡期保留）
+│   ├── config/                            ← JSON 配置文件
 │   └── Program.cs                         ← DI 注册、中间件管道
 │
 ├── Heimdall.Core/                         ← 核心层：业务逻辑
@@ -1213,8 +1209,6 @@ Heimdall.Api ──────→ Heimdall.Core ──────→ Heimdall.
 ```bash
 # 数据库
 HEIMDALL_CONNECTION_STRING=Host=10.189.10.252;Port=5432;Database=ai_heimdall_base;Username=beisen_admin;Password=aaaaaa
-HEIMDALL_USE_DATABASE=true
-
 # 向量化（远程 Ollama）
 HEIMDALL_EMBEDDER_TYPE=ollama
 HEIMDALL_OLLAMA_EMBED_HOST=http://10.110.1.210:11434
@@ -1227,8 +1221,8 @@ HEIMDALL_OLLAMA_CHAT_HOST=http://127.0.0.1:11434
 # OllamaChatProvider:    HEIMDALL_OLLAMA_CHAT_HOST → OLLAMA_HOST → http://127.0.0.1:11434
 # OllamaEmbeddingProvider: HEIMDALL_OLLAMA_EMBED_HOST → OLLAMA_HOST → http://127.0.0.1:11434
 
-# 认证模式（调试阶段可用 simple）
-HEIMDALL_AUTH_MODE=simple
+# 认证模式（调试阶段关闭认证）
+HEIMDALL_AUTH_MODE=none
 ```
 
 ### 阶段一验收检查清单
@@ -1248,23 +1242,14 @@ HEIMDALL_AUTH_MODE=simple
 
 ---
 
-## 迁移策略
-
-1. **每阶段独立可发布**：任一阶段完成后可合并到 main 分支并部署
-2. **向后兼容**：阶段一启动时自动检测旧格式 JSON 缓存，通过一次性迁移脚本导入数据库
-3. **Feature Flag 控制**：`HEIMDALL_USE_DATABASE` 环境变量控制是否使用数据库，`false` 时回退纯文件模式
-4. **配置平滑升级**：环境变量体系仅新增、不修改、不删除
-
----
-
 ## 验证方案
 
 ### 各阶段验收标准
 
 | 阶段 | 验收标准 |
 |------|----------|
-| **阶段一** | `docker compose up` PostgreSQL 可用 → EF 迁移执行成功 → 旧缓存 JSON 自动导入 → Wiki 生成正常 → 向量检索可用 |
-| **阶段二** | GitHub/GitLab/Bitbucket/本地 四种仓库类型分别测试 → 输出 Markdown 目录可独立阅读 → 每页含完整 YAML frontmatter |
+| **阶段一** | PG 数据库可连接 → EF 迁移执行成功 → 10 张核心表创建 → Wiki 生成全流程正常 → 向量检索可用 |
+| **阶段二** | GitHub/GitLab/Bitbucket/本地 四种仓库类型分别测试 → 导出 Markdown 目录可独立阅读 → 每页含完整 YAML frontmatter |
 | **阶段三** | 管理后台修改系统提示词 → 新生成的 Wiki 风格变化 → 仓库级覆盖生效 → 不覆盖的仓库仍用全局默认 |
 | **阶段四** | 用户注册 → JWT 登录 → Admin/Editor/Viewer 不同角色看到不同菜单 → Viewer 被拒绝创建任务 |
 | **阶段五** | 管理后台仪表盘数据正确 → 用户 CRUD 正常 → 全局设置修改后立即生效 → 可取消运行中的任务 |
