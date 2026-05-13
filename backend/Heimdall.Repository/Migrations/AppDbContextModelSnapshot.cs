@@ -381,6 +381,9 @@ namespace Heimdall.Repository.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 

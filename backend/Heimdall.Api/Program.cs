@@ -55,6 +55,15 @@ TimeSpan ReadTimeoutFromMinutes(IConfiguration configuration, string key, double
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 日志：始终输出到控制台
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole(options =>
+{
+    options.FormatterName = "simple";
+});
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+
 ApplyRuntimeConfigFile(builder, args);
 var bootstrapConfig = builder.Configuration;
 
@@ -140,15 +149,14 @@ builder.Services.AddScoped<RepositoryEmbeddingService>();
 builder.Services.AddScoped<RagContextService>();
 builder.Services.AddScoped<TaskRequestUtilityService>();
 builder.Services.AddScoped<DashboardService>();
-builder.Services.AddScoped<RepositoryAccessService>();
+builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
 builder.Services.AddSingleton<TaskPromptService>();
 builder.Services.AddSingleton<WikiTaskService>();
 builder.Services.AddScoped<PromptTemplateService>();
 
-// Core Task Services
+// Core Task Services (Singleton - 无状态或使用 IServiceScopeFactory)
 builder.Services.AddSingleton<TaskProgressService>();
-builder.Services.AddSingleton<TaskLlmCallLogService>();
 builder.Services.AddSingleton<TaskQueueService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TaskQueueService>());
 
