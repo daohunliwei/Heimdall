@@ -910,21 +910,9 @@ data: {"message":"Provider 调用超时，请检查 API Key 和网络连接"}
 | `HEIMDALL_REGISTRATION_OPEN` | 是否开放注册 | `true` |
 | `HEIMDALL_AUTH_MODE` | 认证模式扩展 | `simple`（`none`/`simple`/`jwt`） |
 
-### AD4: 服务生命周期调整
-
-| 服务类型 | 新生命周期 | 原因 |
-|----------|-----------|------|
-| DbContext | Scoped | EF Core 要求 |
-| 数据访问服务 | Scoped | 依赖 DbContext |
-| Provider 层 | Singleton | 无状态，线程安全 |
-| 任务 Worker | Singleton | 长生命周期后台服务 |
-| 配置服务 | Singleton | 不变 |
-
 ---
 
-## 目录结构变更
-
-### 当前结构
+## 当前代码结构（改造前）
 
 ```
 backend/Heimdall.Api/
@@ -948,111 +936,307 @@ backend/Heimdall.Api/
 └── Program.cs
 ```
 
-### 目标结构
+### 目标结构（四层分离）
 
 ```
 backend/
-├── Heimdall.Api/                       ← API 入口项目
+│
+├── Heimdall.Api/                          ← API 层：对外接口
+│   │  职责：控制器、中间件、DTO 模型转换、权限校验、路由注册
+│   │  不涉及具体业务逻辑，仅做请求/响应处理和参数验证
+│   │
 │   ├── Controllers/
-│   │   ├── Admin/                      ← 新增：管理后台控制器
+│   │   ├── Admin/
 │   │   │   ├── DashboardController.cs
 │   │   │   ├── UsersController.cs
 │   │   │   ├── SettingsController.cs
 │   │   │   ├── TasksAdminController.cs
 │   │   │   ├── RepositoriesAdminController.cs
 │   │   │   └── PromptsController.cs
-│   │   ├── AuthController.cs           ← 新增
+│   │   ├── AuthController.cs
 │   │   ├── ChatController.cs
 │   │   ├── ConfigurationController.cs
 │   │   ├── ExportController.cs
 │   │   ├── ProjectsController.cs
 │   │   ├── RepositoryController.cs
 │   │   ├── SystemController.cs
-│   │   ├── TaskStatusController.cs     ← 新增
+│   │   ├── TaskStatusController.cs
 │   │   ├── TasksController.cs
 │   │   └── WikiCacheController.cs
-│   ├── Middleware/                     ← 新增
+│   ├── Middleware/
 │   │   └── JwtMiddleware.cs
-│   ├── Models/
-│   │   ├── AuthModels.cs
-│   │   ├── CacheModels.cs
+│   ├── Models/                            ← API 层专用 DTO
+│   │   ├── AuthModels.cs                  （请求/响应模型，不含业务逻辑）
 │   │   ├── ChatModels.cs
 │   │   ├── ConfigurationModels.cs
-│   │   ├── PromptModels.cs             ← 新增
-│   │   ├── RagModels.cs
+│   │   ├── PromptModels.cs
 │   │   ├── RepositoryModels.cs
 │   │   ├── SystemModels.cs
 │   │   ├── TaskModels.cs
 │   │   └── WikiModels.cs
-│   ├── Services/
-│   │   ├── Admin/                      ← 新增
-│   │   │   └── DashboardService.cs
-│   │   ├── Auth/
-│   │   │   ├── AuthorizationService.cs
-│   │   │   ├── JwtTokenService.cs      ← 新增
-│   │   │   └── UserService.cs          ← 新增
-│   │   ├── Cache/
-│   │   │   └── WikiCacheService.cs
-│   │   ├── Chat/
-│   │   │   └── ChatOrchestratorService.cs
-│   │   ├── Configuration/
-│   │   │   └── HeimdallConfigService.cs
-│   │   ├── Export/
-│   │   │   ├── WikiExportService.cs
-│   │   │   └── WikiMarkdownPackager.cs ← 新增
-│   │   ├── Projects/
-│   │   │   └── ProcessedProjectService.cs
-│   │   ├── Providers/                  ← 不变
-│   │   ├── Rag/
-│   │   │   ├── ConversationMemoryService.cs
-│   │   │   ├── RagContextService.cs
-│   │   │   └── RepositoryEmbeddingService.cs
-│   │   ├── Repository/
-│   │   │   ├── IRepositorySource.cs        ← 新增
-│   │   │   ├── GitHubRepositorySource.cs   ← 新增
-│   │   │   ├── GitLabRepositorySource.cs   ← 新增
-│   │   │   ├── BitbucketRepositorySource.cs← 新增
-│   │   │   ├── LocalDirectorySource.cs     ← 新增
-│   │   │   └── RepositoryAccessService.cs  ← 重构
-│   │   ├── Streaming/
-│   │   │   └── ChatStreamService.cs
-│   │   ├── SystemInfo/
-│   │   │   └── SystemInfoService.cs
-│   │   ├── Tasks/
-│   │   │   ├── AskTaskService.cs
-│   │   │   ├── SlidesTaskService.cs
-│   │   │   ├── TaskLlmService.cs
-│   │   │   ├── TaskPromptService.cs
-│   │   │   ├── TaskProgressService.cs       ← 新增
-│   │   │   ├── TaskQueueService.cs          ← 新增
-│   │   │   ├── TaskLlmCallLogService.cs     ← 新增：LLM 交互审计
-│   │   │   ├── TaskRequestUtilityService.cs
-│   │   │   ├── WikiMarkdownNormalizer.cs
-│   │   │   ├── WikiTaskService.cs
-│   │   │   └── WorkshopTaskService.cs
-│   │   └── Utility/
-│   │       ├── PromptTemplateService.cs     ← 重构
-│   │       ├── PromptTemplateDbService.cs   ← 新增
-│   │       └── TextUtilityService.cs
-│   ├── config/
-│   └── Program.cs
+│   ├── Mappings/                          ← Entity ↔ DTO 映射
+│   │   └── ModelMappingExtensions.cs
+│   ├── config/                            ← JSON 配置文件（过渡期保留）
+│   └── Program.cs                         ← DI 注册、中间件管道
 │
-└── Heimdall.Infrastructure/            ← 新增：数据访问项目
-    ├── Heimdall.Infrastructure.csproj
+├── Heimdall.Core/                         ← 核心层：业务逻辑
+│   │  职责：全部业务服务、领域实体、业务接口定义、工作流编排
+│   │  不依赖 API 层，不直接访问数据库（通过 Repository 接口）
+│   │
+│   ├── Entities/                          ← 领域实体（POCO）
+│   │   ├── User.cs
+│   │   ├── Repository.cs
+│   │   ├── TaskRecord.cs
+│   │   ├── TaskLlmCallLog.cs
+│   │   ├── Wiki.cs
+│   │   ├── WikiPage.cs
+│   │   ├── EmbeddingDocument.cs
+│   │   ├── PromptTemplate.cs
+│   │   └── RepositoryPromptOverride.cs
+│   ├── Interfaces/                        ← 业务服务接口 + 仓储接口
+│   │   ├── Services/
+│   │   │   ├── ITaskQueueService.cs
+│   │   │   ├── ITaskProgressService.cs
+│   │   │   ├── ITaskLlmCallLogService.cs
+│   │   │   ├── IWikiTaskService.cs
+│   │   │   ├── IAskTaskService.cs
+│   │   │   ├── ISlidesTaskService.cs
+│   │   │   ├── IWorkshopTaskService.cs
+│   │   │   ├── IChatOrchestratorService.cs
+│   │   │   ├── IRagContextService.cs
+│   │   │   ├── IRepositoryEmbeddingService.cs
+│   │   │   ├── IWikiCacheService.cs
+│   │   │   ├── IWikiExportService.cs
+│   │   │   ├── IUserService.cs
+│   │   │   ├── IJwtTokenService.cs
+│   │   │   ├── IPromptTemplateService.cs
+│   │   │   ├── IRepositoryAccessService.cs
+│   │   │   └── IDashboardService.cs
+│   │   └── Repositories/                  ← 仓储接口（定义数据访问契约）
+│   │       ├── IUserRepository.cs
+│   │       ├── ITaskRepository.cs
+│   │       ├── IWikiRepository.cs
+│   │       ├── IWikiPageRepository.cs
+│   │       ├── ITaskLlmCallLogRepository.cs
+│   │       ├── IEmbeddingRepository.cs
+│   │       ├── IPromptTemplateRepository.cs
+│   │       ├── IRepositoryConfigRepository.cs
+│   │       └── ISystemSettingRepository.cs
+│   └── Services/                          ← 业务服务实现
+│       ├── Tasks/
+│       │   ├── TaskQueueService.cs
+│       │   ├── TaskProgressService.cs
+│       │   ├── TaskLlmCallLogService.cs
+│       │   ├── TaskRequestUtilityService.cs
+│       │   ├── TaskLlmService.cs
+│       │   ├── TaskPromptService.cs
+│       │   ├── WikiTaskService.cs
+│       │   ├── AskTaskService.cs
+│       │   ├── SlidesTaskService.cs
+│       │   ├── WorkshopTaskService.cs
+│       │   └── WikiMarkdownNormalizer.cs
+│       ├── Chat/
+│       │   ├── ChatOrchestratorService.cs
+│       │   ├── ChatStreamService.cs
+│       │   └── ConversationMemoryService.cs
+│       ├── Rag/
+│       │   ├── RagContextService.cs
+│       │   └── RepositoryEmbeddingService.cs
+│       ├── Auth/
+│       │   ├── AuthorizationService.cs
+│       │   ├── JwtTokenService.cs
+│       │   └── UserService.cs
+│       ├── Admin/
+│       │   └── DashboardService.cs
+│       ├── Export/
+│       │   ├── WikiExportService.cs
+│       │   └── WikiMarkdownPackager.cs
+│       ├── Cache/
+│       │   └── WikiCacheService.cs
+│       ├── Prompt/
+│       │   ├── PromptTemplateService.cs
+│       │   └── PromptTemplateDbService.cs
+│       └── Projects/
+│           └── ProcessedProjectService.cs
+│
+├── Heimdall.Infrastructure/               ← 基础设施层
+│   │  职责：通用工具函数、外部系统适配、Provider 实现、配置加载
+│   │  不包含业务逻辑，可被其他任意层引用
+│   │
+│   ├── Utilities/
+│   │   ├── TextUtilityService.cs          ← 文本切分、Token 估算、哈希
+│   │   ├── HttpClientFactory.cs           ← 统一 HTTP 客户端管理
+│   │   └── FileSystemHelper.cs            ← 文件/目录操作
+│   ├── Providers/                         ← LLM Provider 适配
+│   │   ├── IChatProvider.cs
+│   │   ├── IEmbeddingProvider.cs
+│   │   ├── ProviderRegistry.cs
+│   │   ├── ChatProviders/
+│   │   │   ├── GoogleChatProvider.cs
+│   │   │   ├── MiniMaxChatProvider.cs
+│   │   │   ├── OpenAiCompatibleChatProvider.cs
+│   │   │   ├── OllamaChatProvider.cs
+│   │   │   ├── AzureChatProvider.cs
+│   │   │   └── BedrockChatProvider.cs
+│   │   └── EmbeddingProviders/
+│   │       ├── OpenAiEmbeddingProvider.cs
+│   │       ├── GoogleEmbeddingProvider.cs
+│   │       ├── OllamaEmbeddingProvider.cs
+│   │       └── BedrockEmbeddingProvider.cs
+│   ├── RepositorySources/                 ← 仓库来源适配
+│   │   ├── IRepositorySource.cs
+│   │   ├── GitHubRepositorySource.cs
+│   │   ├── GitLabRepositorySource.cs
+│   │   ├── BitbucketRepositorySource.cs
+│   │   └── LocalDirectorySource.cs
+│   ├── Configuration/
+│   │   └── HeimdallConfigService.cs       ← 配置加载与环境变量
+│   └── External/                          ← 外部 API 客户端
+│       └── GitProcessRunner.cs
+│
+└── Heimdall.Repository/                   ← 数据访问层
+    │  职责：数据库读写、向量库操作、EF Core DbContext、Migration
+    │  所有数据访问必须经过此层，不得在 Core 层直接操作 DbContext
+    │
     ├── Data/
-    │   └── AppDbContext.cs
-    ├── Entities/
-    │   ├── User.cs
-    │   ├── Repository.cs
-    │   ├── TaskRecord.cs
-    │   ├── TaskLlmCallLog.cs
-    │   ├── Wiki.cs
-    │   ├── WikiPage.cs
-    │   ├── EmbeddingDocument.cs
-    │   ├── PromptTemplate.cs
-    │   └── RepositoryPromptOverride.cs
+    │   ├── AppDbContext.cs
+    │   └── EntityConfigurations/          ← Fluent API 配置
+    │       ├── UserConfiguration.cs
+    │       ├── TaskRecordConfiguration.cs
+    │       ├── WikiConfiguration.cs
+    │       ├── WikiPageConfiguration.cs
+    │       ├── TaskLlmCallLogConfiguration.cs
+    │       └── EmbeddingDocumentConfiguration.cs
+    ├── Repositories/
+    │   ├── UserRepository.cs
+    │   ├── TaskRepository.cs
+    │   ├── WikiRepository.cs
+    │   ├── WikiPageRepository.cs
+    │   ├── TaskLlmCallLogRepository.cs
+    │   ├── EmbeddingRepository.cs
+    │   ├── PromptTemplateRepository.cs
+    │   ├── RepositoryConfigRepository.cs
+    │   └── SystemSettingRepository.cs
+    ├── Vector/                            ← pgvector 向量操作
+    │   ├── VectorSearchService.cs         ← 余弦相似度检索
+    │   └── VectorIndexService.cs          ← IVF/HNSW 索引管理
     └── Migrations/
 ```
+
+### 分层依赖规则
+
+```
+Heimdall.Api ──────→ Heimdall.Core ──────→ Heimdall.Repository
+       │                    │
+       └────────────────────┴──────────────→ Heimdall.Infrastructure
+                                                     ↑
+                                           Heimdall.Repository (也可依赖)
+```
+
+| 规则 | 说明 |
+|------|------|
+| **Api → Core** | API 调用 Core 层服务接口，不直接调用 Repository |
+| **Core → Repository** | Core 通过接口依赖 Repository，由 DI 注入实现 |
+| **全部 → Infrastructure** | Infrastructure 是工具层，被所有项目引用 |
+| **Core 不依赖 Api** | 核心业务逻辑不得反向依赖 API 层 |
+| **Repository 不依赖 Core** | 数据访问层仅依赖 Infrastructure 工具体 |
+| **所有注入走接口** | 层间通信必须通过接口，不直接 new 具体实现 |
+
+### 服务生命周期矩阵
+
+| 层 | 组件 | 生命周期 | 原因 |
+|----|------|---------|------|
+| Api | Controllers | Scoped | 按请求创建 |
+| Core | 业务服务 | Scoped | 依赖 DbContext 和 Repository |
+| Core | 任务 Worker | Singleton | BackgroundService 长生命周期 |
+| Infrastructure | Provider 实例 | Singleton | 无状态，线程安全 |
+| Infrastructure | ConfigService | Singleton | 全局共享配置 |
+| Infrastructure | RepositorySource | Singleton | 无状态策略 |
+| Repository | DbContext | Scoped | EF Core 要求 |
+| Repository | Repository 实现 | Scoped | 依赖 DbContext |
+
+---
+
+## 调试环境配置
+
+以下为阶段一开发验证用的基础设施连接信息。
+
+### 数据库（PostgreSQL + pgvector）
+
+| 配置项 | 值 |
+|--------|-----|
+| IP | `10.189.10.252` |
+| 端口 | `5432` |
+| 用户名 | `beisen_admin` |
+| 密码 | `aaaaaa` |
+| 数据库 | `ai_heimdall_base` |
+| 连接字符串 | `Host=10.189.10.252;Port=5432;Database=ai_heimdall_base;Username=beisen_admin;Password=aaaaaa` |
+
+> 已确认 pgvector 扩展可用，向量表可正常操作。
+
+### 向量化服务（RAG Embedding）
+
+| 配置项 | 值 |
+|--------|-----|
+| 类型 | Ollama |
+| 地址 | `http://10.110.1.210:11434` |
+| 模型 | `nomic-embed-text` |
+| 输出维度 | 768 |
+| 环境变量 | `HEIMDALL_EMBEDDER_TYPE=ollama` |
+|  | `OLLAMA_HOST=http://10.110.1.210:11434` |
+
+### AI 生成服务（LLM Generation）
+
+| 配置项 | 值 |
+|--------|-----|
+| 类型 | Ollama |
+| 地址 | `http://127.0.0.1:11434` |
+| 模型 | `gemma4:e2b` |
+| 环境变量 | `HEIMDALL_DEFAULT_PROVIDER=ollama` |
+|  | `OLLAMA_HOST=http://127.0.0.1:11434` |
+
+### 验证目标仓库
+
+| 配置项 | 值 |
+|--------|-----|
+| URL | `http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops` |
+| 平台类型 | GitLab（企业自建实例） |
+| Owner | `AppCenter` |
+| Repo | `Beisen.AppCenter.Ops` |
+
+### 阶段一开发环境变量汇总
+
+```bash
+# 数据库
+HEIMDALL_CONNECTION_STRING=Host=10.189.10.252;Port=5432;Database=ai_heimdall_base;Username=beisen_admin;Password=aaaaaa
+HEIMDALL_USE_DATABASE=true
+
+# 向量化（远程 Ollama）
+HEIMDALL_EMBEDDER_TYPE=ollama
+OLLAMA_HOST=http://10.110.1.210:11434
+
+# AI 生成（本地 Ollama，gemma4）
+HEIMDALL_DEFAULT_PROVIDER=ollama
+# OLLAMA_HOST 已是本地默认值 http://127.0.0.1:11434，无需重复设置
+
+# 认证模式（调试阶段可用 simple）
+HEIMDALL_AUTH_MODE=simple
+```
+
+### 阶段一验收检查清单
+
+| # | 验证项 | 预期结果 |
+|---|--------|---------|
+| 1 | 直连 PG `10.189.10.252:5432` | `ai_heimdall_base` 数据库可连接 |
+| 2 | `dotnet ef migrations add InitialCreate` | 迁移脚本生成成功 |
+| 3 | `dotnet ef database update` | 10 张核心表创建成功 |
+| 4 | Ollama Embedding `nomic-embed-text` | `curl http://10.110.1.210:11434/api/embeddings -d '{"model":"nomic-embed-text","prompt":"test"}'` 返回 768 维向量 |
+| 5 | Ollama Chat `gemma4:e2b` | `curl http://127.0.0.1:11434/api/chat -d '{"model":"gemma4:e2b","messages":[{"role":"user","content":"hello"}]}'` 正常返回 |
+| 6 | GitLab 仓库克隆 | `git clone --depth=1 http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops` 成功 |
+| 7 | Wiki 生成全流程 | `wikis` + `wiki_pages` 写入，`tasks` 状态 pending→running→completed |
+| 8 | `task_llm_call_logs` 审计记录 | 每次 LLM 调用均有日志，token 汇总一致 |
+| 9 | 向量检索 | 嵌入查询 → pgvector 余弦相似度 Top-20 返回 |
+| 10 | 并发去重 | 同一仓库+分支重复提交返回已有 task_id |
 
 ---
 
