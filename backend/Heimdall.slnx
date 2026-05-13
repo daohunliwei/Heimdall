@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Heimdall.Api/Heimdall.Api.csproj" />
+  <Project Path="Heimdall.Core/Heimdall.Core.csproj" />
+  <Project Path="Heimdall.Infrastructure/Heimdall.Infrastructure.csproj" />
+  <Project Path="Heimdall.Repository/Heimdall.Repository.csproj" />
+</Solution>

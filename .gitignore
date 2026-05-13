@@ -76,6 +76,7 @@ certs/
 # .NET
 backend/**/bin/
 backend/**/obj/
+*.vs
 
 # legacy Python runtime
 legacy/python/api/logs/
