@@ -67,14 +67,23 @@ public sealed class TaskLlmCallLogService
 
     public async Task<TokenSummary> GetTokenSummaryAsync(Guid taskId)
     {
-        var (prompt, completion) = await _logRepo.GetTokenSummaryAsync(taskId);
+        var logs = await _logRepo.GetByTaskIdAsync(taskId);
+        var prompt = logs.Sum(l => l.PromptTokens);
+        var completion = logs.Sum(l => l.CompletionTokens);
+
+        // Ollama 本地模型成本为 0，其他 Provider 按 $0.002/1K tokens 估算
+        var provider = logs.FirstOrDefault()?.Provider ?? "ollama";
+        var isLocal = string.Equals(provider, "ollama", StringComparison.OrdinalIgnoreCase);
+        var totalTokens = prompt + completion;
+        var totalCost = isLocal ? 0m : (decimal)(totalTokens / 1000.0 * 0.002);
+
         return new TokenSummary
         {
             PromptTokens = prompt,
             CompletionTokens = completion,
-            TotalTokens = prompt + completion,
-            CallCount = 0,
-            TotalCost = 0
+            TotalTokens = totalTokens,
+            CallCount = logs.Count,
+            TotalCost = totalCost
         };
     }
 }

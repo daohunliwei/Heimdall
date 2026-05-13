@@ -51,8 +51,11 @@ public static class ModelMappingExtensions
         Model = entry.Model,
         PromptTokens = entry.PromptTokens,
         CompletionTokens = entry.CompletionTokens,
+        RequestPreview = entry.RequestPreview,
+        ResponsePreview = entry.ResponsePreview,
         LatencyMs = entry.LatencyMs,
-        IsError = entry.IsError
+        IsError = entry.IsError,
+        ErrorMessage = entry.ErrorMessage
     };
 
     // Dashboard mappings

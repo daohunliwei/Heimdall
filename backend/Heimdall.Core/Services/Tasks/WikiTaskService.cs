@@ -21,6 +21,7 @@ public sealed class WikiTaskService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TaskLlmService _taskLlm;
     private readonly TaskPromptService _taskPrompt;
+    private readonly RepositoryAccessService _repoAccess;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<WikiTaskService> _logger;
 
@@ -28,12 +29,14 @@ public sealed class WikiTaskService
         IServiceScopeFactory scopeFactory,
         TaskLlmService taskLlm,
         TaskPromptService taskPrompt,
+        RepositoryAccessService repoAccess,
         IHostApplicationLifetime appLifetime,
         ILogger<WikiTaskService> logger)
     {
         _scopeFactory = scopeFactory;
         _taskLlm = taskLlm;
         _taskPrompt = taskPrompt;
+        _repoAccess = repoAccess;
         _appLifetime = appLifetime;
         _logger = logger;
     }
@@ -52,8 +55,8 @@ public sealed class WikiTaskService
         var repoRepo = scope.ServiceProvider.GetRequiredService<IRepositoryConfigRepository>();
 
         // 确保仓库记录存在
-        var repoOwner = ExtractRepoName(repoUrl);
-        var repoName = ExtractRepoName(repoUrl);
+        var source = _repoAccess.FindSource(repoType, repoUrl);
+        var (repoOwner, repoName) = source.ParseOwnerRepo(repoUrl);
         var existingRepo = await repoRepo.GetByOwnerRepoTypeAsync(repoOwner, repoName, repoType);
         Guid? repositoryId;
 
@@ -149,9 +152,9 @@ public sealed class WikiTaskService
 
             // 2. 生成 Wiki 结构
             var langDisplay = language == "zh" ? "中文" : "English";
-            var repoName = ExtractRepoName(repoUrl);
+            var (execOwner, execRepo) = repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
             var structurePrompt = _taskPrompt.BuildWikiStructurePrompt(
-                repoName, repoName, localStructure.FileTree, localStructure.Readme, langDisplay, comprehensive);
+                execOwner, execRepo, localStructure.FileTree, localStructure.Readme, langDisplay, comprehensive);
 
             await UpdateTaskAsync(task.Id, t =>
             {
@@ -174,7 +177,55 @@ public sealed class WikiTaskService
                 t.ProgressMessage = $"Wiki 结构生成完成，共 {wikiStructure.Pages.Count} 个页面";
             });
 
-            // 3. 逐页生成内容
+            // 3. 先创建 Wiki 记录（确保页面保存时有有效的 WikiId）
+            Guid wikiId;
+            using (var wikiScope = _scopeFactory.CreateScope())
+            {
+                var wikiRepository = wikiScope.ServiceProvider.GetRequiredService<IWikiRepository>();
+                var pageRepository = wikiScope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
+                var repoConfigRepo = wikiScope.ServiceProvider.GetRequiredService<IRepositoryConfigRepository>();
+
+                var repoEntity = await repoConfigRepo.GetByOwnerRepoTypeAsync(execOwner, execRepo, repoType);
+                if (repoEntity is null)
+                {
+                    repoEntity = new Core.Entities.Repository
+                    {
+                        Owner = execOwner,
+                        RepoName = execRepo,
+                        RepoType = repoType,
+                        RepoUrl = repoUrl
+                    };
+                    await repoConfigRepo.AddAsync(repoEntity);
+                }
+
+                var existingWiki = await wikiRepository.GetByRepoBranchLanguageAsync(repoEntity.Id, "main", language);
+                if (existingWiki is not null)
+                {
+                    await pageRepository.DeleteByWikiIdAsync(existingWiki.Id);
+                    existingWiki.Title = wikiStructure.Title;
+                    existingWiki.Description = wikiStructure.Description;
+                    existingWiki.UpdatedAt = DateTime.UtcNow;
+                    await wikiRepository.UpdateAsync(existingWiki);
+                    wikiId = existingWiki.Id;
+                }
+                else
+                {
+                    var wiki = new Wiki
+                    {
+                        SourceRepositoryId = repoEntity.Id,
+                        SourceBranch = "main",
+                        Language = language,
+                        Title = wikiStructure.Title,
+                        Description = wikiStructure.Description
+                    };
+                    await wikiRepository.AddAsync(wiki);
+                    wikiId = wiki.Id;
+                }
+            }
+
+            _logger.LogInformation("Wiki 记录已创建 WikiId={WikiId}", wikiId);
+
+            // 4. 逐页生成内容
             var totalPages = wikiStructure.Pages.Count;
             for (var i = 0; i < totalPages; i++)
             {
@@ -189,7 +240,7 @@ public sealed class WikiTaskService
                 });
 
                 var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
-                    page, wikiStructure.Pages, repoName, repoName, repoType, repoUrl, langDisplay);
+                    page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay);
 
                 var pageSw = Stopwatch.StartNew();
                 try
@@ -202,7 +253,7 @@ public sealed class WikiTaskService
                     page.Content = WikiMarkdownNormalizer.Normalize(pageContent);
 
                     // 逐页落库
-                    await SaveWikiPageAsync(task.Id, i, page);
+                    await SaveWikiPageAsync(task.Id, wikiId, i, page);
                 }
                 catch (Exception ex)
                 {
@@ -286,8 +337,8 @@ public sealed class WikiTaskService
             PromptTokens = promptTokens,
             CompletionTokens = completionTokens,
             TotalTokens = promptTokens + completionTokens,
-            RequestPreview = prompt.Length > 500 ? prompt[..500] : prompt,
-            ResponsePreview = response.Length > 500 ? response[..500] : response,
+            RequestPreview = prompt,
+            ResponsePreview = response,
             LatencyMs = latencyMs,
             IsError = isError,
             ErrorMessage = errorMsg
@@ -306,15 +357,14 @@ public sealed class WikiTaskService
         }
     }
 
-    private async Task SaveWikiPageAsync(Guid taskId, int pageOrder, WikiPageDto dto)
+    private async Task SaveWikiPageAsync(Guid taskId, Guid wikiId, int pageOrder, WikiPageDto dto)
     {
         using var scope = _scopeFactory.CreateScope();
         var pageRepo = scope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
 
-        // 查找或创建 page 记录
-        // 这里简单处理：直接写入。实际生产中应有 upsert 逻辑
         var page = new WikiPage
         {
+            WikiId = wikiId,
             TaskId = taskId,
             PageOrder = pageOrder,
             Title = dto.Title,
@@ -328,69 +378,29 @@ public sealed class WikiTaskService
     private async Task SaveWikiAsync(TaskRecord task, WikiStructureDto structure,
         string repoUrl, string repoType, string language)
     {
+        // Wiki 和页面已在 ExecuteAsync 中创建/落库，此处仅做最终校验
         using var scope = _scopeFactory.CreateScope();
         var wikiRepo = scope.ServiceProvider.GetRequiredService<IWikiRepository>();
-        var pageRepo = scope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
-
-        var repoOwner = ExtractRepoName(repoUrl);
-        var repoName = ExtractRepoName(repoUrl);
-
-        // 确保 repository 存在
         var repoConfigRepo = scope.ServiceProvider.GetRequiredService<IRepositoryConfigRepository>();
+
+        var (repoOwner, repoName) = _repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
         var repo = await repoConfigRepo.GetByOwnerRepoTypeAsync(repoOwner, repoName, repoType);
         if (repo is null)
         {
-            repo = new Core.Entities.Repository
-            {
-                Owner = repoOwner,
-                RepoName = repoName,
-                RepoType = repoType,
-                RepoUrl = repoUrl
-            };
-            await repoConfigRepo.AddAsync(repo);
+            _logger.LogWarning("SaveWikiAsync: 仓库记录不存在 Owner={Owner} Repo={Repo}", repoOwner, repoName);
+            return;
         }
 
-        // 查找已有 wiki
-        var existing = await wikiRepo.GetByRepoBranchLanguageAsync(repo.Id, "main", language);
-        Wiki wiki;
-        if (existing is not null)
+        var wiki = await wikiRepo.GetByRepoBranchLanguageAsync(repo.Id, "main", language);
+        if (wiki is not null)
         {
-            wiki = existing;
             wiki.Title = structure.Title;
             wiki.Description = structure.Description;
             wiki.UpdatedAt = DateTime.UtcNow;
             await wikiRepo.UpdateAsync(wiki);
-            await pageRepo.DeleteByWikiIdAsync(wiki.Id);
-        }
-        else
-        {
-            wiki = new Wiki
-            {
-                SourceRepositoryId = repo.Id,
-                SourceBranch = "main",
-                Language = language,
-                Title = structure.Title,
-                Description = structure.Description
-            };
-            await wikiRepo.AddAsync(wiki);
         }
 
-        // 保存所有页面
-        foreach (var (idx, dto) in structure.Pages.Select((p, i) => (i, p)))
-        {
-            await pageRepo.AddAsync(new WikiPage
-            {
-                WikiId = wiki.Id,
-                TaskId = task.Id,
-                PageOrder = idx,
-                Title = dto.Title,
-                ContentMarkdown = dto.Content,
-                Importance = dto.Importance,
-                FilePaths = dto.FilePaths?.ToArray()
-            });
-        }
-
-        _logger.LogInformation("Wiki 已保存 WikiId={WikiId} Pages={Count}", wiki.Id, structure.Pages.Count);
+        _logger.LogInformation("Wiki 已更新 WikiId={WikiId}", wiki?.Id);
     }
 
     private async Task SaveResultJsonAsync(Guid taskId, WikiStructureDto structure)
@@ -478,7 +488,12 @@ public sealed class WikiTaskService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "XML 解析失败，使用兜底");
+            _logger.LogWarning(ex, "XML 解析失败，尝试 Regex 兜底提取");
+            var regexStructure = ParseWikiStructureWithRegex(response, comprehensive);
+            if (regexStructure.Pages.Count > 0)
+                return regexStructure;
+
+            _logger.LogWarning("Regex 提取也失败，使用硬编码兜底");
             return BuildFallbackStructure(response);
         }
     }
@@ -486,11 +501,112 @@ public sealed class WikiTaskService
     private static string SanitizeXml(string xml) =>
         Regex.Replace(xml, "&(?![a-zA-Z]+;|#\\d+;|#x[0-9a-fA-F]+;)", "&amp;");
 
+    /// <summary>
+    /// Regex 兜底：当 XML 解析失败时，用正则直接提取 page/section 结构，
+    /// 比硬编码单页兜底更可靠，能恢复 LLM 生成的大部分页面结构。
+    /// </summary>
+    private static WikiStructureDto ParseWikiStructureWithRegex(string response, bool comprehensive)
+    {
+        try
+        {
+            var cleaned = WikiMarkdownNormalizer.Normalize(response);
+            var blockMatch = Regex.Match(cleaned, "<wiki_structure>(.*?)</wiki_structure>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            if (!blockMatch.Success) return new WikiStructureDto { Pages = new() };
+
+            var block = blockMatch.Groups[1].Value;
+
+            var titleMatch = Regex.Match(block, "<title>\\s*(.*?)\\s*</title>", RegexOptions.Singleline);
+            var descMatch = Regex.Match(block, "<description>\\s*(.*?)\\s*</description>", RegexOptions.Singleline);
+
+            // 提取 <page> 元素
+            var pages = new List<WikiPageDto>();
+            foreach (Match pm in Regex.Matches(block, @"<page\s[^>]*id\s*=\s*""([^""]+)""[^>]*>(.*?)</page>", RegexOptions.Singleline | RegexOptions.IgnoreCase))
+            {
+                var id = pm.Groups[1].Value;
+                var inner = pm.Groups[2].Value;
+                var page = new WikiPageDto
+                {
+                    Id = id,
+                    Title = Regex.Match(inner, @"<title>\s*(.*?)\s*</title>", RegexOptions.Singleline).Groups[1].Value.Trim(),
+                    Description = Regex.Match(inner, @"<description>\s*(.*?)\s*</description>", RegexOptions.Singleline).Groups[1].Value.Trim(),
+                    Importance = NormalizeImportance(Regex.Match(inner, @"<importance>\s*(.*?)\s*</importance>", RegexOptions.Singleline).Groups[1].Value),
+                    FilePaths = Regex.Matches(inner, @"<file_path>\s*(.*?)\s*</file_path>", RegexOptions.Singleline)
+                        .Select(fm => fm.Groups[1].Value.Trim()).Where(f => !string.IsNullOrWhiteSpace(f)).ToList(),
+                    RelatedPages = Regex.Matches(inner, @"<related>\s*(.*?)\s*</related>", RegexOptions.Singleline)
+                        .Select(rm => rm.Groups[1].Value.Trim()).Where(r => !string.IsNullOrWhiteSpace(r)).ToList(),
+                    ParentId = Regex.Match(inner, @"<parent_section>\s*(.*?)\s*</parent_section>", RegexOptions.Singleline).Groups[1].Value.Trim()
+                };
+                if (!string.IsNullOrWhiteSpace(page.Id) && !string.IsNullOrWhiteSpace(page.Title))
+                    pages.Add(page);
+            }
+
+            // 提取 <section> 元素
+            var sections = new List<WikiSectionDto>();
+            foreach (Match sm in Regex.Matches(block, @"<section\s[^>]*id\s*=\s*""([^""]+)""[^>]*>(.*?)</section>", RegexOptions.Singleline | RegexOptions.IgnoreCase))
+            {
+                var secId = sm.Groups[1].Value;
+                var secInner = sm.Groups[2].Value;
+                var section = new WikiSectionDto
+                {
+                    Id = secId,
+                    Title = Regex.Match(secInner, @"<title>\s*(.*?)\s*</title>", RegexOptions.Singleline).Groups[1].Value.Trim(),
+                    Pages = Regex.Matches(secInner, @"<page_ref>\s*(.*?)\s*</(?:page_ref|[^>]+)>", RegexOptions.Singleline)
+                        .Select(m => m.Groups[1].Value.Trim()).Where(p => !string.IsNullOrWhiteSpace(p)).ToList(),
+                    Subsections = Regex.Matches(secInner, @"<section_ref>\s*(.*?)\s*</(?:section_ref|[^>]+)>", RegexOptions.Singleline)
+                        .Select(m => m.Groups[1].Value.Trim()).Where(r => !string.IsNullOrWhiteSpace(r)).ToList()
+                };
+                if (!string.IsNullOrWhiteSpace(section.Id))
+                    sections.Add(section);
+            }
+
+            if (pages.Count == 0) return new WikiStructureDto { Pages = new() };
+
+            if (sections.Count == 0)
+            {
+                sections = new List<WikiSectionDto>
+                {
+                    new() { Id = "default-section", Title = "Pages", Pages = pages.Select(p => p.Id).ToList() }
+                };
+            }
+
+            return new WikiStructureDto
+            {
+                Id = "wiki",
+                Title = titleMatch.Success ? titleMatch.Groups[1].Value.Trim() : "Repository Wiki",
+                Description = descMatch.Success ? descMatch.Groups[1].Value.Trim() : "",
+                Pages = pages,
+                Sections = sections,
+                RootSections = sections.Select(s => s.Id).ToList()
+            };
+        }
+        catch
+        {
+            return new WikiStructureDto { Pages = new() };
+        }
+    }
+
     private static string RepairXmlIssues(string xml)
     {
-        return Regex.Replace(
-            Regex.Replace(xml, "(<parent_section>\\s*[^<]*?)</section>(\\s*</page>)", "$1</parent_section>$2", RegexOptions.IgnoreCase),
-            "(<parent_section>\\s*[^<]*?)</section>(\\s*</related_pages>)", "$1</parent_section>$2", RegexOptions.IgnoreCase);
+        // 修复常见的 LLM 输出 XML 错误
+        xml = Regex.Replace(xml,
+            "(<parent_section>\\s*[^<]*?)</section>(\\s*</page>)",
+            "$1</parent_section>$2", RegexOptions.IgnoreCase);
+        xml = Regex.Replace(xml,
+            "(<parent_section>\\s*[^<]*?)</section>(\\s*</related_pages>)",
+            "$1</parent_section>$2", RegexOptions.IgnoreCase);
+        // <page_ref>page-6</page-6> → <page_ref>page-6</page_ref>
+        xml = Regex.Replace(xml,
+            @"(<page_ref>[^<]+)</[^>]+>",
+            "$1</page_ref>", RegexOptions.IgnoreCase);
+        // <section_ref>section-1</section-1> → <section_ref>section-1</section_ref>
+        xml = Regex.Replace(xml,
+            @"(<section_ref>[^<]+)</[^>]+>",
+            "$1</section_ref>", RegexOptions.IgnoreCase);
+        // <related>page-2</page-2> → <related>page-2</related>
+        xml = Regex.Replace(xml,
+            @"(<related>[^<]+)</[^>]+>",
+            "$1</related>", RegexOptions.IgnoreCase);
+        return xml;
     }
 
     private static string NormalizeImportance(string? value) =>
@@ -498,15 +614,14 @@ public sealed class WikiTaskService
 
     private WikiStructureDto BuildFallbackStructure(string response)
     {
-        var preview = response.Length > 300 ? response[..300] : response;
         return new WikiStructureDto
         {
             Id = "wiki",
             Title = "Repository Wiki",
-            Description = $"LLM 返回内容未能解析为有效的 Wiki 结构。原始响应摘要：{preview}",
+            Description = $"LLM 返回内容未能解析为有效的 Wiki 结构。原始响应：{response}",
             Pages = new List<WikiPageDto>
             {
-                new() { Id = "overview", Title = "仓库概览", Description = preview, Importance = "high" }
+                new() { Id = "overview", Title = "仓库概览", Description = response.Length > 500 ? response[..500] : response, Importance = "high" }
             },
             Sections = new List<WikiSectionDto>
             {
@@ -514,11 +629,5 @@ public sealed class WikiTaskService
             },
             RootSections = new List<string> { "default-section" }
         };
-    }
-
-    private static string ExtractRepoName(string url)
-    {
-        if (Directory.Exists(url)) return new DirectoryInfo(url).Name;
-        return url.TrimEnd('/').Split('/').Last().Replace(".git", "", StringComparison.OrdinalIgnoreCase);
     }
 }

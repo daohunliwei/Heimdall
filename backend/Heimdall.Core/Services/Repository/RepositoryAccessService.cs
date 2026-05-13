@@ -118,7 +118,7 @@ public sealed class RepositoryAccessService
         return documents;
     }
 
-    private IRepositorySource FindSource(string repoType, string url)
+    public IRepositorySource FindSource(string repoType, string url)
     {
         return _sources.FirstOrDefault(s => s.CanHandle(url) || s.SourceType == repoType.ToLowerInvariant())
             ?? _sources.First(s => s.SourceType == "local");

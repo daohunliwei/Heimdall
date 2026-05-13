@@ -86,13 +86,6 @@ public class TasksController : ControllerBase
         }
     }
 
-    [HttpGet("{id}/status")]
-    public async Task<IActionResult> GetTaskStatus(Guid id)
-    {
-        // 通过 WikiTaskService 的 DB 查询获取状态
-        return Ok(new { task_id = id.ToString() });
-    }
-
     private static string DetectRepoType(string url)
     {
         if (Directory.Exists(url)) return "local";

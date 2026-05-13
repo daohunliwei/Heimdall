@@ -149,6 +149,7 @@ builder.Services.AddScoped<RepositoryEmbeddingService>();
 builder.Services.AddScoped<RagContextService>();
 builder.Services.AddScoped<TaskRequestUtilityService>();
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<TaskLlmCallLogService>();
 builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
 builder.Services.AddSingleton<TaskPromptService>();

@@ -76,8 +76,11 @@ public sealed class LlmCallLogResponse
     [JsonPropertyName("model")] public string? Model { get; init; }
     [JsonPropertyName("prompt_tokens")] public int PromptTokens { get; init; }
     [JsonPropertyName("completion_tokens")] public int CompletionTokens { get; init; }
+    [JsonPropertyName("request_preview")] public string? RequestPreview { get; init; }
+    [JsonPropertyName("response_preview")] public string? ResponsePreview { get; init; }
     [JsonPropertyName("latency_ms")] public int LatencyMs { get; init; }
     [JsonPropertyName("is_error")] public bool IsError { get; init; }
+    [JsonPropertyName("error_message")] public string? ErrorMessage { get; init; }
 }
 
 // Dashboard DTOs
