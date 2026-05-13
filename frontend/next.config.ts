@@ -1,0 +1,45 @@
+import type { NextConfig } from "next";
+
+const TARGET_SERVER_BASE_URL = process.env.SERVER_BASE_URL || 'http://localhost:8001';
+
+const nextConfig: NextConfig = {
+  output: 'standalone',
+  async rewrites() {
+    return [
+      {
+        source: '/api/wiki_cache/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/api/wiki_cache/:path*`,
+      },
+      {
+        source: '/api/tasks/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/tasks/:path*`,
+      },
+      {
+        source: '/export/wiki/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/export/wiki/:path*`,
+      },
+      {
+        source: '/api/wiki_cache',
+        destination: `${TARGET_SERVER_BASE_URL}/api/wiki_cache`,
+      },
+      {
+        source: '/local_repo/structure',
+        destination: `${TARGET_SERVER_BASE_URL}/local_repo/structure`,
+      },
+      {
+        source: '/api/auth/status',
+        destination: `${TARGET_SERVER_BASE_URL}/auth/status`,
+      },
+      {
+        source: '/api/auth/validate',
+        destination: `${TARGET_SERVER_BASE_URL}/auth/validate`,
+      },
+      {
+        source: '/api/lang/config',
+        destination: `${TARGET_SERVER_BASE_URL}/lang/config`,
+      },
+    ];
+  },
+};
+
+export default nextConfig;

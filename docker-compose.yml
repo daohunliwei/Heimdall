@@ -1,0 +1,23 @@
+services:
+  backend:
+    image: ghcr.io/your-org/heimdall-backend:latest
+    environment:
+      # 后端环境变量统一使用 HEIMDALL_* 键名
+      - ASPNETCORE_URLS=http://0.0.0.0:8001
+      - HEIMDALL_DATA_DIR=/data
+    ports:
+      - "8001:8001"
+    volumes:
+      - heimdall-data:/data
+
+  frontend:
+    image: ghcr.io/your-org/heimdall-frontend:latest
+    environment:
+      - SERVER_BASE_URL=http://backend:8001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  heimdall-data:
