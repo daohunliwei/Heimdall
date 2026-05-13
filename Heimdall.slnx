@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/Heimdall.Api/Heimdall.Api.csproj" />
+    <Project Path="backend/Heimdall.Core/Heimdall.Core.csproj" />
+    <Project Path="backend/Heimdall.Infrastructure/Heimdall.Infrastructure.csproj" />
+    <Project Path="backend/Heimdall.Repository/Heimdall.Repository.csproj" />
+  </Folder>
+</Solution>
