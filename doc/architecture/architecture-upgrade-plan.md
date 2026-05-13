@@ -909,6 +909,10 @@ data: {"message":"Provider 调用超时，请检查 API Key 和网络连接"}
 | `HEIMDALL_JWT_EXPIRY_HOURS` | Token 过期时间 | `72` |
 | `HEIMDALL_REGISTRATION_OPEN` | 是否开放注册 | `true` |
 | `HEIMDALL_AUTH_MODE` | 认证模式扩展 | `simple`（`none`/`simple`/`jwt`） |
+| `HEIMDALL_OLLAMA_CHAT_HOST` | Ollama Chat 服务地址 | 回退到 `OLLAMA_HOST`，再回退 `http://127.0.0.1:11434` |
+| `HEIMDALL_OLLAMA_EMBED_HOST` | Ollama Embedding 服务地址 | 回退到 `OLLAMA_HOST`，再回退 `http://127.0.0.1:11434` |
+
+> `OLLAMA_HOST` 仍然保留作为统一兜底值。当 Chat 和 Embedding 指向同一 Ollama 实例时只需设 `OLLAMA_HOST`；指向不同实例时分别用 `HEIMDALL_OLLAMA_CHAT_HOST` 和 `HEIMDALL_OLLAMA_EMBED_HOST` 覆盖。
 
 ---
 
@@ -1183,7 +1187,7 @@ Heimdall.Api ──────→ Heimdall.Core ──────→ Heimdall.
 | 模型 | `nomic-embed-text` |
 | 输出维度 | 768 |
 | 环境变量 | `HEIMDALL_EMBEDDER_TYPE=ollama` |
-|  | `OLLAMA_HOST=http://10.110.1.210:11434` |
+|  | `HEIMDALL_OLLAMA_EMBED_HOST=http://10.110.1.210:11434` |
 
 ### AI 生成服务（LLM Generation）
 
@@ -1193,7 +1197,7 @@ Heimdall.Api ──────→ Heimdall.Core ──────→ Heimdall.
 | 地址 | `http://127.0.0.1:11434` |
 | 模型 | `gemma4:e2b` |
 | 环境变量 | `HEIMDALL_DEFAULT_PROVIDER=ollama` |
-|  | `OLLAMA_HOST=http://127.0.0.1:11434` |
+|  | `HEIMDALL_OLLAMA_CHAT_HOST=http://127.0.0.1:11434` |
 
 ### 验证目标仓库
 
@@ -1213,11 +1217,15 @@ HEIMDALL_USE_DATABASE=true
 
 # 向量化（远程 Ollama）
 HEIMDALL_EMBEDDER_TYPE=ollama
-OLLAMA_HOST=http://10.110.1.210:11434
+HEIMDALL_OLLAMA_EMBED_HOST=http://10.110.1.210:11434
 
 # AI 生成（本地 Ollama，gemma4）
 HEIMDALL_DEFAULT_PROVIDER=ollama
-# OLLAMA_HOST 已是本地默认值 http://127.0.0.1:11434，无需重复设置
+HEIMDALL_OLLAMA_CHAT_HOST=http://127.0.0.1:11434
+
+# 解析规则（两个 Provider 独立读取）：
+# OllamaChatProvider:    HEIMDALL_OLLAMA_CHAT_HOST → OLLAMA_HOST → http://127.0.0.1:11434
+# OllamaEmbeddingProvider: HEIMDALL_OLLAMA_EMBED_HOST → OLLAMA_HOST → http://127.0.0.1:11434
 
 # 认证模式（调试阶段可用 simple）
 HEIMDALL_AUTH_MODE=simple
