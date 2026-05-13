@@ -40,7 +40,7 @@ public sealed class DashboardService
             FailedTasks = failedTasks,
             ActiveUsers = allUsers.Count(u => u.IsActive),
             TotalRepositories = allRepos.Count,
-            TotalWikis = 0, // 需要从 wiki repo 查询
+            TotalWikis = await _wikiRepo.CountAsync(),
             SuccessRate = totalTasks > 0 ? (double)completedTasks / totalTasks * 100 : 100,
             TotalTokensUsed = totalTokens
         };

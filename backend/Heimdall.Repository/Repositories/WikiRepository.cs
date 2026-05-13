@@ -31,6 +31,20 @@ public class WikiRepository : IWikiRepository
                 && w.Language == language);
     }
 
+    public async Task<List<Wiki>> GetAllAsync()
+    {
+        return await _context.Wikis
+            .AsNoTracking()
+            .Include(w => w.Pages)
+            .OrderByDescending(w => w.CreatedAt)
+            .ToListAsync();
+    }
+
+    public async Task<int> CountAsync()
+    {
+        return await _context.Wikis.CountAsync();
+    }
+
     public async Task<Wiki> AddAsync(Wiki wiki)
     {
         wiki.CreatedAt = DateTime.UtcNow;
