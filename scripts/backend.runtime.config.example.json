@@ -1,0 +1,36 @@
+{
+  "ASPNETCORE_ENVIRONMENT": "Development",
+  "ASPNETCORE_URLS": "http://localhost:8001",
+
+  "HEIMDALL_AUTH_MODE": "false",
+  "HEIMDALL_AUTH_CODE": "change-me",
+  "HEIMDALL_DATA_DIR": "data",
+  "HEIMDALL_STORAGE_DIR": "storage",
+  "HEIMDALL_CONFIG_DIR": "",
+  "HEIMDALL_DEFAULT_PROVIDER": "openai",
+  "HEIMDALL_EMBEDDER_TYPE": "ollama",
+  "HEIMDALL_HTTP_TIMEOUT_MINUTES": "180",
+  "HEIMDALL_WIKI_TASK_TIMEOUT_MINUTES": "180",
+  "HEIMDALL_OLLAMA_REQUEST_TIMEOUT_MINUTES": "60",
+
+  "OPENAI_API_KEY": "your-openai-api-key",
+  "OPENAI_BASE_URL": "https://api.openai.com/v1",
+  "OPENROUTER_API_KEY": "your-openrouter-api-key",
+  "GOOGLE_API_KEY": "your-google-api-key",
+  "MINIMAX_API_KEY": "your-minimax-api-key",
+  "MINIMAX_BASE_URL": "https://api.minimaxi.com/v1",
+  "DASHSCOPE_API_KEY": "your-dashscope-api-key",
+  "DASHSCOPE_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "DASHSCOPE_WORKSPACE_ID": "your-dashscope-workspace-id",
+  "AZURE_OPENAI_API_KEY": "your-azure-openai-api-key",
+  "AZURE_OPENAI_ENDPOINT": "https://your-resource.openai.azure.com",
+  "AZURE_OPENAI_VERSION": "2024-10-21",
+
+  "AWS_ACCESS_KEY_ID": "your-aws-access-key-id",
+  "AWS_SECRET_ACCESS_KEY": "your-aws-secret-access-key",
+  "AWS_SESSION_TOKEN": "your-aws-session-token",
+  "AWS_REGION": "us-east-1",
+  "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/HeimdallBedrockRole",
+
+  "OLLAMA_HOST": "http://127.0.0.1:11434"
+}

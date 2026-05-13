@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell *)",
+      "Bash(git add *)",
+      "Bash(git reset *)",
+      "Bash(git rm *)",
+      "Bash(dotnet --version)",
+      "Bash(OLLAMA_HOST=http://127.0.0.1:11434 OLLAMA_EMBEDDING_HOST=http://10.110.1.210:11434 DEEPWIKI_EMBEDDER_TYPE=ollama dotnet run --urls=\"http://0.0.0.0:8001\")",
+      "Bash(curl -s http://localhost:8001/tasks/wiki -X POST -H \"Content-Type: application/json\" -d '{\"repo_url\":\"http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops\",\"provider\":\"ollama\",\"comprehensive\":true,\"language\":\"zh\"}')",
+      "Bash(curl -s http://localhost:8001/)",
+      "Bash(curl *)",
+      "WebFetch(domain:www.repothread.com)",
+      "WebSearch",
+      "Bash(yarn install *)",
+      "Bash(npm view *)",
+      "Bash(npm install *)",
+      "Bash(npx next *)"
+    ]
+  }
+}
