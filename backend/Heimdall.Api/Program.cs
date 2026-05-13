@@ -17,6 +17,7 @@ using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Tasks;
 using Heimdall.Core.Services.Admin;
 using Heimdall.Core.Services.Prompt;
+using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Repository.Data;
 using Heimdall.Repository.Repositories;
@@ -139,6 +140,10 @@ builder.Services.AddScoped<RepositoryEmbeddingService>();
 builder.Services.AddScoped<RagContextService>();
 builder.Services.AddScoped<TaskRequestUtilityService>();
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<RepositoryAccessService>();
+builder.Services.AddSingleton<TaskLlmService>();
+builder.Services.AddSingleton<TaskPromptService>();
+builder.Services.AddSingleton<WikiTaskService>();
 builder.Services.AddScoped<PromptTemplateService>();
 
 // Core Task Services
