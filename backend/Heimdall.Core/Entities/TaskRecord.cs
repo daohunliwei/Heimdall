@@ -21,6 +21,7 @@ public class TaskRecord
     public string? ResultJson { get; set; }
     public string? ErrorMessage { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public ICollection<TaskLlmCallLog> LlmCallLogs { get; set; } = new List<TaskLlmCallLog>();

@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Heimdall.Repository.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260513153303_InitialCreate")]
+    [Migration("20260513161715_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -383,6 +383,9 @@ namespace Heimdall.Repository.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");

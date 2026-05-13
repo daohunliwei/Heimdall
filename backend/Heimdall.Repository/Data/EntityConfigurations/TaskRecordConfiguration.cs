@@ -24,6 +24,7 @@ public class TaskRecordConfiguration : IEntityTypeConfiguration<TaskRecord>
         builder.Property(e => e.ResultJson).HasColumnType("jsonb");
         builder.Property(e => e.ErrorMessage).HasColumnType("text");
         builder.Property(e => e.CreatedAt).IsRequired();
+        builder.Property(e => e.UpdatedAt).IsRequired();
         builder.HasOne(e => e.Repository).WithMany(r => r.Tasks).HasForeignKey(e => e.RepositoryId);
         builder.HasOne(e => e.User).WithMany(u => u.Tasks).HasForeignKey(e => e.UserId);
 

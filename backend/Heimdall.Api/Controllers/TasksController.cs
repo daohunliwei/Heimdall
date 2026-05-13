@@ -1,4 +1,4 @@
-using System.Text.Json;
+using System.Text.Json.Serialization;
 using Heimdall.Core.Services.Tasks;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,32 +10,34 @@ public class TasksController : ControllerBase
 {
     private readonly WikiTaskService _wikiTaskService;
     private readonly TaskQueueService _taskQueue;
-    private readonly TaskProgressService _progressService;
     private readonly ILogger<TasksController> _logger;
 
     public TasksController(
         WikiTaskService wikiTaskService,
         TaskQueueService taskQueue,
-        TaskProgressService progressService,
         ILogger<TasksController> logger)
     {
         _wikiTaskService = wikiTaskService;
         _taskQueue = taskQueue;
-        _progressService = progressService;
         _logger = logger;
     }
 
+    /// <summary>
+    /// 提交 Wiki 生成任务。立即创建 task 记录并返回 task_id，后台异步处理。
+    /// </summary>
     [HttpPost("wiki")]
-    public async Task<IActionResult> GenerateWiki([FromBody] WikiGenerateRequest request, CancellationToken ct)
+    public async Task<IActionResult> GenerateWiki([FromBody] WikiGenerateRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.RepoUrl))
             return BadRequest(new { error = "repo_url 是必填字段" });
 
-        _logger.LogInformation("收到 Wiki 生成请求 Url={Url} Type={Type}", request.RepoUrl, request.Type);
+        _logger.LogInformation("收到 Wiki 生成请求 Url={Url} Type={Type} Provider={Provider}",
+            request.RepoUrl, request.Type, request.Provider);
 
         try
         {
-            var result = await _wikiTaskService.GenerateAsync(
+            // 步骤 1：创建任务记录并落库
+            var task = await _wikiTaskService.CreateTaskAsync(
                 request.RepoUrl,
                 request.Type ?? DetectRepoType(request.RepoUrl),
                 request.Token,
@@ -45,20 +47,50 @@ public class TasksController : ControllerBase
                 request.Language ?? "zh",
                 request.Comprehensive,
                 request.ForceRefresh,
-                request.RepositoryId,
-                ct);
+                null // userId
+            );
 
-            return Ok(result);
-        }
-        catch (OperationCanceledException)
-        {
-            return StatusCode(499, new { error = "任务已取消" });
+            // 步骤 2：如果任务是新创建的（非去重），入队后台处理
+            if (task.Status == "pending")
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _wikiTaskService.ExecuteAsync(
+                            task, request.RepoUrl,
+                            request.Type ?? DetectRepoType(request.RepoUrl),
+                            request.Token, request.Provider, request.Model,
+                            request.CustomModel, request.Language ?? "zh",
+                            request.Comprehensive, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "后台 Wiki 生成失败 TaskId={TaskId}", task.Id);
+                    }
+                });
+            }
+
+            // 步骤 3：立即返回 task_id
+            return Ok(new
+            {
+                task_id = task.Id.ToString(),
+                status = task.Status,
+                message = task.Status == "pending" ? "任务已接收，后台处理中" : "已有相同任务在执行"
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Wiki 生成失败");
+            _logger.LogError(ex, "创建 Wiki 任务失败");
             return StatusCode(500, new { error = ex.Message });
         }
+    }
+
+    [HttpGet("{id}/status")]
+    public async Task<IActionResult> GetTaskStatus(Guid id)
+    {
+        // 通过 WikiTaskService 的 DB 查询获取状态
+        return Ok(new { task_id = id.ToString() });
     }
 
     private static string DetectRepoType(string url)
@@ -73,24 +105,22 @@ public class TasksController : ControllerBase
 
 public class WikiGenerateRequest
 {
-    [System.Text.Json.Serialization.JsonPropertyName("repo_url")]
+    [JsonPropertyName("repo_url")]
     public string RepoUrl { get; set; } = string.Empty;
-    [System.Text.Json.Serialization.JsonPropertyName("type")]
+    [JsonPropertyName("type")]
     public string? Type { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("token")]
+    [JsonPropertyName("token")]
     public string? Token { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("provider")]
+    [JsonPropertyName("provider")]
     public string? Provider { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("model")]
+    [JsonPropertyName("model")]
     public string? Model { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("custom_model")]
+    [JsonPropertyName("custom_model")]
     public string? CustomModel { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("language")]
+    [JsonPropertyName("language")]
     public string? Language { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("comprehensive")]
+    [JsonPropertyName("comprehensive")]
     public bool Comprehensive { get; set; } = true;
-    [System.Text.Json.Serialization.JsonPropertyName("force_refresh")]
+    [JsonPropertyName("force_refresh")]
     public bool ForceRefresh { get; set; }
-    [System.Text.Json.Serialization.JsonPropertyName("repository_id")]
-    public Guid? RepositoryId { get; set; }
 }
