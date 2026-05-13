@@ -94,33 +94,83 @@ docker compose up -d
 
 ## 环境变量参考
 
-### 数据库与认证
+所有 Provider 逻辑和密钥配置**均已完整保留**，由 `Heimdall.Infrastructure` 层的 `HeimdallConfigService` 和各个 Provider 适配器统一处理。
 
-| Key | 说明 |
-|-----|------|
-| `HEIMDALL_CONNECTION_STRING` | PostgreSQL 连接字符串 |
-| `HEIMDALL_AUTH_MODE` | `none`=无认证, `jwt`=JWT Bearer |
-| `HEIMDALL_JWT_SECRET` | JWT 签名密钥 |
-| `HEIMDALL_JWT_EXPIRY_HOURS` | Token 过期小时数（默认 72） |
-| `HEIMDALL_REGISTRATION_OPEN` | 是否开放公开注册（默认 true） |
+### 前端代理与联调
 
-### Provider 配置
+| Key | 含义 | 取值示例 | 是否必须 | 默认值 / 备注 |
+| --- | --- | --- | --- | --- |
+| `SERVER_BASE_URL` | 前端代理后端接口时使用的后端基地址 | `http://localhost:8001` | 前端联调时建议配置 | 默认 `http://localhost:8001` |
 
-| Key | 说明 |
-|-----|------|
-| `HEIMDALL_DEFAULT_PROVIDER` | 默认 Provider（openai/ollama/google/...） |
-| `HEIMDALL_EMBEDDER_TYPE` | 嵌入器类型（openai/ollama/google/bedrock） |
-| `HEIMDALL_OLLAMA_CHAT_HOST` | Ollama Chat 地址 |
-| `HEIMDALL_OLLAMA_EMBED_HOST` | Ollama Embedding 地址 |
-| `OPENAI_API_KEY` / `GOOGLE_API_KEY` 等 | 各 Provider 密钥 |
+### 后端公共配置
 
-### 超时
+| Key | 含义 | 取值示例 | 是否必须 | 默认值 / 备注 |
+| --- | --- | --- | --- | --- |
+| `HEIMDALL_CONNECTION_STRING` | PostgreSQL 连接字符串 | `Host=localhost;Port=5432;Database=heimdall;Username=heimdall;Password=heimdall` | 是 | 新架构硬依赖 |
+| `HEIMDALL_RUNTIME_CONFIG_PATH` | 后端运行配置文件路径 | `scripts/backend.runtime.config.json` | 否 | 可替代零散环境变量 |
+| `ASPNETCORE_ENVIRONMENT` | ASP.NET Core 运行环境 | `Development` | 否 | 本地脚本默认 `Development` |
+| `ASPNETCORE_URLS` | 后端监听地址 | `http://localhost:8001` | 否 | 本地脚本默认 `http://localhost:8001` |
+| `HEIMDALL_AUTH_MODE` | 认证模式 | `jwt` / `none` | 否 | `none`=调试环境无认证，`jwt`=生产 JWT 认证 |
+| `HEIMDALL_JWT_SECRET` | JWT 签名密钥 | `your-secret-key` | `jwt` 模式必须 | |
+| `HEIMDALL_JWT_EXPIRY_HOURS` | Token 过期小时数 | `72` | 否 | 默认 `72` |
+| `HEIMDALL_REGISTRATION_OPEN` | 是否开放公开注册 | `true` | 否 | 默认 `true` |
+| `HEIMDALL_DATA_DIR` | Wiki 缓存与项目数据目录 | `/data` | 否 | 默认程序目录下的 `data` |
+| `HEIMDALL_STORAGE_DIR` | 仓库克隆与暂存目录根路径 | `/storage` | 否 | 默认程序目录下的 `storage`，任务完成可清理 |
+| `HEIMDALL_CONFIG_DIR` | `generator.json`、`embedder.json` 等配置目录 | `/config` | 否 | 默认程序目录下的 `config` |
+| `HEIMDALL_DEFAULT_PROVIDER` | 默认聊天 Provider | `openai` | 否 | 未命中时回退到 `generator.json` 中的默认值 |
+| `HEIMDALL_EMBEDDER_TYPE` | RAG 嵌入器类型 | `ollama` | 否 | 可选 `openai`、`google`、`ollama`、`bedrock`，默认 `ollama` |
+| `HEIMDALL_OLLAMA_CHAT_HOST` | Ollama Chat 服务地址 | `http://127.0.0.1:11434` | 使用 Ollama 时可选 | 回退到 `OLLAMA_HOST`，再回退 `http://127.0.0.1:11434` |
+| `HEIMDALL_OLLAMA_EMBED_HOST` | Ollama Embedding 服务地址 | `http://10.110.1.210:11434` | 使用 Ollama Embedding 时可选 | 回退到 `OLLAMA_HOST`，再回退 `http://127.0.0.1:11434` |
+| `HEIMDALL_HTTP_TIMEOUT_MINUTES` | 后端默认 HttpClient 超时（分钟） | `180` | 否 | 默认 `180` |
+| `HEIMDALL_WIKI_TASK_TIMEOUT_MINUTES` | 单次 Wiki 任务总超时（分钟） | `180` | 否 | 默认 `180` |
+| `HEIMDALL_OLLAMA_REQUEST_TIMEOUT_MINUTES` | 单次 Ollama 请求超时（分钟） | `60` | 否 | 默认 `60` |
+| `OLLAMA_HOST` | Ollama 统一服务地址 | `http://127.0.0.1:11434` | 使用 Ollama 时必须 | 作为 Chat/Embed 的兜底值 |
 
-| Key | 默认值 |
-|-----|--------|
-| `HEIMDALL_HTTP_TIMEOUT_MINUTES` | 180 |
-| `HEIMDALL_WIKI_TASK_TIMEOUT_MINUTES` | 180 |
-| `HEIMDALL_OLLAMA_REQUEST_TIMEOUT_MINUTES` | 60 |
+### Provider 与密钥配置
+
+| Key | 含义 | 取值示例 | 是否必须 | 默认值 / 备注 |
+| --- | --- | --- | --- | --- |
+| `OPENAI_API_KEY` | OpenAI 聊天与嵌入调用密钥 | `sk-...` | 使用 OpenAI 时必须 | 与 `OPENAI_BASE_URL` 搭配可兼容代理地址 |
+| `OPENAI_BASE_URL` | OpenAI 兼容接口基地址 | `https://api.openai.com/v1` | 否 | 默认 `https://api.openai.com/v1` |
+| `OPENROUTER_API_KEY` | OpenRouter 调用密钥 | `sk-or-...` | 使用 OpenRouter 时必须 | 使用固定官方接口地址 |
+| `GOOGLE_API_KEY` | Google 模型调用密钥 | `AIza...` | 使用 Google 时必须 | 同时用于聊天与嵌入能力 |
+| `MINIMAX_API_KEY` | MiniMax 调用密钥 | `eyJ...` | 使用 MiniMax 时必须 | 仅聊天 Provider 使用 |
+| `MINIMAX_BASE_URL` | MiniMax 接口基地址 | `https://api.minimaxi.com/v1` | 否 | 默认 `https://api.minimaxi.com/v1`，海外域名可改为 `https://api.minimax.io/v1` |
+| `DASHSCOPE_API_KEY` | DashScope 调用密钥 | `sk-...` | 使用 DashScope 时必须 | 按 OpenAI 兼容协议调用 |
+| `DASHSCOPE_BASE_URL` | DashScope 兼容接口基地址 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 否 | |
+| `DASHSCOPE_WORKSPACE_ID` | DashScope 工作空间 ID | `ws_1234567890` | 否 | 配置后会附加到请求头 |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI 调用密钥 | `your-key` | 使用 Azure OpenAI 时必须 | 需与 `AZURE_OPENAI_ENDPOINT`、`AZURE_OPENAI_VERSION` 一起配置 |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI 资源地址 | `https://your-resource.openai.azure.com` | 使用 Azure OpenAI 时必须 | 不带具体路径 |
+| `AZURE_OPENAI_VERSION` | Azure OpenAI API 版本 | `2024-10-21` | 使用 Azure OpenAI 时必须 | 按 Azure 实际可用版本填写 |
+| `AWS_ACCESS_KEY_ID` | AWS 访问密钥 ID | `AKIA...` | 使用 Bedrock 且不走角色链路时必须 | 与 `AWS_SECRET_ACCESS_KEY` 配对使用 |
+| `AWS_SECRET_ACCESS_KEY` | AWS 访问密钥 Secret | `abcd...` | 使用 Bedrock 且不走角色链路时必须 | 与 `AWS_ACCESS_KEY_ID` 配对使用 |
+| `AWS_SESSION_TOKEN` | AWS 临时会话令牌 | `IQoJ...` | 否 | 使用临时凭证时填写 |
+| `AWS_REGION` | AWS 区域 | `us-east-1` | 使用 Bedrock 时建议配置 | 默认 `us-east-1` |
+| `AWS_ROLE_ARN` | 需要切换的 AWS 角色 ARN | `arn:aws:iam::...` | 否 | 配置后可结合当前凭证执行角色切换 |
+
+### 配置加载优先级
+
+1. ASP.NET Core 默认配置
+2. `HEIMDALL_RUNTIME_CONFIG_PATH` 指向的 JSON 文件
+3. 实际进程环境变量
+4. 命令行参数
+
+同一个 Key 同时出现在 JSON 文件和环境变量中时，**以环境变量为准**。
+
+### Provider 支持矩阵
+
+所有 Provider 适配器位于 `Heimdall.Infrastructure/Providers/`：
+
+| Provider | 聊天 | 嵌入 | 配置方式 |
+|----------|------|------|----------|
+| OpenAI | ✅ | ✅ | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
+| OpenRouter | ✅ | — | `OPENROUTER_API_KEY` |
+| Google | ✅ | ✅ | `GOOGLE_API_KEY` |
+| MiniMax | ✅ | — | `MINIMAX_API_KEY` + `MINIMAX_BASE_URL` |
+| DashScope | ✅ | — | `DASHSCOPE_API_KEY` + `DASHSCOPE_BASE_URL` |
+| Azure OpenAI | ✅ | — | `AZURE_OPENAI_API_KEY` + Endpoint + Version |
+| AWS Bedrock | ✅ | ✅ | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_REGION` |
+| Ollama | ✅ | ✅ | `OLLAMA_HOST` 或 `HEIMDALL_OLLAMA_CHAT_HOST` / `HEIMDALL_OLLAMA_EMBED_HOST` |
 
 ## API 端点
 
