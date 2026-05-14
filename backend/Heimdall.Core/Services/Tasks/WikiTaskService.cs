@@ -220,11 +220,18 @@ public sealed class WikiTaskService
                 if (existingWiki is not null)
                 {
                     await pageRepository.DeleteByWikiIdAsync(existingWiki.Id);
-                    existingWiki.Title = wikiStructure.Title;
-                    existingWiki.Description = wikiStructure.Description;
-                    existingWiki.UpdatedAt = DateTime.UtcNow;
-                    await wikiRepository.UpdateAsync(existingWiki);
-                    wikiId = existingWiki.Id;
+                    await wikiRepository.DeleteAsync(existingWiki.Id);
+                    // 创建新 Wiki 记录，避免 AsNoTracking+Include(Pages) 导致的并发冲突
+                    var newWiki = new Wiki
+                    {
+                        SourceRepositoryId = repoEntity.Id,
+                        SourceBranch = branch,
+                        Language = language,
+                        Title = wikiStructure.Title,
+                        Description = wikiStructure.Description
+                    };
+                    await wikiRepository.AddAsync(newWiki);
+                    wikiId = newWiki.Id;
                 }
                 else
                 {

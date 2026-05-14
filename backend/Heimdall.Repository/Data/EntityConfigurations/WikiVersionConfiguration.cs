@@ -21,7 +21,7 @@ public class WikiVersionConfiguration : IEntityTypeConfiguration<WikiVersion>
         builder.Property(e => e.PageCount).HasColumnName("page_count");
         builder.Property(e => e.TocDepth).HasColumnName("toc_depth");
         builder.Property(e => e.SummaryMarkdown).HasColumnName("summary_markdown").HasColumnType("text");
-        builder.Property(e => e.StructureJson).HasColumnName("structure_json").HasColumnType("jsonb");
+        builder.Property(e => e.StructureJson).HasColumnName("structure_json").HasColumnType("text");
         builder.Property(e => e.CreatedByTaskId).HasColumnName("created_by_task_id");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(e => e.CompletedAt).HasColumnName("completed_at");
