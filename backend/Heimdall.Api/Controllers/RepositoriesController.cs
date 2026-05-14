@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Heimdall.Core.Interfaces.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -162,13 +163,18 @@ public class RepositoriesController : ControllerBase
 
 public class ImportRequest
 {
+    [JsonPropertyName("repo_url")]
     public string RepoUrl { get; set; } = string.Empty;
 }
 
 public class UpdateRepositoryRequest
 {
+    [JsonPropertyName("display_name")]
     public string? DisplayName { get; set; }
+    [JsonPropertyName("default_branch")]
     public string? DefaultBranch { get; set; }
+    [JsonPropertyName("description")]
     public string? Description { get; set; }
+    [JsonPropertyName("is_archived")]
     public bool? IsArchived { get; set; }
 }

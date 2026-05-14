@@ -143,6 +143,8 @@ builder.Services.AddScoped<IRepositoryConfigRepository, RepositoryConfigReposito
 builder.Services.AddScoped<IRepositoryVersionRepository, RepositoryVersionRepository>();
 builder.Services.AddScoped<ICodeEmbeddingRepository, CodeEmbeddingRepository>();
 builder.Services.AddScoped<IWikiEmbeddingRepository, WikiEmbeddingRepository>();
+builder.Services.AddScoped<IWikiSpaceRepository, WikiSpaceRepository>();
+builder.Services.AddScoped<IWikiVersionRepository, WikiVersionRepository>();
 builder.Services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
 
 // Core Services (Scoped - 依赖 Repository)

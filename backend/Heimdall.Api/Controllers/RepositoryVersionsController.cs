@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Heimdall.Core.Interfaces.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -99,5 +100,6 @@ public class RepositoryVersionsController : ControllerBase
 
 public class DiscoverRequest
 {
+    [JsonPropertyName("branch")]
     public string Branch { get; set; } = "main";
 }

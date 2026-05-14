@@ -110,7 +110,12 @@ public sealed class WikiTaskService
             Model = model ?? customModel,
             Language = language,
             ProgressPercent = 0,
-            ProgressMessage = "任务已创建，等待执行..."
+            ProgressMessage = "任务已创建，等待执行...",
+            // V2 版本字段
+            TargetBranch = "main",
+            RefreshStrategy = forceRefresh ? "current" : "latest",
+            ForceRefresh = forceRefresh,
+            ConfigHash = requestHash
         };
 
         var created = await taskRepo.EnqueueAsync(task);
@@ -299,6 +304,9 @@ public sealed class WikiTaskService
             // 4. 保存完整 Wiki 到数据库
             await SaveWikiAsync(task, wikiStructure, repoUrl, repoType, language);
 
+            // V2: 创建版本记录（RepositoryVersion + WikiVersion）并回写任务
+            await EnsureV2VersionRecordsAsync(task, wikiId, execOwner, execRepo, repoType, language);
+
             // 5. 标记完成
             await UpdateTaskAsync(task.Id, t =>
             {
@@ -443,6 +451,123 @@ public sealed class WikiTaskService
                 Pages = structure.Pages.Select(p => new { p.Id, p.Title, p.Importance, ContentLength = p.Content.Length })
             });
             await taskRepo.UpdateStatusAsync(task.Id, task.Status, task.ProgressPercent, task.ProgressMessage, task.ErrorMessage);
+        }
+    }
+
+    /// <summary>
+    /// V2: 确保版本记录存在（RepositoryVersion + WikiSpace + WikiVersion），并回写任务关联。
+    /// </summary>
+    private async Task EnsureV2VersionRecordsAsync(TaskRecord task, Guid wikiId,
+        string execOwner, string execRepo, string repoType, string language)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repoConfigRepo = scope.ServiceProvider.GetRequiredService<IRepositoryConfigRepository>();
+            var versionRepo = scope.ServiceProvider.GetRequiredService<IRepositoryVersionRepository>();
+            var spaceRepo = scope.ServiceProvider.GetRequiredService<IWikiSpaceRepository>();
+            var wikiVersionRepo = scope.ServiceProvider.GetRequiredService<IWikiVersionRepository>();
+            var pageRepo = scope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
+
+            // 1. 查找仓库记录
+            var repo = await repoConfigRepo.GetByOwnerRepoTypeAsync(execOwner, execRepo, repoType);
+            if (repo is null) return;
+
+            // 2. 确保 RepositoryVersion 存在
+            var repoVersion = await versionRepo.GetLatestByRepoBranchAsync(repo.Id, "main");
+            if (repoVersion is null)
+            {
+                repoVersion = new RepositoryVersion
+                {
+                    RepositoryId = repo.Id,
+                    BranchName = "main",
+                    CommitSha = "unknown",
+                    CommitTime = DateTime.UtcNow,
+                    CommitAuthor = "system",
+                    CommitMessage = $"由任务 {task.Id} 触发生成",
+                    SourceStatus = "active",
+                    IsLatestOnBranch = true,
+                    VersionSourceConfidence = "unknown"
+                };
+                repoVersion = await versionRepo.AddAsync(repoVersion);
+            }
+
+            // 3. 确保 WikiSpace 存在
+            var wikiSpace = await spaceRepo.GetByRepoLangViewAsync(repo.Id, language, "default");
+            if (wikiSpace is null)
+            {
+                wikiSpace = new WikiSpace
+                {
+                    RepositoryId = repo.Id,
+                    Language = language,
+                    ViewType = "default",
+                    Title = $"{repo.DisplayName} Wiki",
+                    Description = $"为 {repo.DisplayName} 生成的 Wiki"
+                };
+                wikiSpace = await spaceRepo.AddAsync(wikiSpace);
+            }
+
+            // 4. 创建 WikiVersion
+            var versionNo = await wikiVersionRepo.CountBySpaceIdAsync(wikiSpace.Id) + 1;
+            var wikiVersion = new WikiVersion
+            {
+                WikiSpaceId = wikiSpace.Id,
+                RepositoryVersionId = repoVersion.Id,
+                VersionNo = versionNo,
+                GenerationMode = task.ForceRefresh ? "rebuild" : "latest",
+                GenerationProfile = "comprehensive",
+                Status = "ready",
+                PageCount = 0,
+                TocDepth = 1,
+                SummaryMarkdown = $"由任务 {task.Id} 生成",
+                CreatedByTaskId = task.Id,
+                CompletedAt = DateTime.UtcNow
+            };
+            wikiVersion = await wikiVersionRepo.AddAsync(wikiVersion);
+
+            // 5. 更新 WikiPages 关联到 WikiVersion
+            var pages = await pageRepo.GetByWikiIdAsync(wikiId);
+            var pageCount = 0;
+            foreach (var page in pages.Where(p => p.WikiVersionId == null))
+            {
+                page.WikiVersionId = wikiVersion.Id;
+                await pageRepo.UpdateAsync(page);
+                pageCount++;
+            }
+
+            // 更新页数
+            wikiVersion.PageCount = pageCount;
+            await wikiVersionRepo.UpdateAsync(wikiVersion);
+
+            // 6. 设置发布态
+            if (wikiSpace.PublishedWikiVersionId == null)
+            {
+                wikiSpace.PublishedWikiVersionId = wikiVersion.Id;
+                wikiVersion.Status = "published";
+                await spaceRepo.UpdateAsync(wikiSpace);
+                await wikiVersionRepo.UpdateAsync(wikiVersion);
+            }
+
+            // 7. 回写 TaskRecord 的版本关联
+            task.ResolvedRepositoryVersionId = repoVersion.Id;
+            task.ResultWikiVersionId = wikiVersion.Id;
+
+            using var taskScope = _scopeFactory.CreateScope();
+            var taskRepo = taskScope.ServiceProvider.GetRequiredService<ITaskRepository>();
+            var t = await taskRepo.GetByIdAsync(task.Id);
+            if (t is not null)
+            {
+                t.ResolvedRepositoryVersionId = repoVersion.Id;
+                t.ResultWikiVersionId = wikiVersion.Id;
+                await taskRepo.UpdateStatusAsync(t.Id, t.Status, t.ProgressPercent, t.ProgressMessage, t.ErrorMessage);
+            }
+
+            _logger.LogInformation("V2 版本记录已创建 RepoVersionId={RvId} WikiVersionId={WvId} Pages={Count}",
+                repoVersion.Id, wikiVersion.Id, pageCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "V2 版本记录创建失败（非致命）TaskId={TaskId}", task.Id);
         }
     }
 

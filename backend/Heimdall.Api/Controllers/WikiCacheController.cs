@@ -34,7 +34,7 @@ public class WikiCacheController : ControllerBase
         if (wiki is null)
             return NotFound(new { error = "Wiki 缓存不存在" });
 
-        return Ok(BuildWikiResponse(repoEntity, wiki));
+        return Ok(await BuildWikiResponse(repoEntity, wiki));
     }
 
     /// <summary>
@@ -79,7 +79,7 @@ public class WikiCacheController : ControllerBase
         if (wiki is null)
             return NotFound(new { error = "Wiki 缓存不存在" });
 
-        return Ok(BuildWikiResponse(repoEntity, wiki));
+        return Ok(await BuildWikiResponse(repoEntity, wiki));
     }
 
     /// <summary>
