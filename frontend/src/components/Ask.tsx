@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useRef, useEffect} from 'react';
+import React, {useState, useRef, useEffect, useMemo} from 'react';
 import {FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import Markdown from './Markdown';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -28,10 +28,16 @@ interface AskTaskRequest {
   question: string;
   history: Message[];
   deep_research: boolean;
+  /** 当前仓库页选中的仓库快照版本 ID，用于显式绑定问答上下文。 */
+  repository_version_id?: string;
+  /** 当前仓库页选中的 Wiki 版本 ID，后端将优先读取该版本页面作为上下文。 */
+  wiki_version_id?: string;
   filePath?: string;
   token?: string;
   provider?: string;
   model?: string;
+  /** 是否使用自定义模型。 */
+  is_custom_model?: boolean;
   custom_model?: string;
   language?: string;
   excluded_dirs?: string;
@@ -59,6 +65,10 @@ interface AskProps {
   isCustomModel?: boolean;
   customModel?: string;
   language?: string;
+  /** 当前仓库页选中的仓库快照版本 ID。 */
+  repositoryVersionId?: string;
+  /** 当前仓库页选中的 Wiki 版本 ID。 */
+  wikiVersionId?: string;
   onRef?: (ref: { clearConversation: () => void }) => void;
 }
 
@@ -69,6 +79,8 @@ const Ask: React.FC<AskProps> = ({
   isCustomModel = false,
   customModel = '',
   language = 'zh',
+  repositoryVersionId,
+  wikiVersionId,
   onRef
 }) => {
   const [question, setQuestion] = useState('');
@@ -97,6 +109,17 @@ const Ask: React.FC<AskProps> = ({
   const responseRef = useRef<HTMLDivElement>(null);
   const providerRef = useRef(provider);
   const modelRef = useRef(model);
+  const versionValidationMessage = useMemo(() => {
+    if (!repositoryVersionId && !wikiVersionId) {
+      return '当前页面尚未绑定 RepositoryVersion/WikiVersion，请先在仓库页完成版本加载后再提问。';
+    }
+
+    if (!repositoryVersionId || !wikiVersionId) {
+      return '当前页面版本上下文不完整，请返回仓库页重新选择版本后再提问。';
+    }
+
+    return undefined;
+  }, [repositoryVersionId, wikiVersionId]);
 
   // Focus input on component mount
   useEffect(() => {
@@ -226,13 +249,19 @@ const Ask: React.FC<AskProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!question.trim() || isLoading) return;
+    if (!question.trim() || isLoading || versionValidationMessage) return;
 
     handleConfirmAsk();
   };
 
   // Handle confirm and send request
   const handleConfirmAsk = async () => {
+    if (versionValidationMessage) {
+      setResponse(versionValidationMessage);
+      setResearchComplete(true);
+      return;
+    }
+
     setIsLoading(true);
     setResponse('');
     setResearchStages([]);
@@ -251,8 +280,11 @@ const Ask: React.FC<AskProps> = ({
         question: question,
         history: conversationHistory.map(msg => ({ role: msg.role as 'user' | 'assistant' | 'system', content: msg.content })),
         deep_research: deepResearch,
+        repository_version_id: repositoryVersionId,
+        wiki_version_id: wikiVersionId,
         provider: selectedProvider,
         model: isCustomSelectedModel ? undefined : selectedModel,
+        is_custom_model: isCustomSelectedModel,
         custom_model: isCustomSelectedModel ? customSelectedModel : undefined,
         language: language
       };
@@ -305,6 +337,17 @@ const Ask: React.FC<AskProps> = ({
           </button>
         </div>
 
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {versionValidationMessage ? (
+            <p className="text-xs text-[var(--highlight)]">{versionValidationMessage}</p>
+          ) : (
+            <>
+              <span className="tag tag-default">RepositoryVersion {repositoryVersionId?.slice(0, 8)}</span>
+              <span className="tag tag-default">WikiVersion {wikiVersionId?.slice(0, 8)}</span>
+            </>
+          )}
+        </div>
+
         {/* Question input */}
         <form onSubmit={handleSubmit} className="mt-4">
           <div className="relative">
@@ -316,14 +359,14 @@ const Ask: React.FC<AskProps> = ({
               placeholder={messages.ask?.placeholder || 'What would you like to know about this codebase?'}
               className="input py-3 text-sm"
               style={{ paddingRight: `${buttonWidth + 24}px` }}
-              disabled={isLoading}
+              disabled={isLoading || Boolean(versionValidationMessage)}
             />
             <button
               ref={buttonRef}
               type="submit"
-              disabled={isLoading || !question.trim()}
+              disabled={isLoading || !question.trim() || Boolean(versionValidationMessage)}
               className={`absolute right-3 top-1/2 transform -translate-y-1/2 px-4 py-1.5 rounded-md font-medium text-sm ${
-                isLoading || !question.trim()
+                isLoading || !question.trim() || versionValidationMessage
                   ? 'bg-[var(--border-color)] text-[var(--muted)] cursor-not-allowed'
                   : 'bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary-hover)] shadow-sm'
               } transition-all duration-200 flex items-center gap-1.5`}

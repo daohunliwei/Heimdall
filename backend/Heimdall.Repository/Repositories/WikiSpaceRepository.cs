@@ -10,6 +10,14 @@ public class WikiSpaceRepository : IWikiSpaceRepository
     private readonly AppDbContext _context;
     public WikiSpaceRepository(AppDbContext context) => _context = context;
 
+    /// <summary>
+    /// 按主键读取 Wiki 空间。
+    /// </summary>
+    public async Task<WikiSpace?> GetByIdAsync(Guid id)
+    {
+        return await _context.WikiSpaces.FirstOrDefaultAsync(space => space.Id == id);
+    }
+
     public async Task<WikiSpace?> GetByRepoLangViewAsync(Guid repositoryId, string language, string viewType)
     {
         return await _context.WikiSpaces

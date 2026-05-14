@@ -1,93 +1,80 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { RepositoryVersionSummary, WikiVersionSummary } from '@/types/wiki';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FaCodeBranch, FaHistory, FaCheckCircle, FaClock } from 'react-icons/fa';
 
-interface RepositoryVersion {
-  repository_version_id: string;
-  branch_name: string;
-  commit_sha: string;
-  commit_time: string;
-  commit_author: string;
-  commit_message: string;
-  is_latest_on_branch: boolean;
-  source_status: string;
-}
-
-interface WikiVersionInfo {
-  wiki_version_id: string;
-  version_no: number;
-  generation_mode: string;
-  status: string;
-  page_count: number;
-  created_at: string;
-  completed_at: string;
-  summary_markdown: string;
-}
-
+/**
+ * 版本切换器属性。
+ */
 interface VersionSwitcherProps {
-  repositoryId: string;
+  /** 当前页面已选中的 Wiki 版本 ID。 */
   currentWikiVersionId?: string;
+  /** 当前页面已选中的仓库快照版本 ID。 */
+  currentRepositoryVersionId?: string;
+  /** 当前仓库下可切换的 Wiki 版本列表。 */
+  wikiVersions: WikiVersionSummary[];
+  /** 当前仓库下可切换的仓库快照列表。 */
+  repositoryVersions: RepositoryVersionSummary[];
+  /** 版本数据是否仍在加载中。 */
+  isLoading?: boolean;
+  /** 版本切换回调。 */
   onVersionChange: (wikiVersionId: string, repositoryVersionId: string) => void;
+  /** 额外样式类名。 */
   className?: string;
 }
 
 export default function VersionSwitcher({
-  repositoryId,
   currentWikiVersionId,
+  currentRepositoryVersionId,
+  wikiVersions,
+  repositoryVersions,
+  isLoading = false,
   onVersionChange,
   className = '',
 }: VersionSwitcherProps) {
-  const [wikiVersions, setWikiVersions] = useState<WikiVersionInfo[]>([]);
-  const [repoVersions, setRepoVersions] = useState<RepositoryVersion[]>([]);
   const [selectedWikiVersion, setSelectedWikiVersion] = useState<string>(currentWikiVersionId || '');
-  const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
-    async function loadVersions() {
-      try {
-        const [wikiResp, repoResp] = await Promise.all([
-          fetch(`/api/repositories/${repositoryId}/wiki/versions`),
-          fetch(`/api/repositories/${repositoryId}/versions`),
-        ]);
+    setSelectedWikiVersion(currentWikiVersionId || '');
+  }, [currentWikiVersionId]);
 
-        if (wikiResp.ok) {
-          const wikiData = await wikiResp.json() as WikiVersionInfo[];
-          setWikiVersions(wikiData);
-        }
+  /**
+   * 当前已选中的 Wiki 版本。
+   */
+  const currentWikiVersion = useMemo(
+    () => wikiVersions.find((version) => version.wiki_version_id === selectedWikiVersion),
+    [selectedWikiVersion, wikiVersions],
+  );
 
-        if (repoResp.ok) {
-          const repoData = await repoResp.json() as RepositoryVersion[];
-          setRepoVersions(repoData);
-        }
-      } catch (e) {
-        console.error('加载版本列表失败', e);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    loadVersions();
-  }, [repositoryId]);
-
-  const currentWikiVersion = wikiVersions.find(v => v.wiki_version_id === selectedWikiVersion);
-
+  /**
+   * 处理 Wiki 版本切换。
+   */
   const handleWikiVersionSelect = (versionId: string) => {
     setSelectedWikiVersion(versionId);
-    const wikiVer = wikiVersions.find(v => v.wiki_version_id === versionId);
-    if (wikiVer && repoVersions.length > 0) {
-      onVersionChange(versionId, repoVersions[0].repository_version_id);
+    const wikiVersion = wikiVersions.find((version) => version.wiki_version_id === versionId);
+    if (wikiVersion?.repository_version_id) {
+      onVersionChange(versionId, wikiVersion.repository_version_id);
     }
     setIsExpanded(false);
   };
 
+  /**
+   * 将时间格式化为中文日期。
+   */
   const formatDate = (dateStr: string) => {
     try { return new Date(dateStr).toLocaleDateString('zh-CN'); } catch { return dateStr; }
   };
 
+  /**
+   * 截断提交 SHA，避免在下拉中占用过多宽度。
+   */
   const truncateSha = (sha: string) => sha.length > 8 ? sha.substring(0, 8) : sha;
 
+  /**
+   * 渲染版本状态标签。
+   */
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'published': return <span className="tag tag-primary text-xs">已发布</span>;
@@ -125,22 +112,22 @@ export default function VersionSwitcher({
             <p className="text-xs text-[var(--muted)] py-2">暂无版本</p>
           ) : (
             <div className="space-y-1 mb-3">
-              {wikiVersions.map(v => (
+              {wikiVersions.map((version) => (
                 <button
-                  key={v.wiki_version_id}
-                  onClick={() => handleWikiVersionSelect(v.wiki_version_id)}
+                  key={version.wiki_version_id}
+                  onClick={() => handleWikiVersionSelect(version.wiki_version_id)}
                   className={`w-full text-left px-3 py-2 rounded-md text-xs transition-colors ${
-                    selectedWikiVersion === v.wiki_version_id
+                    selectedWikiVersion === version.wiki_version_id
                       ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]'
                       : 'hover:bg-[var(--background)] text-[var(--foreground)]'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">v{v.version_no}</span>
-                    {getStatusBadge(v.status)}
+                    <span className="font-medium">v{version.version_no}</span>
+                    {getStatusBadge(version.status)}
                   </div>
                   <div className="text-[var(--muted)] mt-0.5">
-                    {formatDate(v.created_at)} · {v.page_count ?? 0} 页
+                    {formatDate(version.created_at)} · {version.page_count ?? 0} 页
                   </div>
                 </button>
               ))}
@@ -151,19 +138,26 @@ export default function VersionSwitcher({
           <h4 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider mb-2">
             <FaCodeBranch className="inline mr-1" />仓库快照
           </h4>
-          {repoVersions.length === 0 ? (
+          {repositoryVersions.length === 0 ? (
             <p className="text-xs text-[var(--muted)] py-2">暂无快照</p>
           ) : (
             <div className="space-y-1">
-              {repoVersions.slice(0, 5).map(v => (
-                <div key={v.repository_version_id} className="px-3 py-1.5 text-xs text-[var(--foreground)]">
+              {repositoryVersions.slice(0, 5).map((version) => (
+                <div
+                  key={version.repository_version_id}
+                  className={`px-3 py-1.5 text-xs rounded-md ${
+                    currentRepositoryVersionId === version.repository_version_id
+                      ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]'
+                      : 'text-[var(--foreground)]'
+                  }`}
+                >
                   <div className="flex items-center gap-1.5">
                     <FaCodeBranch className="text-[var(--muted)]" />
-                    <span>{v.branch_name}</span>
-                    {v.is_latest_on_branch && <FaCheckCircle className="text-green-500" title="最新" />}
+                    <span>{version.branch_name}</span>
+                    {version.is_latest_on_branch && <FaCheckCircle className="text-green-500" title="最新" />}
                   </div>
                   <div className="text-[var(--muted)] mt-0.5">
-                    {truncateSha(v.commit_sha)} · {formatDate(v.commit_time)}
+                    {truncateSha(version.commit_sha)} · {formatDate(version.commit_time)}
                   </div>
                 </div>
               ))}

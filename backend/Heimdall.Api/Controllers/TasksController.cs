@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 using Heimdall.Core.Interfaces.Repositories;
+using Heimdall.Core.Interfaces.Services;
+using Heimdall.Core.Models;
 using Heimdall.Core.Services.Tasks;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,32 +11,29 @@ namespace Heimdall.Api.Controllers;
 [Route("tasks")]
 public class TasksController : ControllerBase
 {
-    private readonly WikiTaskService _wikiTaskService;
-    private readonly TaskQueueService _taskQueue;
-    private readonly TaskLlmService _llmService;
-    private readonly TaskPromptService _promptService;
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly IWikiRepository _wikiRepo;
-    private readonly IWikiPageRepository _pageRepo;
+    private readonly IWikiTaskSubmissionService _wikiTaskSubmissionService;
+    private readonly IAskTaskService _askTaskService;
+    private readonly ISlidesTaskService _slidesTaskService;
+    private readonly IWorkshopTaskService _workshopTaskService;
     private readonly ILogger<TasksController> _logger;
 
+    /// <summary>
+    /// 初始化任务控制器。
+    /// </summary>
     public TasksController(
-        WikiTaskService wikiTaskService,
-        TaskQueueService taskQueue,
-        TaskLlmService llmService,
-        TaskPromptService promptService,
         IRepositoryConfigRepository repoRepo,
-        IWikiRepository wikiRepo,
-        IWikiPageRepository pageRepo,
+        IWikiTaskSubmissionService wikiTaskSubmissionService,
+        IAskTaskService askTaskService,
+        ISlidesTaskService slidesTaskService,
+        IWorkshopTaskService workshopTaskService,
         ILogger<TasksController> logger)
     {
-        _wikiTaskService = wikiTaskService;
-        _taskQueue = taskQueue;
-        _llmService = llmService;
-        _promptService = promptService;
         _repoRepo = repoRepo;
-        _wikiRepo = wikiRepo;
-        _pageRepo = pageRepo;
+        _wikiTaskSubmissionService = wikiTaskSubmissionService;
+        _askTaskService = askTaskService;
+        _slidesTaskService = slidesTaskService;
+        _workshopTaskService = workshopTaskService;
         _logger = logger;
     }
 
@@ -61,49 +60,30 @@ public class TasksController : ControllerBase
 
         try
         {
-            var task = await _wikiTaskService.CreateTaskAsync(
-                repoUrl,
-                repoType,
-                request.Token,
-                request.Provider,
-                request.Model,
-                request.CustomModel,
-                request.Language ?? "zh",
-                request.Comprehensive,
-                request.ForceRefresh,
-                null,
-                branch,
-                refreshStrategy,
-                request.GenerationProfile ?? "comprehensive"
-            );
-
-            if (task.Status == "pending")
+            var result = await _wikiTaskSubmissionService.SubmitGenerateAsync(new WikiTaskSubmissionRequest
             {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await _wikiTaskService.ExecuteAsync(
-                            task, repoUrl,
-                            repoType,
-                            request.Token, request.Provider, request.Model,
-                            request.CustomModel, request.Language ?? "zh",
-                            request.Comprehensive, CancellationToken.None,
-                            branch,
-                            request.GenerationProfile ?? "comprehensive");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "后台 Wiki 生成失败 TaskId={TaskId}", task.Id);
-                    }
-                });
-            }
+                RepositoryId = repoId,
+                Branch = branch,
+                RefreshStrategy = refreshStrategy,
+                ForceRefresh = request.ForceRefresh,
+                Provider = request.Provider,
+                Model = request.Model,
+                CustomModel = request.CustomModel,
+                Language = request.Language,
+                Comprehensive = request.Comprehensive,
+                GenerationProfile = request.GenerationProfile,
+                Token = request.Token
+            }, HttpContext.RequestAborted);
 
             return Ok(new
             {
-                task_id = task.Id.ToString(),
-                status = task.Status,
-                message = task.Status == "pending" ? "任务已接收，后台处理中" : "已有相同任务在执行"
+                task_id = result.TaskId?.ToString(),
+                status = result.TaskStatus,
+                repository_version_id = result.RepositoryVersionId?.ToString(),
+                wiki_version_id = result.WikiVersionId?.ToString(),
+                result_type = result.ResultType,
+                change_status = result.ChangeStatus,
+                message = result.Message
             });
         }
         catch (Exception ex)
@@ -129,53 +109,35 @@ public class TasksController : ControllerBase
         {
             var repo = await _repoRepo.GetByIdAsync(repoId);
             if (repo is null) return NotFound(new { error = "仓库不存在" });
-
-            // 获取 Wiki 内容作为上下文
-            var language = request.Language ?? repo.DefaultLanguage ?? "zh";
-            var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repoId, "main", language);
-            var wikiContext = "";
-            if (wiki is not null)
-            {
-                var pages = await _pageRepo.GetByWikiIdAsync(wiki.Id);
-                wikiContext = string.Join("\n\n", pages
-                    .OrderBy(p => p.PageOrder)
-                    .Take(10)
-                    .Select(p => $"## {p.Title}\n{p.ContentMarkdown}"));
-            }
-
-            // 截断过长上下文
-            if (wikiContext.Length > 30000)
-                wikiContext = wikiContext[..30000] + "\n\n... (内容已截断)";
-
-            var prompt = $"""
-你是一个代码仓库技术专家。基于以下 Wiki 文档内容回答用户的问题。
-
-## 仓库信息
-- 仓库: {repo.DisplayName}
-- 地址: {repo.RepoUrl}
-
-## Wiki 参考内容
-{wikiContext}
-
-## 用户问题
-{request.Question}
-
-请基于以上 Wiki 内容回答。如果 Wiki 中没有足够信息，请如实告知。回答使用中文。
-""";
-
-            var provider = !string.IsNullOrWhiteSpace(request.Provider) ? request.Provider : "ollama";
-            var model = request.IsCustomModel == true ? request.CustomModel : request.Model;
-            var customModel = request.IsCustomModel == true ? request.CustomModel : null;
-
-            var answer = await _llmService.GenerateTextAsync(
-                provider, model, customModel, prompt, HttpContext.RequestAborted);
+            var result = await _askTaskService.AskAsync(
+                new AskTaskExecutionRequest
+                {
+                    Options = BuildVersionedTaskOptions(request, repo, repoId),
+                    Question = request.Question,
+                    History = request.History?.Select(message => new TaskConversationMessage
+                    {
+                        Role = message.Role,
+                        Content = message.Content
+                    }).ToList() ?? [],
+                    DeepResearch = request.DeepResearch,
+                    FilePath = request.FilePath
+                },
+                HttpContext.RequestAborted);
 
             return Ok(new
             {
-                content = answer,
-                stages = Array.Empty<object>(),
-                complete = true,
-                iterations = 1
+                content = result.Content,
+                stages = result.Stages.Select(stage => new
+                {
+                    title = stage.Title,
+                    content = stage.Content,
+                    iteration = stage.Iteration,
+                    type = stage.Type
+                }),
+                complete = result.Complete,
+                iterations = result.Iterations,
+                repository_version_id = result.RepositoryVersionId,
+                wiki_version_id = result.WikiVersionId
             });
         }
         catch (Exception ex)
@@ -198,48 +160,26 @@ public class TasksController : ControllerBase
         {
             var repo = await _repoRepo.GetByIdAsync(repoId);
             if (repo is null) return NotFound(new { error = "仓库不存在" });
+            var result = await _slidesTaskService.GenerateAsync(
+                new SlidesTaskExecutionRequest
+                {
+                    Options = BuildVersionedTaskOptions(request, repo, repoId)
+                },
+                HttpContext.RequestAborted);
 
-            var language = request.Language ?? repo.DefaultLanguage ?? "zh";
-            var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repoId, "main", language);
-            var wikiContent = "";
-            if (wiki is not null)
+            return Ok(new
             {
-                var pages = await _pageRepo.GetByWikiIdAsync(wiki.Id);
-                wikiContent = string.Join("\n\n", pages
-                    .OrderBy(p => p.PageOrder)
-                    .Select(p => $"## {p.Title}\n{p.ContentMarkdown}"));
-            }
-
-            if (wikiContent.Length > 40000)
-                wikiContent = wikiContent[..40000];
-
-            var langName = language == "zh" ? "中文" : "English";
-            var provider = !string.IsNullOrWhiteSpace(request.Provider) ? request.Provider : "ollama";
-            var model = request.IsCustomModel == true ? request.CustomModel : request.Model;
-            var customModel = request.IsCustomModel == true ? request.CustomModel : null;
-
-            // 生成大纲
-            var planPrompt = _promptService.BuildSlidesPlanPrompt(
-                repo.Owner, repo.RepoName, wikiContent, langName);
-            var planText = await _llmService.GenerateTextAsync(provider, model, customModel, planPrompt, HttpContext.RequestAborted);
-
-            // 解析为幻灯片标题
-            var titles = ParseSlidePlan(planText);
-
-            // 生成每张幻灯片
-            var slides = new List<object>();
-            for (var i = 0; i < titles.Count; i++)
-            {
-                var slidePrompt = _promptService.BuildSlidePrompt(
-                    repo.Owner, repo.RepoName, titles[i].Title, titles[i].Description,
-                    i + 1, titles.Count, wikiContent, langName);
-                var slideHtml = await _llmService.GenerateTextAsync(provider, model, customModel, slidePrompt, HttpContext.RequestAborted);
-                slideHtml = CleanHtmlResponse(slideHtml);
-
-                slides.Add(new { id = $"slide-{i + 1}", title = titles[i].Title, content = titles[i].Description, html = slideHtml });
-            }
-
-            return Ok(new { plan = planText, slides });
+                plan = result.Plan,
+                slides = result.Slides.Select(slide => new
+                {
+                    id = slide.Id,
+                    title = slide.Title,
+                    content = slide.Content,
+                    html = slide.Html
+                }),
+                repository_version_id = result.RepositoryVersionId,
+                wiki_version_id = result.WikiVersionId
+            });
         }
         catch (Exception ex)
         {
@@ -261,31 +201,19 @@ public class TasksController : ControllerBase
         {
             var repo = await _repoRepo.GetByIdAsync(repoId);
             if (repo is null) return NotFound(new { error = "仓库不存在" });
+            var result = await _workshopTaskService.GenerateAsync(
+                new WorkshopTaskExecutionRequest
+                {
+                    Options = BuildVersionedTaskOptions(request, repo, repoId)
+                },
+                HttpContext.RequestAborted);
 
-            var language = request.Language ?? repo.DefaultLanguage ?? "zh";
-            var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repoId, "main", language);
-            var wikiContent = "";
-            if (wiki is not null)
+            return Ok(new
             {
-                var pages = await _pageRepo.GetByWikiIdAsync(wiki.Id);
-                wikiContent = string.Join("\n\n", pages
-                    .OrderBy(p => p.PageOrder)
-                    .Select(p => $"## {p.Title}\n{p.ContentMarkdown}"));
-            }
-
-            if (wikiContent.Length > 40000)
-                wikiContent = wikiContent[..40000];
-
-            var langName = language == "zh" ? "中文" : "English";
-            var provider = !string.IsNullOrWhiteSpace(request.Provider) ? request.Provider : "ollama";
-            var model = request.IsCustomModel == true ? request.CustomModel : request.Model;
-            var customModel = request.IsCustomModel == true ? request.CustomModel : null;
-
-            var prompt = _promptService.BuildWorkshopPrompt(
-                repo.Owner, repo.RepoName, wikiContent, langName);
-            var content = await _llmService.GenerateTextAsync(provider, model, customModel, prompt, HttpContext.RequestAborted);
-
-            return Ok(new { content });
+                content = result.Content,
+                repository_version_id = result.RepositoryVersionId,
+                wiki_version_id = result.WikiVersionId
+            });
         }
         catch (Exception ex)
         {
@@ -294,123 +222,189 @@ public class TasksController : ControllerBase
         }
     }
 
-    private static List<(string Title, string Description)> ParseSlidePlan(string planText)
+    /// <summary>
+    /// 将 API 请求模型转换为版本化派生任务通用选项。
+    /// </summary>
+    private static VersionedTaskExecutionOptions BuildVersionedTaskOptions(
+        RepositoryScopedTaskRequest request,
+        Heimdall.Core.Entities.Repository repository,
+        Guid repositoryId)
     {
-        var result = new List<(string Title, string Description)>();
-        var lines = planText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var line in lines)
+        var branch = string.IsNullOrWhiteSpace(request.Branch)
+            ? repository.DefaultBranch ?? "main"
+            : request.Branch;
+
+        if (request.IsCustomModel == true)
         {
-            var trimmed = line.Trim();
-            var match = System.Text.RegularExpressions.Regex.Match(trimmed,
-                @"^\d+[\.\)]\s*(?:\*\*)?(.+?)(?:\*\*)?\s*[-–—:]\s*(.+)$");
-            if (match.Success)
+            return new VersionedTaskExecutionOptions
             {
-                var title = match.Groups[1].Value.Trim();
-                var desc = match.Groups[2].Value.Trim();
-                if (!string.IsNullOrWhiteSpace(title))
-                    result.Add((title, desc));
-            }
-            else if (!string.IsNullOrWhiteSpace(trimmed) && char.IsDigit(trimmed[0]) && result.Count < 8)
-            {
-                var clean = System.Text.RegularExpressions.Regex.Replace(trimmed, @"^\d+[\.\)]\s*\*?\*?", "");
-                clean = clean.Replace("**", "").Trim();
-                if (clean.Length > 3 && clean.Length < 120)
-                    result.Add((clean, ""));
-            }
+                RepositoryId = repositoryId,
+                RepositoryVersionId = request.RepositoryVersionId,
+                WikiVersionId = request.WikiVersionId,
+                Language = request.Language,
+                Branch = branch,
+                Provider = request.Provider,
+                CustomModel = request.CustomModel
+            };
         }
 
-        if (result.Count == 0)
+        return new VersionedTaskExecutionOptions
         {
-            result.Add(("项目概览", "整体介绍与核心功能"));
-            result.Add(("架构设计", "系统架构与技术选型"));
-        }
-
-        return result;
-    }
-
-    private static string CleanHtmlResponse(string html)
-    {
-        html = html.Trim();
-        if (html.StartsWith("```html", StringComparison.OrdinalIgnoreCase))
-        {
-            html = html["```html".Length..].TrimStart();
-            if (html.EndsWith("```"))
-                html = html[..^3].TrimEnd();
-        }
-        else if (html.StartsWith("```"))
-        {
-            html = html[3..].TrimStart();
-            if (html.EndsWith("```"))
-                html = html[..^3].TrimEnd();
-        }
-        return html;
+            RepositoryId = repositoryId,
+            RepositoryVersionId = request.RepositoryVersionId,
+            WikiVersionId = request.WikiVersionId,
+            Language = request.Language,
+            Branch = branch,
+            Provider = request.Provider,
+            Model = request.Model,
+            CustomModel = null
+        };
     }
 }
 
-public class WikiGenerateRequest
+/// <summary>
+/// 仓库范围任务请求基类。
+/// 该模型承载 Ask、Slides、Workshop 共享的版本继承与模型执行参数。
+/// </summary>
+public abstract class RepositoryScopedTaskRequest
 {
+    /// <summary>
+    /// 仓库标识。
+    /// </summary>
     [JsonPropertyName("repository_id")]
     public string? RepositoryId { get; set; }
 
+    /// <summary>
+    /// 私有仓库访问令牌。
+    /// </summary>
     [JsonPropertyName("token")]
     public string? Token { get; set; }
+
+    /// <summary>
+    /// 模型提供方。
+    /// </summary>
     [JsonPropertyName("provider")]
     public string? Provider { get; set; }
+
+    /// <summary>
+    /// 标准模型名称。
+    /// </summary>
     [JsonPropertyName("model")]
     public string? Model { get; set; }
+
+    /// <summary>
+    /// 自定义模型名称。
+    /// </summary>
     [JsonPropertyName("custom_model")]
     public string? CustomModel { get; set; }
+
+    /// <summary>
+    /// 是否使用自定义模型。
+    /// </summary>
     [JsonPropertyName("is_custom_model")]
     public bool? IsCustomModel { get; set; }
+
+    /// <summary>
+    /// 输出语言。
+    /// </summary>
     [JsonPropertyName("language")]
     public string? Language { get; set; }
-    [JsonPropertyName("comprehensive")]
-    public bool Comprehensive { get; set; } = true;
-    [JsonPropertyName("force_refresh")]
-    public bool ForceRefresh { get; set; }
+
+    /// <summary>
+    /// 期望绑定的分支名称。
+    /// </summary>
     [JsonPropertyName("branch")]
     public string? Branch { get; set; }
+
+    /// <summary>
+    /// 期望消费的 RepositoryVersion 标识。
+    /// 指定后，Ask、Slides、Workshop 将优先绑定该仓库快照版本。
+    /// </summary>
+    [JsonPropertyName("repository_version_id")]
+    public Guid? RepositoryVersionId { get; set; }
+
+    /// <summary>
+    /// 期望消费的 WikiVersion 标识。
+    /// 指定后，Ask、Slides、Workshop 将优先绑定该 WikiVersion，并校验与 RepositoryVersion 的一致性。
+    /// </summary>
+    [JsonPropertyName("wiki_version_id")]
+    public Guid? WikiVersionId { get; set; }
+}
+
+/// <summary>
+/// Wiki 生成请求。
+/// </summary>
+public sealed class WikiGenerateRequest : RepositoryScopedTaskRequest
+{
+    /// <summary>
+    /// 是否生成综合版 Wiki。
+    /// </summary>
+    [JsonPropertyName("comprehensive")]
+    public bool Comprehensive { get; set; } = true;
+
+    /// <summary>
+    /// 是否强制刷新。
+    /// </summary>
+    [JsonPropertyName("force_refresh")]
+    public bool ForceRefresh { get; set; }
+
+    /// <summary>
+    /// 刷新策略。
+    /// </summary>
     [JsonPropertyName("refresh_strategy")]
     public string? RefreshStrategy { get; set; }
+
+    /// <summary>
+    /// 生成档位。
+    /// </summary>
     [JsonPropertyName("generation_profile")]
     public string? GenerationProfile { get; set; }
 }
 
-public class AskRequest
+/// <summary>
+/// Ask 请求。
+/// </summary>
+public sealed class AskRequest : RepositoryScopedTaskRequest
 {
-    [JsonPropertyName("repository_id")]
-    public string? RepositoryId { get; set; }
-
+    /// <summary>
+    /// 用户问题。
+    /// </summary>
     [JsonPropertyName("question")]
     public string Question { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 历史消息集合。
+    /// </summary>
     [JsonPropertyName("history")]
     public List<AskMessage>? History { get; set; }
 
+    /// <summary>
+    /// 是否启用深度研究。
+    /// </summary>
     [JsonPropertyName("deep_research")]
     public bool DeepResearch { get; set; }
 
-    [JsonPropertyName("token")]
-    public string? Token { get; set; }
-    [JsonPropertyName("provider")]
-    public string? Provider { get; set; }
-    [JsonPropertyName("model")]
-    public string? Model { get; set; }
-    [JsonPropertyName("custom_model")]
-    public string? CustomModel { get; set; }
-    [JsonPropertyName("is_custom_model")]
-    public bool? IsCustomModel { get; set; }
-    [JsonPropertyName("language")]
-    public string? Language { get; set; }
+    /// <summary>
+    /// 可选关注文件路径。
+    /// </summary>
     [JsonPropertyName("filePath")]
     public string? FilePath { get; set; }
 }
 
-public class AskMessage
+/// <summary>
+/// Ask 历史消息。
+/// </summary>
+public sealed class AskMessage
 {
+    /// <summary>
+    /// 消息角色。
+    /// </summary>
     [JsonPropertyName("role")]
     public string Role { get; set; } = "user";
 
+    /// <summary>
+    /// 消息内容。
+    /// </summary>
     [JsonPropertyName("content")]
     public string Content { get; set; } = string.Empty;
 }

@@ -14,7 +14,6 @@ public class WikiCompareController : ControllerBase
     private readonly IWikiPageRepository _pageRepo;
     private readonly IWikiSpaceRepository _spaceRepo;
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly IWikiRepository _wikiRepo;
     private readonly ILogger<WikiCompareController> _logger;
 
     public WikiCompareController(
@@ -22,14 +21,12 @@ public class WikiCompareController : ControllerBase
         IWikiPageRepository pageRepo,
         IWikiSpaceRepository spaceRepo,
         IRepositoryConfigRepository repoRepo,
-        IWikiRepository wikiRepo,
         ILogger<WikiCompareController> logger)
     {
         _versionRepo = versionRepo;
         _pageRepo = pageRepo;
         _spaceRepo = spaceRepo;
         _repoRepo = repoRepo;
-        _wikiRepo = wikiRepo;
         _logger = logger;
     }
 
@@ -56,17 +53,9 @@ public class WikiCompareController : ControllerBase
             var space = await _spaceRepo.GetByRepoLangViewAsync(repositoryId, "zh", "default")
                         ?? await _spaceRepo.GetByRepoLangViewAsync(repositoryId, "en", "default");
 
-            if (space is not null)
+            if (space is not null && version is not null && version.WikiSpaceId == space.Id)
             {
-                var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repositoryId, "main", "zh")
-                           ?? await _wikiRepo.GetByRepoBranchLanguageAsync(repositoryId, "main", "en");
-
-                if (wiki is not null)
-                {
-                    var allPages = await _pageRepo.GetByWikiIdAsync(wiki.Id);
-                    var versionPages = allPages.Where(p => p.WikiVersionId == versionId).ToList();
-                    pagesByVersion[versionId] = versionPages;
-                }
+                pagesByVersion[versionId] = await _pageRepo.GetByWikiVersionIdAsync(versionId);
             }
         }
 

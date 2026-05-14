@@ -23,6 +23,11 @@ public class TaskRecordConfiguration : IEntityTypeConfiguration<TaskRecord>
         builder.Property(e => e.TotalCompletionTokens).HasDefaultValue(0);
         builder.Property(e => e.ResultJson).HasColumnType("jsonb");
         builder.Property(e => e.ErrorMessage).HasColumnType("text");
+        builder.Property(e => e.CurrentStage).HasColumnName("current_stage").HasMaxLength(64).IsRequired().HasDefaultValue("queued");
+        builder.Property(e => e.CurrentStageStatus).HasColumnName("current_stage_status").HasMaxLength(16).IsRequired().HasDefaultValue("pending");
+        builder.Property(e => e.LastSuccessfulStage).HasColumnName("last_successful_stage").HasMaxLength(64);
+        builder.Property(e => e.LastArtifactId).HasColumnName("last_artifact_id");
+        builder.Property(e => e.AttemptCount).HasColumnName("attempt_count").HasDefaultValue(0);
         // V2 版本关联字段
         builder.Property(e => e.TargetBranch).HasColumnName("target_branch").HasMaxLength(128);
         builder.Property(e => e.ResolvedRepositoryVersionId).HasColumnName("resolved_repository_version_id");
@@ -33,6 +38,7 @@ public class TaskRecordConfiguration : IEntityTypeConfiguration<TaskRecord>
         builder.Property(e => e.CreatedAt).IsRequired();
         builder.Property(e => e.UpdatedAt).IsRequired();
         builder.HasOne(e => e.Repository).WithMany(r => r.Tasks).HasForeignKey(e => e.RepositoryId);
+        builder.HasOne<TaskArtifact>().WithMany().HasForeignKey(e => e.LastArtifactId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne(e => e.ResolvedRepositoryVersion).WithMany().HasForeignKey(e => e.ResolvedRepositoryVersionId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne(e => e.ResultWikiVersion).WithMany().HasForeignKey(e => e.ResultWikiVersionId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne(e => e.User).WithMany(u => u.Tasks).HasForeignKey(e => e.UserId);

@@ -1,4 +1,5 @@
 using Heimdall.Api.Mappings;
+using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Services.Tasks;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,15 +10,18 @@ namespace Heimdall.Api.Controllers;
 public class TaskStatusController : ControllerBase
 {
     private readonly TaskQueueService _taskQueue;
+    private readonly ITaskArtifactRepository _taskArtifactRepo;
     private readonly TaskProgressService _progressService;
     private readonly TaskLlmCallLogService _llmLogService;
 
     public TaskStatusController(
         TaskQueueService taskQueue,
+        ITaskArtifactRepository taskArtifactRepo,
         TaskProgressService progressService,
         TaskLlmCallLogService llmLogService)
     {
         _taskQueue = taskQueue;
+        _taskArtifactRepo = taskArtifactRepo;
         _progressService = progressService;
         _llmLogService = llmLogService;
     }
@@ -52,6 +56,20 @@ public class TaskStatusController : ControllerBase
     {
         var logs = await _llmLogService.GetTaskCallLogsAsync(id);
         return Ok(logs.Select(l => l.ToLlmCallLogResponse()));
+    }
+
+    /// <summary>
+    /// 读取任务工件列表。
+    /// 用于排查失败阶段、查看恢复点以及核对阶段结果是否已落库。
+    /// </summary>
+    [HttpGet("{id}/artifacts")]
+    public async Task<IActionResult> GetArtifacts(Guid id)
+    {
+        var task = await _taskQueue.GetStatusAsync(id);
+        if (task is null) return NotFound(new { error = "任务不存在。" });
+
+        var artifacts = await _taskArtifactRepo.GetByTaskIdAsync(id);
+        return Ok(artifacts.Select(a => a.ToTaskArtifactResponse()));
     }
 
     [HttpPost("{id}/cancel")]
