@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Heimdall.Infrastructure.Configuration;
 using Heimdall.Infrastructure.Models;
 using Microsoft.Extensions.Configuration;
@@ -8,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Heimdall.Infrastructure.Providers.ChatProviders;
 
 /// <summary>
-/// Ollama 聊天 Provider。
+/// Ollama 聊天 Provider，使用 /api/chat 端点以获得更好的指令遵循质量。
 /// </summary>
 public sealed class OllamaChatProvider : IChatProvider
 {
@@ -17,9 +18,6 @@ public sealed class OllamaChatProvider : IChatProvider
     private readonly HeimdallConfigService _configService;
     private readonly ILogger<OllamaChatProvider> _logger;
 
-    /// <summary>
-    /// 初始化 Ollama 聊天 Provider。
-    /// </summary>
     public OllamaChatProvider(
         HttpClient httpClient,
         IConfiguration configuration,
@@ -32,30 +30,42 @@ public sealed class OllamaChatProvider : IChatProvider
         _logger = logger;
     }
 
-    /// <summary>
-    /// Provider 标识。
-    /// </summary>
     public string ProviderId => "ollama";
 
-    /// <summary>
-    /// 调用 Ollama 生成文本。
-    /// </summary>
     public async Task<string> GenerateAsync(ProviderChatRequest request, CancellationToken cancellationToken)
     {
         var baseUrl = (_configuration["OLLAMA_HOST"] ?? "http://127.0.0.1:11434").TrimEnd('/');
-        var endpoint = $"{baseUrl}/api/generate";
+        var endpoint = $"{baseUrl}/api/chat";
         var timeout = _configService.GetOllamaRequestTimeout();
+
+        var options = new Dictionary<string, object?>();
+        if (request.Options is not null)
+        {
+            foreach (var item in request.Options)
+                options[item.Key] = ConvertJsonElement(item.Value);
+        }
+
+        // 从 ProviderChatRequest 或 Options 中提取参数映射到 Ollama API
+        if (request.Temperature.HasValue && !options.ContainsKey("temperature"))
+            options["temperature"] = request.Temperature.Value;
+        if (request.TopP.HasValue && !options.ContainsKey("top_p"))
+            options["top_p"] = request.TopP.Value;
+        if (request.TopK.HasValue && !options.ContainsKey("top_k"))
+            options["top_k"] = request.TopK.Value;
+
         var payload = new Dictionary<string, object?>
         {
             ["model"] = request.Model,
-            ["prompt"] = request.Prompt,
+            ["messages"] = new[]
+            {
+                new { role = "system", content = "You are an expert software architect and technical documentation specialist. You must respond with valid, well-formed XML only. Do not include any text outside the XML structure." },
+                new { role = "user", content = request.Prompt }
+            },
             ["stream"] = false
         };
 
-        if (request.Options is not null)
-        {
-            payload["options"] = request.Options.ToDictionary(item => item.Key, item => (object?)ConvertJsonElement(item.Value));
-        }
+        if (options.Count > 0)
+            payload["options"] = options;
 
         using var timeoutCts = new CancellationTokenSource(timeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -90,9 +100,17 @@ public sealed class OllamaChatProvider : IChatProvider
                 request.Model,
                 (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds,
                 responseText.Length);
-            return document.RootElement.TryGetProperty("response", out var responseElement)
-                ? (responseElement.GetString() ?? string.Empty).Replace("<think>", string.Empty, StringComparison.Ordinal).Replace("</think>", string.Empty, StringComparison.Ordinal)
-                : responseText;
+
+            var content = document.RootElement.TryGetProperty("message", out var messageElement)
+                ? (messageElement.TryGetProperty("content", out var contentElement)
+                    ? (contentElement.GetString() ?? string.Empty)
+                    : string.Empty)
+                : string.Empty;
+
+            // 正确移除 think 标签及其内容
+            content = Regex.Replace(content, @"<think>[\s\S]*?</think>", "", RegexOptions.IgnoreCase);
+
+            return string.IsNullOrWhiteSpace(content) ? responseText : content;
         }
         catch (OperationCanceledException exception) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
@@ -116,9 +134,6 @@ public sealed class OllamaChatProvider : IChatProvider
         }
     }
 
-    /// <summary>
-    /// 将 JsonElement 转换为普通对象。
-    /// </summary>
     private static object? ConvertJsonElement(JsonElement element)
     {
         return element.ValueKind switch

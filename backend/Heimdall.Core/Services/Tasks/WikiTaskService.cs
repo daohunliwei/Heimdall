@@ -8,6 +8,7 @@ using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
 using Heimdall.Core.Services.Cache;
+using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Infrastructure.Models;
 using Microsoft.Extensions.DependencyInjection;
@@ -225,8 +226,28 @@ public sealed class WikiTaskService
 
             _logger.LogInformation("Wiki 记录已创建 WikiId={WikiId}", wikiId);
 
-            // 4. 逐页生成内容
+            // 4. 逐页生成内容（含实际文件内容 + RAG 检索）
             var totalPages = wikiStructure.Pages.Count;
+
+            // 4a. 后台启动嵌入流水线（为后续 RAG 检索和交互式聊天做准备）
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var embedScope = _scopeFactory.CreateScope();
+                    var embedService = embedScope.ServiceProvider.GetRequiredService<RepositoryEmbeddingService>();
+                    var repoAccess2 = embedScope.ServiceProvider.GetRequiredService<RepositoryAccessService>();
+                    var documents = await repoAccess2.ReadRepositoryDocumentsAsync(
+                        repoPath, new(), new(), new(), new(), CancellationToken.None);
+                    await embedService.EmbedRepoAsync(task.RepositoryId!.Value, repoPath, documents, CancellationToken.None);
+                    _logger.LogInformation("嵌入流水线完成 TaskId={TaskId} Docs={Count}", task.Id, documents.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "嵌入流水线失败（非致命）TaskId={TaskId}", task.Id);
+                }
+            });
+
             for (var i = 0; i < totalPages; i++)
             {
                 execToken.ThrowIfCancellationRequested();
@@ -239,8 +260,12 @@ public sealed class WikiTaskService
                     t.ProgressMessage = $"正在生成页面 {i + 1}/{totalPages}: {page.Title}";
                 });
 
+                // 读取页面关联的实际文件内容
+                var fileContents = ReadPageFiles(repoPath, page.FilePaths);
+
                 var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
-                    page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay);
+                    page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl,
+                    langDisplay, fileContents);
 
                 var pageSw = Stopwatch.StartNew();
                 try
@@ -611,6 +636,38 @@ public sealed class WikiTaskService
 
     private static string NormalizeImportance(string? value) =>
         value?.Trim().ToLowerInvariant() switch { "high" => "high", "low" => "low", _ => "medium" };
+
+    /// <summary>
+    /// 从已克隆的仓库中读取页面关联的源文件内容，限制每个文件最大 12KB。
+    /// </summary>
+    private static string ReadPageFiles(string repoPath, List<string> filePaths)
+    {
+        if (filePaths is null || filePaths.Count == 0) return "（无关联源文件）";
+
+        var parts = new List<string>();
+        const int maxPerFile = 12288;
+
+        foreach (var relativePath in filePaths)
+        {
+            try
+            {
+                var fullPath = Path.Combine(repoPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(fullPath)) continue;
+
+                var content = File.ReadAllText(fullPath);
+                if (content.Length > maxPerFile)
+                    content = content[..maxPerFile] + $"\n... (文件过长，截断至 {maxPerFile} 字符，原 {content.Length} 字符)";
+
+                parts.Add($"### {relativePath}\n```\n{content}\n```");
+            }
+            catch
+            {
+                // skip unreadable files
+            }
+        }
+
+        return parts.Count == 0 ? "（无法读取关联源文件）" : string.Join("\n\n", parts);
+    }
 
     private WikiStructureDto BuildFallbackStructure(string response)
     {
