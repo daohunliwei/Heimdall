@@ -1,5 +1,5 @@
 {
-  "default_provider": "minimax",
+  "default_provider": "ollama",
   "providers": {
     "dashscope": {
       "default_model": "qwen-plus",
@@ -134,9 +134,16 @@
       }
     },
     "ollama": {
-      "default_model": "qwen3:1.7b",
+      "default_model": "gemma4:e2b",
       "supportsCustomModel": true,
       "models": {
+        "gemma4:e2b": {
+          "options": {
+            "temperature": 0.3,
+            "top_p": 0.9,
+            "num_ctx": 65536
+          }
+        },
         "qwen3:1.7b": {
           "options": {
             "temperature": 0.7,

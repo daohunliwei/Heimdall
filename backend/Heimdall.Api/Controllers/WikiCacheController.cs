@@ -1,79 +1,108 @@
-using Heimdall.Api.Models;
-using Heimdall.Api.Services.Auth;
-using Heimdall.Api.Services.Cache;
+using Heimdall.Core.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Heimdall.Api.Controllers;
 
-/// <summary>
-/// 提供 Wiki 缓存的查询、保存与删除接口。
-/// </summary>
 [ApiController]
-[Route("api/wiki_cache")]
-public sealed class WikiCacheController : ControllerBase
+[Route("api")]
+public class WikiCacheController : ControllerBase
 {
-    private readonly AuthorizationService _authorizationService;
-    private readonly WikiCacheService _wikiCacheService;
+    private readonly IWikiRepository _wikiRepo;
+    private readonly IWikiPageRepository _pageRepo;
+    private readonly IRepositoryConfigRepository _repoRepo;
 
-    /// <summary>
-    /// 初始化缓存控制器。
-    /// </summary>
-    public WikiCacheController(AuthorizationService authorizationService, WikiCacheService wikiCacheService)
+    public WikiCacheController(
+        IWikiRepository wikiRepo,
+        IWikiPageRepository pageRepo,
+        IRepositoryConfigRepository repoRepo)
     {
-        _authorizationService = authorizationService;
-        _wikiCacheService = wikiCacheService;
+        _wikiRepo = wikiRepo;
+        _pageRepo = pageRepo;
+        _repoRepo = repoRepo;
     }
 
     /// <summary>
-    /// 获取指定仓库的 Wiki 缓存。
+    /// GET /api/wiki_cache?owner=&repo=&repo_type=&language= — 获取缓存的 Wiki 数据。
     /// </summary>
-    [HttpGet]
-    public async Task<ActionResult<WikiCacheData?>> GetWikiCacheAsync(
+    [HttpGet("wiki_cache")]
+    public async Task<IActionResult> GetWikiCache(
         [FromQuery] string owner,
         [FromQuery] string repo,
-        [FromQuery(Name = "repo_type")] string repoType,
+        [FromQuery] string repo_type,
         [FromQuery] string language)
     {
-        var cacheData = await _wikiCacheService.GetAsync(owner, repo, repoType, language);
-        return Ok(cacheData);
+        var repoEntity = await _repoRepo.GetByOwnerRepoTypeAsync(owner, repo, repo_type)
+            ?? await _repoRepo.GetByOwnerRepoAnyTypeAsync(owner, repo);
+
+        if (repoEntity is null)
+            return NotFound(new { error = "仓库不存在" });
+
+        var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repoEntity.Id, "main", language);
+        if (wiki is null)
+            return NotFound(new { error = "Wiki 缓存不存在" });
+
+        var pages = await _pageRepo.GetByWikiIdAsync(wiki.Id);
+        var generatedPages = new Dictionary<string, object>();
+        foreach (var p in pages)
+        {
+            generatedPages[p.Title] = new
+            {
+                id = p.Id.ToString(),
+                title = p.Title,
+                content = p.ContentMarkdown ?? "",
+                importance = p.Importance,
+                filePaths = p.FilePaths ?? Array.Empty<string>(),
+                pageOrder = p.PageOrder
+            };
+        }
+
+        return Ok(new
+        {
+            repo = new { owner = repoEntity.Owner, repo = repoEntity.RepoName, type = repoEntity.RepoType, url = repoEntity.RepoUrl },
+            wikiStructure = new
+            {
+                id = "wiki",
+                title = wiki.Title,
+                description = wiki.Description ?? "",
+                pages = pages.Select(p => new
+                {
+                    id = p.Title,
+                    title = p.Title,
+                    description = "",
+                    importance = p.Importance,
+                    filePaths = p.FilePaths ?? Array.Empty<string>(),
+                    relatedPages = Array.Empty<string>()
+                }).ToList(),
+                sections = new List<object>(),
+                rootSections = new List<string>()
+            },
+            generatedPages = generatedPages,
+            provider = "ollama",
+            model = "gemma4:e2b"
+        });
     }
 
-    /// <summary>
-    /// 保存 Wiki 缓存。
+/// <summary>
+    /// DELETE /api/wiki_cache?owner=&repo=&repo_type=&language= — 删除指定仓库的 Wiki 缓存。
     /// </summary>
-    [HttpPost]
-    public async Task<ActionResult> SaveWikiCacheAsync([FromBody] WikiCacheSaveRequest request)
-    {
-        await _wikiCacheService.SaveAsync(request);
-        return Ok(new { message = "缓存已保存" });
-    }
-
-    /// <summary>
-    /// 删除指定仓库的 Wiki 缓存。
-    /// </summary>
-    [HttpDelete]
-    public async Task<ActionResult> DeleteWikiCacheAsync(
+    [HttpDelete("wiki_cache")]
+    public async Task<IActionResult> DeleteWikiCache(
         [FromQuery] string owner,
         [FromQuery] string repo,
-        [FromQuery(Name = "repo_type")] string repoType,
-        [FromQuery] string language,
-        [FromQuery(Name = "authorization_code")] string? authorizationCode)
+        [FromQuery] string repo_type,
+        [FromQuery] string language)
     {
-        try
+        var repoEntity = await _repoRepo.GetByOwnerRepoTypeAsync(owner, repo, repo_type);
+        if (repoEntity is null)
+            return NotFound(new { error = "仓库不存在" });
+
+        var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repoEntity.Id, "main", language);
+        if (wiki is not null)
         {
-            _authorizationService.EnsureAuthorized(authorizationCode);
-        }
-        catch (UnauthorizedAccessException exception)
-        {
-            return Unauthorized(new { error = exception.Message });
+            await _pageRepo.DeleteByWikiIdAsync(wiki.Id);
+            await _wikiRepo.DeleteAsync(wiki.Id);
         }
 
-        var deleted = await _wikiCacheService.DeleteAsync(owner, repo, repoType, language);
-        if (!deleted)
-        {
-            return NotFound(new { error = "缓存不存在。" });
-        }
-
-        return Ok(new { message = "缓存已删除" });
+        return Ok(new { message = "缓存已清除" });
     }
 }

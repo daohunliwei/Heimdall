@@ -2,8 +2,13 @@
   "ASPNETCORE_ENVIRONMENT": "Development",
   "ASPNETCORE_URLS": "http://localhost:8001",
 
-  "HEIMDALL_AUTH_MODE": "false",
-  "HEIMDALL_AUTH_CODE": "change-me",
+  "HEIMDALL_CONNECTION_STRING": "Host=localhost;Port=5432;Database=heimdall;Username=heimdall;Password=heimdall",
+
+  "HEIMDALL_AUTH_MODE": "none",
+  "HEIMDALL_JWT_SECRET": "change-me-in-production",
+  "HEIMDALL_JWT_EXPIRY_HOURS": "72",
+  "HEIMDALL_REGISTRATION_OPEN": "true",
+
   "HEIMDALL_DATA_DIR": "data",
   "HEIMDALL_STORAGE_DIR": "storage",
   "HEIMDALL_CONFIG_DIR": "",
@@ -12,6 +17,9 @@
   "HEIMDALL_HTTP_TIMEOUT_MINUTES": "180",
   "HEIMDALL_WIKI_TASK_TIMEOUT_MINUTES": "180",
   "HEIMDALL_OLLAMA_REQUEST_TIMEOUT_MINUTES": "60",
+
+  "HEIMDALL_OLLAMA_CHAT_HOST": "http://127.0.0.1:11434",
+  "HEIMDALL_OLLAMA_EMBED_HOST": "",
 
   "OPENAI_API_KEY": "your-openai-api-key",
   "OPENAI_BASE_URL": "https://api.openai.com/v1",
