@@ -1,150 +1,119 @@
-using Heimdall.Api.Models;
-using Heimdall.Api.Services.Tasks;
+using System.Text.Json.Serialization;
+using Heimdall.Core.Services.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using System.Diagnostics;
 
 namespace Heimdall.Api.Controllers;
 
-/// <summary>
-/// 提供后端主导的 Wiki、Ask、Slides、Workshop 任务接口。
-/// </summary>
 [ApiController]
 [Route("tasks")]
-public sealed class TasksController : ControllerBase
+public class TasksController : ControllerBase
 {
-    private readonly AskTaskService _askTaskService;
-    private readonly ILogger<TasksController> _logger;
-    private readonly SlidesTaskService _slidesTaskService;
     private readonly WikiTaskService _wikiTaskService;
-    private readonly WorkshopTaskService _workshopTaskService;
+    private readonly TaskQueueService _taskQueue;
+    private readonly ILogger<TasksController> _logger;
 
-    /// <summary>
-    /// 初始化任务控制器。
-    /// </summary>
     public TasksController(
-        AskTaskService askTaskService,
-        ILogger<TasksController> logger,
-        SlidesTaskService slidesTaskService,
         WikiTaskService wikiTaskService,
-        WorkshopTaskService workshopTaskService)
+        TaskQueueService taskQueue,
+        ILogger<TasksController> logger)
     {
-        _askTaskService = askTaskService;
-        _logger = logger;
-        _slidesTaskService = slidesTaskService;
         _wikiTaskService = wikiTaskService;
-        _workshopTaskService = workshopTaskService;
+        _taskQueue = taskQueue;
+        _logger = logger;
     }
 
     /// <summary>
-    /// 生成 Wiki。
+    /// 提交 Wiki 生成任务。立即创建 task 记录并返回 task_id，后台异步处理。
     /// </summary>
     [HttpPost("wiki")]
-    public async Task<ActionResult<WikiTaskResponse>> GenerateWikiAsync([FromBody] WikiTaskRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> GenerateWiki([FromBody] WikiGenerateRequest request)
     {
-        var requestId = HttpContext.TraceIdentifier;
-        var stopwatch = Stopwatch.StartNew();
-        if (HttpContext.RequestAborted.CanBeCanceled)
-        {
-            HttpContext.RequestAborted.Register(() =>
-                _logger.LogWarning(
-                    "检测到前端请求已断开 RequestId={RequestId} Path={Path}，后端将继续执行 Wiki 任务",
-                    requestId,
-                    HttpContext.Request.Path));
-        }
+        if (string.IsNullOrWhiteSpace(request.RepoUrl))
+            return BadRequest(new { error = "repo_url 是必填字段" });
+
+        _logger.LogInformation("收到 Wiki 生成请求 Url={Url} Type={Type} Provider={Provider}",
+            request.RepoUrl, request.Type, request.Provider);
 
         try
         {
-            var response = await _wikiTaskService.GenerateAsync(request, cancellationToken);
-            _logger.LogInformation(
-                "Wiki 生成完成 RequestId={RequestId} RequestAborted={RequestAborted} ElapsedMs={ElapsedMs} GeneratedPages={GeneratedPages}",
-                requestId,
-                HttpContext.RequestAborted.IsCancellationRequested,
-                stopwatch.ElapsedMilliseconds,
-                response.GeneratedPages.Count);
-            return Ok(response);
-        }
-        catch (OperationCanceledException exception)
-        {
-            _logger.LogWarning(
-                exception,
-                "Wiki 生成被取消 RequestId={RequestId} RequestAborted={RequestAborted} CallerCancellation={CallerCancellation} ElapsedMs={ElapsedMs}",
-                requestId,
-                HttpContext.RequestAborted.IsCancellationRequested,
-                cancellationToken.IsCancellationRequested,
-                stopwatch.ElapsedMilliseconds);
-            return StatusCode(StatusCodes.Status408RequestTimeout, new TaskErrorResponse
+            // 步骤 1：创建任务记录并落库
+            var task = await _wikiTaskService.CreateTaskAsync(
+                request.RepoUrl,
+                request.Type ?? DetectRepoType(request.RepoUrl),
+                request.Token,
+                request.Provider,
+                request.Model,
+                request.CustomModel,
+                request.Language ?? "zh",
+                request.Comprehensive,
+                request.ForceRefresh,
+                null // userId
+            );
+
+            // 步骤 2：如果任务是新创建的（非去重），入队后台处理
+            if (task.Status == "pending")
             {
-                Error = "Wiki 生成被取消",
-                Details = HttpContext.RequestAborted.IsCancellationRequested
-                    ? "前端请求已断开，但后端应已记录继续执行日志；如未完成，请检查服务是否重启或命中总任务超时"
-                    : exception.Message,
-                RequestId = requestId
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _wikiTaskService.ExecuteAsync(
+                            task, request.RepoUrl,
+                            request.Type ?? DetectRepoType(request.RepoUrl),
+                            request.Token, request.Provider, request.Model,
+                            request.CustomModel, request.Language ?? "zh",
+                            request.Comprehensive, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "后台 Wiki 生成失败 TaskId={TaskId}", task.Id);
+                    }
+                });
+            }
+
+            // 步骤 3：立即返回 task_id
+            return Ok(new
+            {
+                task_id = task.Id.ToString(),
+                status = task.Status,
+                message = task.Status == "pending" ? "任务已接收，后台处理中" : "已有相同任务在执行"
             });
         }
-        catch (Exception exception)
+        catch (Exception ex)
         {
-            return BuildTaskError("Wiki 生成失败", exception);
+            _logger.LogError(ex, "创建 Wiki 任务失败");
+            return StatusCode(500, new { error = ex.Message });
         }
     }
 
-    /// <summary>
-    /// 执行 Ask 任务。
-    /// </summary>
-    [HttpPost("ask")]
-    public async Task<ActionResult<AskTaskResponse>> GenerateAskAsync([FromBody] AskTaskRequest request, CancellationToken cancellationToken)
+    private static string DetectRepoType(string url)
     {
-        try
-        {
-            return Ok(await _askTaskService.GenerateAsync(request, cancellationToken));
-        }
-        catch (Exception exception)
-        {
-            return BuildTaskError("Ask 任务失败", exception);
-        }
+        if (Directory.Exists(url)) return "local";
+        if (url.Contains("github.com", StringComparison.OrdinalIgnoreCase)) return "github";
+        if (url.Contains("gitlab", StringComparison.OrdinalIgnoreCase)) return "gitlab";
+        if (url.Contains("bitbucket", StringComparison.OrdinalIgnoreCase)) return "bitbucket";
+        return "github";
     }
+}
 
-    /// <summary>
-    /// 生成 Slides。
-    /// </summary>
-    [HttpPost("slides")]
-    public async Task<ActionResult<SlidesTaskResponse>> GenerateSlidesAsync([FromBody] SlidesTaskRequest request, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return Ok(await _slidesTaskService.GenerateAsync(request, cancellationToken));
-        }
-        catch (Exception exception)
-        {
-            return BuildTaskError("Slides 生成失败", exception);
-        }
-    }
-
-    /// <summary>
-    /// 生成 Workshop。
-    /// </summary>
-    [HttpPost("workshop")]
-    public async Task<ActionResult<WorkshopTaskResponse>> GenerateWorkshopAsync([FromBody] WorkshopTaskRequest request, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return Ok(await _workshopTaskService.GenerateAsync(request, cancellationToken));
-        }
-        catch (Exception exception)
-        {
-            return BuildTaskError("Workshop 生成失败", exception);
-        }
-    }
-
-    private ObjectResult BuildTaskError(string summary, Exception exception)
-    {
-        var requestId = HttpContext.TraceIdentifier;
-        _logger.LogError(exception, "{Summary} RequestId={RequestId}", summary, requestId);
-
-        return StatusCode(StatusCodes.Status500InternalServerError, new TaskErrorResponse
-        {
-            Error = summary,
-            Details = exception.Message,
-            RequestId = requestId
-        });
-    }
+public class WikiGenerateRequest
+{
+    [JsonPropertyName("repo_url")]
+    public string RepoUrl { get; set; } = string.Empty;
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+    [JsonPropertyName("token")]
+    public string? Token { get; set; }
+    [JsonPropertyName("provider")]
+    public string? Provider { get; set; }
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+    [JsonPropertyName("custom_model")]
+    public string? CustomModel { get; set; }
+    [JsonPropertyName("language")]
+    public string? Language { get; set; }
+    [JsonPropertyName("comprehensive")]
+    public bool Comprehensive { get; set; } = true;
+    [JsonPropertyName("force_refresh")]
+    public bool ForceRefresh { get; set; }
 }

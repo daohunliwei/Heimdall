@@ -1,14 +1,28 @@
 services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: heimdall
+      POSTGRES_USER: heimdall
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-heimdall}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
   backend:
     image: ghcr.io/your-org/heimdall-backend:latest
     environment:
-      # 后端环境变量统一使用 HEIMDALL_* 键名
       - ASPNETCORE_URLS=http://0.0.0.0:8001
       - HEIMDALL_DATA_DIR=/data
+      - HEIMDALL_CONNECTION_STRING=Host=postgres;Port=5432;Database=heimdall;Username=heimdall;Password=${DB_PASSWORD:-heimdall}
+      - HEIMDALL_JWT_SECRET=${JWT_SECRET:-change-me-in-production}
     ports:
       - "8001:8001"
     volumes:
       - heimdall-data:/data
+    depends_on:
+      - postgres
 
   frontend:
     image: ghcr.io/your-org/heimdall-frontend:latest
@@ -21,3 +35,4 @@ services:
 
 volumes:
   heimdall-data:
+  pgdata:

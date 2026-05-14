@@ -1,32 +1,37 @@
-using Heimdall.Api.Models;
-using Heimdall.Api.Services.Projects;
+using Heimdall.Core.Interfaces.Repositories;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Heimdall.Api.Controllers;
 
-/// <summary>
-/// 提供已处理项目列表接口。
-/// </summary>
 [ApiController]
-[Route("api/processed_projects")]
-public sealed class ProjectsController : ControllerBase
+[Route("api")]
+public class ProjectsController : ControllerBase
 {
-    private readonly ProcessedProjectService _processedProjectService;
+    private readonly IRepositoryConfigRepository _repoRepo;
 
-    /// <summary>
-    /// 初始化项目控制器。
-    /// </summary>
-    public ProjectsController(ProcessedProjectService processedProjectService)
+    public ProjectsController(IRepositoryConfigRepository repoRepo)
     {
-        _processedProjectService = processedProjectService;
+        _repoRepo = repoRepo;
     }
 
     /// <summary>
-    /// 获取已处理项目列表。
+    /// GET /api/processed_projects — 已处理的项目列表（供前端首页展示）。
     /// </summary>
-    [HttpGet]
-    public ActionResult<IReadOnlyCollection<ProcessedProjectEntry>> GetProcessedProjects()
+    [HttpGet("processed_projects")]
+    public async Task<IActionResult> GetProcessedProjects()
     {
-        return Ok(_processedProjectService.GetProcessedProjects());
+        var repos = await _repoRepo.GetAllAsync();
+        var projects = repos.Select(r => new
+        {
+            id = r.Id.ToString(),
+            owner = r.Owner,
+            repo = r.RepoName,
+            name = $"{r.Owner}/{r.RepoName}",
+            repo_type = r.RepoType,
+            submittedAt = ((DateTimeOffset)r.CreatedAt).ToUnixTimeMilliseconds(),
+            language = r.DefaultLanguage
+        });
+
+        return Ok(projects);
     }
 }
