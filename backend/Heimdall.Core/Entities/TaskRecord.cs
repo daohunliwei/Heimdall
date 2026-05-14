@@ -20,6 +20,20 @@ public class TaskRecord
     public int TotalCompletionTokens { get; set; }
     public string? ResultJson { get; set; }
     public string? ErrorMessage { get; set; }
+    /// <summary>V2: 目标分支</summary>
+    public string? TargetBranch { get; set; }
+    /// <summary>V2: 实际生成使用的仓库快照版本</summary>
+    public Guid? ResolvedRepositoryVersionId { get; set; }
+    public RepositoryVersion? ResolvedRepositoryVersion { get; set; }
+    /// <summary>V2: 生成的 Wiki 版本</summary>
+    public Guid? ResultWikiVersionId { get; set; }
+    public WikiVersion? ResultWikiVersion { get; set; }
+    /// <summary>V2: 刷新策略 current / latest</summary>
+    public string? RefreshStrategy { get; set; }
+    /// <summary>V2: 是否强制刷新</summary>
+    public bool ForceRefresh { get; set; }
+    /// <summary>V2: 生成配置摘要</summary>
+    public string? ConfigHash { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? StartedAt { get; set; }

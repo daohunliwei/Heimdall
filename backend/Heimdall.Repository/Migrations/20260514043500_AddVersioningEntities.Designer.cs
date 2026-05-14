@@ -3,6 +3,7 @@ using System;
 using Heimdall.Repository.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Heimdall.Repository.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260514043500_AddVersioningEntities")]
+    partial class AddVersioningEntities
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,92 +24,6 @@ namespace Heimdall.Repository.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("Heimdall.Core.Entities.CodeEmbeddingChunk", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ChunkIndex")
-                        .HasColumnType("integer")
-                        .HasColumnName("chunk_index");
-
-                    b.Property<string>("ChunkType")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasDefaultValue("code_block")
-                        .HasColumnName("chunk_type");
-
-                    b.Property<string>("ContentHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("content_hash");
-
-                    b.Property<string>("ContentNormalized")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content_normalized");
-
-                    b.Property<string>("ContentRaw")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content_raw");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("EmbeddingModel")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("embedding_model");
-
-                    b.Property<byte[]>("EmbeddingVector")
-                        .HasColumnType("bytea")
-                        .HasColumnName("embedding_vector");
-
-                    b.Property<int>("EndLine")
-                        .HasColumnType("integer")
-                        .HasColumnName("end_line");
-
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("file_path");
-
-                    b.Property<string>("Language")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("language");
-
-                    b.Property<Guid>("RepositoryVersionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("StartLine")
-                        .HasColumnType("integer")
-                        .HasColumnName("start_line");
-
-                    b.Property<string>("SymbolPath")
-                        .HasColumnType("text")
-                        .HasColumnName("symbol_path");
-
-                    b.Property<int?>("TokenCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("token_count");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryVersionId", "FilePath", "ChunkIndex")
-                        .IsUnique()
-                        .HasDatabaseName("ix_code_embedding_chunks_version_file_chunk");
-
-                    b.ToTable("code_embedding_chunks", (string)null);
-                });
 
             modelBuilder.Entity("Heimdall.Core.Entities.EmbeddingDocument", b =>
                 {
@@ -723,69 +640,6 @@ namespace Heimdall.Repository.Migrations
                     b.ToTable("wikis", (string)null);
                 });
 
-            modelBuilder.Entity("Heimdall.Core.Entities.WikiEmbeddingChunk", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ChunkIndex")
-                        .HasColumnType("integer")
-                        .HasColumnName("chunk_index");
-
-                    b.Property<string>("ChunkType")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasDefaultValue("section")
-                        .HasColumnName("chunk_type");
-
-                    b.Property<string>("ContentHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("content_hash");
-
-                    b.Property<string>("ContentRaw")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content_raw");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("EmbeddingModel")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("embedding_model");
-
-                    b.Property<byte[]>("EmbeddingVector")
-                        .HasColumnType("bytea")
-                        .HasColumnName("embedding_vector");
-
-                    b.Property<int?>("TokenCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("token_count");
-
-                    b.Property<Guid>("WikiPageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("WikiVersionId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WikiPageId");
-
-                    b.HasIndex("WikiVersionId", "WikiPageId", "ChunkIndex")
-                        .IsUnique()
-                        .HasDatabaseName("ix_wiki_embedding_chunks_version_page_chunk");
-
-                    b.ToTable("wiki_embedding_chunks", (string)null);
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.WikiPage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1085,17 +939,6 @@ namespace Heimdall.Repository.Migrations
                     b.ToTable("wiki_versions", (string)null);
                 });
 
-            modelBuilder.Entity("Heimdall.Core.Entities.CodeEmbeddingChunk", b =>
-                {
-                    b.HasOne("Heimdall.Core.Entities.RepositoryVersion", "RepositoryVersion")
-                        .WithMany()
-                        .HasForeignKey("RepositoryVersionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("RepositoryVersion");
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.EmbeddingDocument", b =>
                 {
                     b.HasOne("Heimdall.Core.Entities.Repository", "Repository")
@@ -1186,25 +1029,6 @@ namespace Heimdall.Repository.Migrations
                         .IsRequired();
 
                     b.Navigation("SourceRepository");
-                });
-
-            modelBuilder.Entity("Heimdall.Core.Entities.WikiEmbeddingChunk", b =>
-                {
-                    b.HasOne("Heimdall.Core.Entities.WikiPage", "WikiPage")
-                        .WithMany()
-                        .HasForeignKey("WikiPageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Heimdall.Core.Entities.WikiVersion", "WikiVersion")
-                        .WithMany()
-                        .HasForeignKey("WikiVersionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("WikiPage");
-
-                    b.Navigation("WikiVersion");
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.WikiPage", b =>

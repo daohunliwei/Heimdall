@@ -38,6 +38,19 @@ const nextConfig: NextConfig = {
         source: '/api/lang/config',
         destination: `${TARGET_SERVER_BASE_URL}/lang/config`,
       },
+      // V2 新增：仓库与项目 API
+      {
+        source: '/api/repositories/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/api/repositories/:path*`,
+      },
+      {
+        source: '/api/processed_projects/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/api/processed_projects/:path*`,
+      },
+      {
+        source: '/api/processed_projects',
+        destination: `${TARGET_SERVER_BASE_URL}/api/processed_projects`,
+      },
     ];
   },
 };

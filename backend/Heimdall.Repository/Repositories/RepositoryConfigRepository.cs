@@ -35,6 +35,14 @@ public class RepositoryConfigRepository : IRepositoryConfigRepository
             .FirstOrDefaultAsync(r => r.Owner == owner && r.RepoName == repoName);
     }
 
+    public async Task<RepositoryEntity?> GetByProviderKeyAsync(string providerType, string providerRepositoryKey)
+    {
+        return await _context.Repositories
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.ProviderType == providerType
+                && r.ProviderRepositoryKey == providerRepositoryKey);
+    }
+
     public async Task<List<RepositoryEntity>> GetAllAsync()
     {
         return await _context.Repositories
