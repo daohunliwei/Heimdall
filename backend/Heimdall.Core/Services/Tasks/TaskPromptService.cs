@@ -11,7 +11,8 @@ public sealed class TaskPromptService
 {
     public string BuildWikiStructurePrompt(
         string owner, string repo, string fileTree, string readme,
-        string languageDisplayName, bool isComprehensiveView)
+        string languageDisplayName, bool isComprehensiveView,
+        string generationProfile = "comprehensive")
     {
         return $$"""
 You are an expert software architect and technical documentation specialist. Your task is to analyze this repository and create a logical, comprehensive wiki structure.

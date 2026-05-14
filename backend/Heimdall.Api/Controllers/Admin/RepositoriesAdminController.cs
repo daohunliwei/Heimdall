@@ -10,14 +10,23 @@ namespace Heimdall.Api.Controllers.Admin;
 public class RepositoriesAdminController : ControllerBase
 {
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly IEmbeddingRepository _embeddingRepo;
+    private readonly ICodeEmbeddingRepository _codeEmbeddingRepo;
+    private readonly IWikiEmbeddingRepository _wikiEmbeddingRepo;
+    private readonly IRepositoryVersionRepository _versionRepo;
+    private readonly IWikiVersionRepository _wikiVersionRepo;
 
     public RepositoriesAdminController(
         IRepositoryConfigRepository repoRepo,
-        IEmbeddingRepository embeddingRepo)
+        ICodeEmbeddingRepository codeEmbeddingRepo,
+        IWikiEmbeddingRepository wikiEmbeddingRepo,
+        IRepositoryVersionRepository versionRepo,
+        IWikiVersionRepository wikiVersionRepo)
     {
         _repoRepo = repoRepo;
-        _embeddingRepo = embeddingRepo;
+        _codeEmbeddingRepo = codeEmbeddingRepo;
+        _wikiEmbeddingRepo = wikiEmbeddingRepo;
+        _versionRepo = versionRepo;
+        _wikiVersionRepo = wikiVersionRepo;
     }
 
     [HttpGet]
@@ -39,7 +48,11 @@ public class RepositoriesAdminController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        await _embeddingRepo.DeleteByRepoAsync(id);
+        // 清理向量数据
+        var versions = await _versionRepo.GetByRepositoryIdAsync(id);
+        foreach (var rv in versions)
+            await _codeEmbeddingRepo.DeleteByVersionIdAsync(rv.Id);
+
         var deleted = await _repoRepo.DeleteAsync(id);
         return deleted ? Ok() : NotFound();
     }
@@ -50,8 +63,11 @@ public class RepositoriesAdminController : ControllerBase
         var repo = await _repoRepo.GetByIdAsync(id);
         if (repo is null) return NotFound();
 
-        // 清除嵌入缓存，前端可重新提交生成任务
-        await _embeddingRepo.DeleteByRepoAsync(id);
+        // 清除向量缓存
+        var versions = await _versionRepo.GetByRepositoryIdAsync(id);
+        foreach (var rv in versions)
+            await _codeEmbeddingRepo.DeleteByVersionIdAsync(rv.Id);
+
         return Ok(new { status = "cleared" });
     }
 }

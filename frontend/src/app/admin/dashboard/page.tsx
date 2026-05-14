@@ -17,17 +17,14 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
 
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    fetch(`${baseUrl}/admin/dashboard`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("heimdall_token")}` },
-    })
+    fetch("/api/admin/dashboard")
       .then((r) => r.json())
       .then(setData)
       .catch(() => {});
   }, []);
 
   if (!data) {
-    return <div className="text-sm text-gray-500">加载中...</div>;
+    return <div className="text-sm text-[var(--muted)]">加载中...</div>;
   }
 
   const cards = [
@@ -43,15 +40,15 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h2 className="mb-4 text-xl font-bold text-gray-900 dark:text-white">仪表盘</h2>
+      <h2 className="mb-4 text-xl font-bold text-[var(--foreground)]">仪表盘</h2>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {cards.map((card) => (
           <div
             key={card.label}
-            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+            className="card p-4"
           >
-            <div className="text-xs text-gray-500 dark:text-gray-400">{card.label}</div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="text-xs text-[var(--muted)]">{card.label}</div>
+            <div className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
               {card.value}
             </div>
           </div>

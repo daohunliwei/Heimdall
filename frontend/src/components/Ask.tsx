@@ -4,8 +4,6 @@ import React, {useState, useRef, useEffect} from 'react';
 import {FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import Markdown from './Markdown';
 import { useLanguage } from '@/contexts/LanguageContext';
-import RepoInfo from '@/types/repoinfo';
-import getRepoUrl from '@/utils/getRepoUrl';
 import ModelSelectionModal from './ModelSelectionModal';
 
 interface Model {
@@ -26,15 +24,12 @@ interface Message {
 }
 
 interface AskTaskRequest {
-  repo_url: string;
-  owner?: string;
-  repo?: string;
+  repository_id: string;
   question: string;
   history: Message[];
   deep_research: boolean;
   filePath?: string;
   token?: string;
-  type?: string;
   provider?: string;
   model?: string;
   custom_model?: string;
@@ -58,7 +53,7 @@ interface ResearchStage {
 }
 
 interface AskProps {
-  repoInfo: RepoInfo;
+  repositoryId: string;
   provider?: string;
   model?: string;
   isCustomModel?: boolean;
@@ -68,7 +63,7 @@ interface AskProps {
 }
 
 const Ask: React.FC<AskProps> = ({
-  repoInfo,
+  repositoryId,
   provider = '',
   model = '',
   isCustomModel = false,
@@ -252,10 +247,7 @@ const Ask: React.FC<AskProps> = ({
       };
 
       const requestBody: AskTaskRequest = {
-        repo_url: getRepoUrl(repoInfo),
-        owner: repoInfo.owner,
-        repo: repoInfo.repo,
-        type: repoInfo.type,
+        repository_id: repositoryId,
         question: question,
         history: conversationHistory.map(msg => ({ role: msg.role as 'user' | 'assistant' | 'system', content: msg.content })),
         deep_research: deepResearch,
@@ -264,10 +256,6 @@ const Ask: React.FC<AskProps> = ({
         custom_model: isCustomSelectedModel ? customSelectedModel : undefined,
         language: language
       };
-
-      if (repoInfo?.token) {
-        requestBody.token = repoInfo.token;
-      }
 
       const result = await requestAskTask(requestBody);
       setResponse(result.content);
@@ -476,7 +464,6 @@ const Ask: React.FC<AskProps> = ({
         setIsComprehensiveView={setIsComprehensiveView}
         showFileFilters={false}
         onApply={() => {
-          console.log('Model selection applied:', selectedProvider, selectedModel);
         }}
         showWikiType={false}
         authRequired={false}

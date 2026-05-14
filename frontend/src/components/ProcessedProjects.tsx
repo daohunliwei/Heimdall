@@ -6,13 +6,18 @@ import { FaTimes, FaTh, FaList } from 'react-icons/fa';
 
 // Interface should match the structure from the API
 interface ProcessedProject {
+  repository_id: string;
   id: string;
   owner: string;
   repo: string;
   name: string;
+  display_name?: string;
   repo_type: string;
   submittedAt: number;
   language: string;
+  default_branch?: string;
+  latest_wiki_version_id?: string;
+  published_wiki_version_id?: string;
 }
 
 interface ProcessedProjectsProps {
@@ -102,19 +107,13 @@ export default function ProcessedProjects({
   };
 
   const handleDelete = async (project: ProcessedProject) => {
-    if (!confirm(`Are you sure you want to delete project ${project.name}?`)) {
+    if (!confirm(`确定要删除项目 ${project.display_name || project.name} 吗？`)) {
       return;
     }
     try {
-      const response = await fetch('/api/wiki/projects', {
+      const repoId = project.repository_id || project.id;
+      const response = await fetch(`/api/processed_projects/${repoId}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          owner: project.owner,
-          repo: project.repo,
-          repo_type: project.repo_type,
-          language: project.language,
-        }),
       });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ error: response.statusText }));
@@ -123,7 +122,7 @@ export default function ProcessedProjects({
       setProjects(prev => prev.filter(p => p.id !== project.id));
     } catch (e: unknown) {
       console.error('Failed to delete project:', e);
-      alert(`Failed to delete project: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      alert(`删除项目失败: ${e instanceof Error ? e.message : '未知错误'}`);
     }
   };
 
@@ -205,11 +204,11 @@ export default function ProcessedProjects({
                   <FaTimes className="h-3.5 w-3.5" />
                 </button>
                 <Link
-                  href={`/${project.owner}/${project.repo}?type=${project.repo_type}&language=${project.language}`}
+                  href={`/repositories/${project.repository_id || project.id}?type=${project.repo_type}&language=${project.language}`}
                   className="block"
                 >
                   <h3 className="font-semibold text-[var(--foreground)] mb-2 line-clamp-2 group-hover:text-[var(--accent-primary)] transition-colors">
-                    {project.name}
+                    {project.display_name || project.name}
                   </h3>
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     <span className="tag tag-primary">
@@ -235,12 +234,12 @@ export default function ProcessedProjects({
                   <FaTimes className="h-3.5 w-3.5" />
                 </button>
                 <Link
-                  href={`/${project.owner}/${project.repo}?type=${project.repo_type}&language=${project.language}`}
+                  href={`/repositories/${project.repository_id || project.id}?type=${project.repo_type}&language=${project.language}`}
                   className="flex-1 min-w-0 flex items-center justify-between gap-4"
                 >
                   <div className="min-w-0">
                     <h3 className="font-medium text-[var(--foreground)] truncate group-hover:text-[var(--accent-primary)] transition-colors">
-                      {project.name}
+                      {project.display_name || project.name}
                     </h3>
                     <p className="text-xs text-[var(--muted)] mt-0.5">
                       {t('processedOn')} {new Date(project.submittedAt).toLocaleDateString()} · {project.repo_type} · {project.language}

@@ -38,6 +38,33 @@ const nextConfig: NextConfig = {
         source: '/api/lang/config',
         destination: `${TARGET_SERVER_BASE_URL}/lang/config`,
       },
+      // V2 新增：仓库与项目 API
+      {
+        source: '/api/repositories/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/api/repositories/:path*`,
+      },
+      {
+        source: '/api/processed_projects/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/api/processed_projects/:path*`,
+      },
+      {
+        source: '/api/processed_projects',
+        destination: `${TARGET_SERVER_BASE_URL}/api/processed_projects`,
+      },
+      // 模型配置与 Chat API
+      {
+        source: '/api/models/config',
+        destination: `${TARGET_SERVER_BASE_URL}/models/config`,
+      },
+      {
+        source: '/api/chat/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/chat/:path*`,
+      },
+      // 管理后台 API（后端路由为 /admin/* 不带 /api 前缀）
+      {
+        source: '/api/admin/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/admin/:path*`,
+      },
     ];
   },
 };

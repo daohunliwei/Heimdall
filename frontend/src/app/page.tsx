@@ -276,26 +276,70 @@ export default function Home() {
     }
 
     const { owner, repo, type, localPath } = parsedRepo;
-    const params = new URLSearchParams();
-    if (accessToken) params.append('token', accessToken);
-    params.append('type', (type === 'local' ? type : selectedPlatform) || 'github');
-    if (localPath) {
-      params.append('local_path', encodeURIComponent(localPath));
-    } else {
-      params.append('repo_url', encodeURIComponent(repositoryInput));
-    }
-    params.append('provider', provider);
-    params.append('model', model);
-    if (isCustomModel && customModel) params.append('custom_model', customModel);
-    if (excludedDirs) params.append('excluded_dirs', excludedDirs);
-    if (excludedFiles) params.append('excluded_files', excludedFiles);
-    if (includedDirs) params.append('included_dirs', includedDirs);
-    if (includedFiles) params.append('included_files', includedFiles);
-    params.append('language', selectedLanguage);
-    params.append('comprehensive', isComprehensiveView.toString());
 
-    const queryString = params.toString() ? `?${params.toString()}` : '';
-    router.push(`/${owner}/${repo}${queryString}`);
+    // V2: 先调用 import 接口获取 repositoryId，再跳转到新路由
+    try {
+      const repoUrl = localPath || repositoryInput;
+      const importResp = await fetch('/api/repositories/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_url: repoUrl }),
+      });
+
+      if (!importResp.ok) {
+        const errBody = await importResp.json().catch(() => ({ error: '导入失败' }));
+        throw new Error(errBody.error || `导入失败：${importResp.status}`);
+      }
+
+      const importData = await importResp.json() as { repository_id: string; display_name: string };
+      const repositoryId = importData.repository_id;
+
+      // 构建查询参数并跳转到新路由
+      const params = new URLSearchParams();
+      if (accessToken) params.append('token', accessToken);
+      params.append('type', (type === 'local' ? type : selectedPlatform) || 'github');
+      params.append('owner', owner);
+      params.append('repo', repo);
+      if (localPath) {
+        params.append('local_path', encodeURIComponent(localPath));
+      } else {
+        params.append('repo_url', encodeURIComponent(repositoryInput));
+      }
+      params.append('provider', provider);
+      params.append('model', model);
+      if (isCustomModel && customModel) params.append('custom_model', customModel);
+      if (excludedDirs) params.append('excluded_dirs', excludedDirs);
+      if (excludedFiles) params.append('excluded_files', excludedFiles);
+      if (includedDirs) params.append('included_dirs', includedDirs);
+      if (includedFiles) params.append('included_files', includedFiles);
+      params.append('language', selectedLanguage);
+      params.append('comprehensive', isComprehensiveView.toString());
+
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      router.push(`/repositories/${repositoryId}${queryString}`);
+    } catch (err) {
+      console.error('Import failed, falling back to old route:', err);
+
+      // 兜底：如果 import 失败，回退到旧路由
+      const params = new URLSearchParams();
+      if (accessToken) params.append('token', accessToken);
+      params.append('type', (type === 'local' ? type : selectedPlatform) || 'github');
+      if (localPath) {
+        params.append('local_path', encodeURIComponent(localPath));
+      } else {
+        params.append('repo_url', encodeURIComponent(repositoryInput));
+      }
+      params.append('provider', provider);
+      params.append('model', model);
+      if (isCustomModel && customModel) params.append('custom_model', customModel);
+      params.append('language', selectedLanguage);
+      params.append('comprehensive', isComprehensiveView.toString());
+
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      router.push(`/${owner}/${repo}${queryString}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const hasProjects = !projectsLoading && projects.length > 0;

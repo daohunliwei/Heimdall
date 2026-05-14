@@ -2,11 +2,11 @@
   "profiles": {
     "Heimdall.Api": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "launchBrowser": false,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:64127;http://localhost:64128"
+      "applicationUrl": "http://localhost:8001"
     }
   }
 }
