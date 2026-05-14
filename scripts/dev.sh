@@ -81,7 +81,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
     done
     echo ""
     echo "启动命令:"
-    echo "  后端: dotnet run --project backend/Heimdall.Api/Heimdall.Api.csproj"
+    echo "  后端: dotnet run --no-launch-profile --project backend/Heimdall.Api/Heimdall.Api.csproj"
     echo "  前端: cd frontend && $PM run dev"
     exit 0
 fi
@@ -108,7 +108,7 @@ trap cleanup EXIT INT TERM
 # 启动后端
 if [[ "$FRONTEND_ONLY" != "true" ]]; then
     echo "▸ 启动后端服务..."
-    dotnet run --project "$REPO_ROOT/backend/Heimdall.Api/Heimdall.Api.csproj" &
+    dotnet run --no-launch-profile --project "$REPO_ROOT/backend/Heimdall.Api/Heimdall.Api.csproj" &
     BACKEND_PID=$!
 
     # 等待后端就绪
