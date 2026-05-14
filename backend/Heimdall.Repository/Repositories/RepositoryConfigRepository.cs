@@ -28,6 +28,13 @@ public class RepositoryConfigRepository : IRepositoryConfigRepository
                 && r.RepoType == repoType);
     }
 
+    public async Task<RepositoryEntity?> GetByOwnerRepoAnyTypeAsync(string owner, string repoName)
+    {
+        return await _context.Repositories
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Owner == owner && r.RepoName == repoName);
+    }
+
     public async Task<List<RepositoryEntity>> GetAllAsync()
     {
         return await _context.Repositories
