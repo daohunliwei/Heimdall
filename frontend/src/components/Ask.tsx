@@ -464,7 +464,6 @@ const Ask: React.FC<AskProps> = ({
         setIsComprehensiveView={setIsComprehensiveView}
         showFileFilters={false}
         onApply={() => {
-          console.log('Model selection applied:', selectedProvider, selectedModel);
         }}
         showWikiType={false}
         authRequired={false}

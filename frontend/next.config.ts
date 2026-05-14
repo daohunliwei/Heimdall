@@ -60,10 +60,10 @@ const nextConfig: NextConfig = {
         source: '/api/chat/:path*',
         destination: `${TARGET_SERVER_BASE_URL}/chat/:path*`,
       },
-      // 管理后台 API
+      // 管理后台 API（后端路由为 /admin/* 不带 /api 前缀）
       {
         source: '/api/admin/:path*',
-        destination: `${TARGET_SERVER_BASE_URL}/api/admin/:path*`,
+        destination: `${TARGET_SERVER_BASE_URL}/admin/:path*`,
       },
     ];
   },

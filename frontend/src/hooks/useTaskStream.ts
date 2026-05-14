@@ -24,7 +24,7 @@ export function useTaskStream(taskId: string | null) {
     if (!taskId) return;
     if (eventSourceRef.current) eventSourceRef.current.close();
 
-    const es = new EventSource(`${process.env.NEXT_PUBLIC_API_URL || ""}/tasks/${taskId}/stream`);
+    const es = new EventSource(`/api/tasks/${taskId}/stream`);
     eventSourceRef.current = es;
 
     es.addEventListener("progress", (e) => {
