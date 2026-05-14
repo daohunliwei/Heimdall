@@ -224,11 +224,53 @@ export default function RepoWikiPage() {
         throw new Error(errorBody?.error || `Wiki 生成失败：${response.status}`);
       }
 
-      const data = await response.json() as WikiTaskResponse;
-      applyWikiPayload({
-        repo: data.repo, provider: data.provider, model: data.model,
-        wiki_structure: data.wiki_structure, generated_pages: data.generated_pages, debug: data.debug,
-      });
+      const data = await response.json() as { task_id: string; status: string; message: string };
+      const taskId = data.task_id;
+
+      // 如果已完成（去重命中），直接加载缓存
+      if (data.status === 'completed') {
+        setLoadingMessage(messages.loading?.fetchingCache || '正在加载已完成 Wiki...');
+        const loaded = await loadWikiFromCache();
+        if (loaded) { setIsLoading(false); setLoadingMessage(undefined); return; }
+      }
+
+      // 轮询等待任务完成
+      setLoadingMessage(data.message || '任务已接收，后台处理中...');
+      let pollCount = 0;
+      const maxPolls = 360; // 最多等 30 分钟 (5s × 360)
+      while (pollCount < maxPolls) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        pollCount++;
+
+        const statusResp = await fetch(`/api/tasks/${taskId}/status`);
+        if (!statusResp.ok) continue;
+
+        const statusData = await statusResp.json() as {
+          id: string; status: string; progress_percent: number;
+          progress_message?: string; error_message?: string;
+        };
+
+        if (statusData.progress_message) {
+          setLoadingMessage(statusData.progress_message);
+        }
+
+        if (statusData.status === 'completed') {
+          setLoadingMessage(messages.loading?.fetchingCache || '正在加载 Wiki 数据...');
+          const loaded = await loadWikiFromCache();
+          if (loaded) { setIsLoading(false); setLoadingMessage(undefined); return; }
+          throw new Error('Wiki 生成完成，但缓存加载失败');
+        }
+
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.error_message || 'Wiki 生成失败');
+        }
+
+        if (statusData.status === 'cancelled') {
+          throw new Error('任务已取消');
+        }
+      }
+
+      throw new Error('任务超时：Wiki 生成超过 30 分钟');
     } catch (err) {
       console.error('Error generating wiki:', err);
       setError(err instanceof Error ? err.message : 'Wiki 生成失败');
@@ -236,7 +278,7 @@ export default function RepoWikiPage() {
       setIsLoading(false);
       setLoadingMessage(undefined);
     }
-  }, [applyWikiPayload, currentToken, customSelectedModelState, effectiveRepoInfo,
+  }, [applyWikiPayload, loadWikiFromCache, currentToken, customSelectedModelState, effectiveRepoInfo,
     isComprehensiveView, isCustomSelectedModelState, language, messages.loading,
     modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles,
     selectedModelState, selectedProviderState]);
