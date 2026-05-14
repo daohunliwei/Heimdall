@@ -50,8 +50,8 @@ interface WikiTaskResponse {
   language: string;
   provider?: string;
   model?: string;
-  wiki_structure: WikiStructure;
-  generated_pages: Record<string, WikiPage>;
+  wikiStructure: WikiStructure;
+  generatedPages: Record<string, WikiPage>;
   debug?: WikiTaskDebugInfo;
 }
 
@@ -78,8 +78,8 @@ interface ServerWikiCacheData {
   provider?: string;
   model?: string;
   language?: string;
-  wiki_structure?: WikiStructure;
-  generated_pages?: Record<string, WikiPage>;
+  wikiStructure?: WikiStructure;
+  generatedPages?: Record<string, WikiPage>;
 }
 
 function deriveRepoType(repoUrl: string | undefined, typeParam: string | null): string {
@@ -158,16 +158,16 @@ export default function RepoWikiPage() {
 
   const applyWikiPayload = useCallback((payload: {
     repo?: RepoInfo; provider?: string; model?: string;
-    wiki_structure: WikiStructure; generated_pages: Record<string, WikiPage>;
+    wikiStructure: WikiStructure; generatedPages: Record<string, WikiPage>;
     debug?: WikiTaskDebugInfo;
   }) => {
     setEffectiveRepoInfo(payload.repo || initialRepoInfo);
-    setWikiStructure(payload.wiki_structure);
-    setGeneratedPages(payload.generated_pages || {});
+    setWikiStructure(payload.wikiStructure);
+    setGeneratedPages(payload.generatedPages || {});
     setWikiDebug(payload.debug || null);
     setCurrentPageId((previousPageId) => {
-      if (previousPageId && payload.generated_pages?.[previousPageId]) return previousPageId;
-      return payload.wiki_structure.pages[0]?.id;
+      if (previousPageId && payload.generatedPages?.[previousPageId]) return previousPageId;
+      return payload.wikiStructure.pages[0]?.id;
     });
     if (payload.provider) setSelectedProviderState(payload.provider);
     if (payload.model) setSelectedModelState(payload.model);
@@ -182,10 +182,10 @@ export default function RepoWikiPage() {
     const response = await fetch(`/api/wiki_cache?${cacheParams.toString()}`);
     if (!response.ok) return false;
     const cachedData = await readJsonSafely<ServerWikiCacheData>(response);
-    if (!cachedData?.wiki_structure) return false;
+    if (!cachedData?.wikiStructure) return false;
     applyWikiPayload({
       repo: cachedData.repo, provider: cachedData.provider, model: cachedData.model,
-      wiki_structure: cachedData.wiki_structure, generated_pages: cachedData.generated_pages || {},
+      wikiStructure: cachedData.wikiStructure, generatedPages: cachedData.generatedPages || {},
     });
     return true;
   }, [applyWikiPayload, effectiveRepoInfo, language, messages.loading]);

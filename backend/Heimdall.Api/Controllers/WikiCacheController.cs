@@ -31,7 +31,9 @@ public class WikiCacheController : ControllerBase
         [FromQuery] string repo_type,
         [FromQuery] string language)
     {
-        var repoEntity = await _repoRepo.GetByOwnerRepoTypeAsync(owner, repo, repo_type);
+        var repoEntity = await _repoRepo.GetByOwnerRepoTypeAsync(owner, repo, repo_type)
+            ?? await _repoRepo.GetByOwnerRepoAnyTypeAsync(owner, repo);
+
         if (repoEntity is null)
             return NotFound(new { error = "仓库不存在" });
 

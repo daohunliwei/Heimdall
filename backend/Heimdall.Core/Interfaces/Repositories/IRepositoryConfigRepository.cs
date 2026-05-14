@@ -7,6 +7,7 @@ public interface IRepositoryConfigRepository
 {
     Task<Repository?> GetByIdAsync(Guid id);
     Task<Repository?> GetByOwnerRepoTypeAsync(string owner, string repoName, string repoType);
+    Task<Repository?> GetByOwnerRepoAnyTypeAsync(string owner, string repoName);
     Task<List<Repository>> GetAllAsync();
     Task<Repository> AddAsync(Repository repository);
     Task<Repository> UpdateAsync(Repository repository);
