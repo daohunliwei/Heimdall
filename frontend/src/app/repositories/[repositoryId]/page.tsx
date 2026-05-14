@@ -3,7 +3,9 @@
 import Ask from '@/components/Ask';
 import Markdown from '@/components/Markdown';
 import ModelSelectionModal from '@/components/ModelSelectionModal';
+import RefreshPanel, { RefreshOptions } from '@/components/RefreshPanel';
 import ThemeToggle from '@/components/theme-toggle';
+import VersionSwitcher from '@/components/VersionSwitcher';
 import WikiTreeView from '@/components/WikiTreeView';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { RepoInfo } from '@/types/repoinfo';
@@ -126,6 +128,7 @@ export default function RepositoryWikiPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [isAskModalOpen, setIsAskModalOpen] = useState(false);
   const [isModelSelectionModalOpen, setIsModelSelectionModalOpen] = useState(false);
+  const [currentWikiVersionId, setCurrentWikiVersionId] = useState<string | undefined>();
   const askComponentRef = useRef<{ clearConversation: () => void } | null>(null);
   const initialLoadKeyRef = useRef('');
 
@@ -341,6 +344,64 @@ export default function RepositoryWikiPage() {
     }
   }, [repositoryId, language, generateWikiTask, messages.loading]);
 
+  const handleVersionChange = useCallback(async (wikiVersionId: string, _repositoryVersionId: string) => {
+    setCurrentWikiVersionId(wikiVersionId);
+    // 按版本加载页面内容
+    try {
+      const resp = await fetch(`/api/repositories/${repositoryId}/wiki/pages?wikiVersionId=${wikiVersionId}&language=${language}`);
+      if (resp.ok) {
+        const pages = await resp.json() as WikiPage[];
+        const pageMap: Record<string, WikiPage> = {};
+        pages.forEach((p: WikiPage) => { pageMap[p.id] = p; });
+        setGeneratedPages(pageMap);
+      }
+    } catch (e) {
+      console.error('加载版本页面失败', e);
+    }
+  }, [repositoryId, language]);
+
+  const handleRefreshWithOptions = useCallback(async (options: RefreshOptions) => {
+    setIsLoading(true);
+    setError(null);
+    setErrorDetails(null);
+    setLoadingMessage('正在刷新 Wiki...');
+
+    try {
+      const body = {
+        branch: options.branch,
+        refresh_strategy: options.refreshStrategy,
+        force_refresh: options.forceRefresh,
+        generation_profile: options.generationProfile,
+        provider: options.provider,
+        model: options.model,
+        language,
+      };
+
+      const resp = await fetch(`/api/repositories/${repositoryId}/wiki/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (resp.ok) {
+        const result = await resp.json() as { result_type: string; message: string };
+        if (result.result_type === 'no_change') {
+          setIsLoading(false);
+          setLoadingMessage(undefined);
+          return;
+        }
+      }
+
+      // 执行完整刷新
+      await generateWikiTask({ forceRefresh: options.forceRefresh });
+    } catch (err) {
+      console.error('刷新失败', err);
+      setIsLoading(false);
+      setLoadingMessage(undefined);
+      setError(err instanceof Error ? err.message : '刷新失败');
+    }
+  }, [repositoryId, language, generateWikiTask]);
+
   const handlePageSelect = useCallback((pageId: string) => { setCurrentPageId(pageId); }, []);
 
   useEffect(() => {
@@ -424,6 +485,17 @@ export default function RepositoryWikiPage() {
               </div>
 
               <div className="p-4 border-b border-[var(--border-color)] space-y-2">
+                <VersionSwitcher
+                  repositoryId={repositoryId}
+                  currentWikiVersionId={currentWikiVersionId}
+                  onVersionChange={handleVersionChange}
+                />
+                <RefreshPanel
+                  repositoryId={repositoryId}
+                  defaultBranch={repoDetail?.default_branch || 'main'}
+                  onRefresh={handleRefreshWithOptions}
+                  isLoading={isLoading}
+                />
                 <button onClick={() => setIsModelSelectionModalOpen(true)} disabled={isLoading}
                   className="btn-secondary w-full text-xs justify-center">
                   <FaSync className={isLoading ? 'animate-spin' : ''} />
@@ -480,13 +552,13 @@ export default function RepositoryWikiPage() {
                     <Markdown content={currentPage.content} />
                   </div>
 
-                  {currentPage.relatedPages.length > 0 && (
+                  {currentPage.relatedPages && currentPage.relatedPages.length > 0 && (
                     <div className="mt-10 pt-6 border-t border-[var(--border-color)]">
                       <h4 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider mb-3">
                         {messages.repoPage?.relatedPages || 'Related Pages:'}
                       </h4>
                       <div className="flex flex-wrap gap-2">
-                        {currentPage.relatedPages.map((relatedId) => {
+                        {currentPage.relatedPages?.map((relatedId) => {
                           const relatedPage = wikiStructure.pages.find((page) => page.id === relatedId);
                           return relatedPage ? (
                             <button key={relatedId}

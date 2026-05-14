@@ -9,15 +9,18 @@ public class WikiCacheController : ControllerBase
     private readonly IWikiRepository _wikiRepo;
     private readonly IWikiPageRepository _pageRepo;
     private readonly IRepositoryConfigRepository _repoRepo;
+    private readonly IWikiPageRelationRepository _relationRepo;
 
     public WikiCacheController(
         IWikiRepository wikiRepo,
         IWikiPageRepository pageRepo,
-        IRepositoryConfigRepository repoRepo)
+        IRepositoryConfigRepository repoRepo,
+        IWikiPageRelationRepository relationRepo)
     {
         _wikiRepo = wikiRepo;
         _pageRepo = pageRepo;
         _repoRepo = repoRepo;
+        _relationRepo = relationRepo;
     }
 
     /// <summary>
@@ -109,6 +112,32 @@ public class WikiCacheController : ControllerBase
     private async Task<object> BuildWikiResponse(Core.Entities.Repository repoEntity, Core.Entities.Wiki wiki)
     {
         var pages = await _pageRepo.GetByWikiIdAsync(wiki.Id);
+
+        // 从 wiki_page_relations 加载页面关系
+        var pageGuidToTitle = pages.ToDictionary(p => p.Id, p => p.Title);
+        var pageRelations = new Dictionary<Guid, List<string>>(); // pageId → related page titles
+
+        if (pages.Count > 0)
+        {
+            var pageGuids = pages.Select(p => p.Id).ToHashSet();
+            var allRelations = new List<Core.Entities.WikiPageRelation>();
+
+            foreach (var pageId in pageGuids)
+            {
+                var rels = await _relationRepo.GetBySourcePageIdAsync(pageId);
+                allRelations.AddRange(rels);
+            }
+
+            foreach (var rel in allRelations)
+            {
+                if (!pageRelations.ContainsKey(rel.SourcePageId))
+                    pageRelations[rel.SourcePageId] = new List<string>();
+
+                if (pageGuidToTitle.TryGetValue(rel.TargetPageId, out var targetTitle))
+                    pageRelations[rel.SourcePageId].Add(targetTitle);
+            }
+        }
+
         var generatedPages = new Dictionary<string, object>();
         foreach (var p in pages)
         {
@@ -139,7 +168,9 @@ public class WikiCacheController : ControllerBase
                     description = "",
                     importance = p.Importance,
                     filePaths = p.FilePaths ?? Array.Empty<string>(),
-                    relatedPages = Array.Empty<string>()
+                    relatedPages = pageRelations.TryGetValue(p.Id, out var related)
+                        ? (IReadOnlyList<string>)related
+                        : Array.Empty<string>()
                 }).ToList(),
                 sections = new List<object>(),
                 rootSections = new List<string>()

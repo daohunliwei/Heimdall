@@ -145,6 +145,7 @@ builder.Services.AddScoped<ICodeEmbeddingRepository, CodeEmbeddingRepository>();
 builder.Services.AddScoped<IWikiEmbeddingRepository, WikiEmbeddingRepository>();
 builder.Services.AddScoped<IWikiSpaceRepository, WikiSpaceRepository>();
 builder.Services.AddScoped<IWikiVersionRepository, WikiVersionRepository>();
+builder.Services.AddScoped<IWikiPageRelationRepository, WikiPageRelationRepository>();
 builder.Services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
 
 // Core Services (Scoped - 依赖 Repository)
@@ -152,6 +153,8 @@ builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IVersionDiscoveryService, VersionDiscoveryService>();
 builder.Services.AddScoped<IRefreshOrchestrationService, RefreshOrchestrationService>();
 builder.Services.AddScoped<IDualVectorSearchService, DualVectorSearchService>();
+builder.Services.AddScoped<ICodeEmbeddingService, CodeEmbeddingService>();
+builder.Services.AddScoped<IWikiEmbeddingService, WikiEmbeddingService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<WikiCacheService>();
