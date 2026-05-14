@@ -28,7 +28,7 @@ public sealed class TaskLlmService
             Messages = [new ChatMessage { Role = "user", Content = prompt }]
         };
 
-        var (resolvedProviderId, resolvedModel, _, chatProvider) = _providerRegistry.ResolveChatProvider(request);
+        var (resolvedProviderId, resolvedModel, parameters, chatProvider) = _providerRegistry.ResolveChatProvider(request);
 
         _logger.LogInformation("LLM 调用 Provider={Provider} Model={Model} PromptLen={Len}",
             resolvedProviderId, resolvedModel, prompt.Length);
@@ -37,7 +37,11 @@ public sealed class TaskLlmService
         {
             ProviderId = resolvedProviderId,
             Model = resolvedModel,
-            Prompt = prompt
+            Prompt = prompt,
+            Temperature = parameters.Temperature,
+            TopP = parameters.TopP,
+            TopK = parameters.TopK,
+            Options = parameters.Options
         }, ct);
 
         _logger.LogInformation("LLM 调用完成 ElapsedMs={Ms} ResultLen={Len}",

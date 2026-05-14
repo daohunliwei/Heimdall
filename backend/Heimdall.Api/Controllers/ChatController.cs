@@ -50,7 +50,7 @@ public class ChatController : ControllerBase
 
         try
         {
-            var (_, _, _, provider) = _providerRegistry.ResolveChatProvider(request);
+            var (_, _, parameters, provider) = _providerRegistry.ResolveChatProvider(request);
             var prompt = request.Messages.Count > 0
                 ? request.Messages[^1].Content
                 : "Hello";
@@ -62,7 +62,11 @@ public class ChatController : ControllerBase
             {
                 ProviderId = provider.ProviderId,
                 Model = request.Model ?? string.Empty,
-                Prompt = fullPrompt
+                Prompt = fullPrompt,
+                Temperature = parameters.Temperature,
+                TopP = parameters.TopP,
+                TopK = parameters.TopK,
+                Options = parameters.Options
             };
 
             var result = await provider.GenerateAsync(providerRequest, ct);

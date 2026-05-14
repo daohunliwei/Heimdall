@@ -128,7 +128,8 @@ QUALITY CHECKLIST before generating XML:
 
     public string BuildWikiPagePrompt(
         WikiPageDto page, IEnumerable<WikiPageDto> allPages,
-        string repoOwner, string repoName, string repoType, string? repoUrl, string languageDisplayName)
+        string repoOwner, string repoName, string repoType, string? repoUrl,
+        string languageDisplayName, string fileContents)
     {
         var relatedPagesContext = string.Join('\n',
             page.RelatedPages
@@ -146,67 +147,53 @@ Your task is to generate a comprehensive and accurate technical wiki page in Mar
 CONTEXT AWARENESS: This wiki has multiple pages. You are generating content for "{{page.Title}}" specifically.
 {{(string.IsNullOrWhiteSpace(relatedPagesContext) ? string.Empty : $"\nRelated pages in this wiki:\n{relatedPagesContext}\n\nEnsure your content is DISTINCT from these related pages and does not duplicate their coverage.")}}
 
-You will be given:
-1. The "[WIKI_PAGE_TOPIC]" for the page you need to create.
-2. A list of "[RELEVANT_SOURCE_FILES]" from the project that you MUST use as the sole basis for the content. You have access to the full content of these files through the RAG system.
+## [WIKI_PAGE_TOPIC]
+Title: {{page.Title}}
+Description: {{page.Description}}
 
-CRITICAL: This page should provide UNIQUE, NON-OVERLAPPING content focused specifically on "{{page.Title}}". Avoid generic descriptions that could apply to any system. Instead, focus on:
-- Specific implementation details found in the source files
-- Unique architectural decisions and patterns used in this particular system
-- Concrete code examples and technical specifics
-- How this component/feature integrates with other parts of the system
+## [RELEVANT_SOURCE_FILES]
+The following are the ACTUAL source file contents from the repository. You MUST use these as the sole basis for your analysis. Do NOT invent or infer anything not present in these files.
+
+{{fileContents}}
+
+## File Reference Links:
+{{fileLinks}}
+
+CRITICAL: This page should provide UNIQUE, NON-OVERLAPPING content focused specifically on "{{page.Title}}". Analyze the REAL source code provided above and generate content based on what you ACTUALLY SEE in the files.
 
 CRITICAL STARTING INSTRUCTION:
-The very first thing on the page MUST be a `<details>` block listing ALL the `[RELEVANT_SOURCE_FILES]` you used to generate the content. There MUST be AT LEAST 5 source files listed - if fewer were provided, you MUST find additional related files to include.
+The very first thing on the page MUST be a `<details>` block listing ALL the `[RELEVANT_SOURCE_FILES]` you used.
 Format it exactly like this:
 <details>
 <summary>Relevant source files</summary>
 
-Remember, do not provide any acknowledgements, disclaimers, apologies, or any other preface before the `<details>` block. JUST START with the `<details>` block.
 The following files were used as context for generating this wiki page:
 
 {{fileLinks}}
-<!-- Add additional relevant files if fewer than 5 were provided -->
 </details>
 
-Immediately after the `<details>` block, the main title of the page should be a H1 Markdown heading: `# {{page.Title}}`.
+Immediately after the `<details>` block, the main title should be: `# {{page.Title}}`.
 
-Based ONLY on the content of the `[RELEVANT_SOURCE_FILES]`:
+Based ONLY on the actual source file contents provided above:
 
-1. **Introduction:** Start with a concise introduction (1-2 paragraphs) explaining the SPECIFIC purpose, scope, and implementation details of "{{page.Title}}" within this project. Focus on what makes this component/feature unique in this codebase rather than generic descriptions. Include specific technical details found in the source files. If relevant, link to other wiki pages using the format `[Link Text](#page-anchor-or-id)`.
+1. **Introduction:** Start with a concise introduction (1-2 paragraphs) explaining the SPECIFIC purpose and implementation of "{{page.Title}}" based on the REAL CODE you see. Focus on what makes this component unique in this codebase.
 
-2. **Detailed Sections:** Break down "{{page.Title}}" into logical sections using H2 (`##`) and H3 (`###`) Markdown headings. For each section:
-   - Provide DEEP TECHNICAL ANALYSIS of the architecture, components, data flow, or logic, with specific references to the source code
-   - Identify and explain key functions, classes, data structures, API endpoints, or configuration elements with their actual implementations
-   - Focus on HOW things work in this specific codebase, not just WHAT they do
-   - Include performance considerations, design trade-offs, and architectural decisions evident in the code
+2. **Detailed Sections:** Break down "{{page.Title}}" into logical sections using H2 (##) and H3 (###) headings. For each section:
+   - Provide analysis grounded in the ACTUAL source code provided above
+   - Reference specific functions, classes, patterns you SEE in the files
+   - Focus on HOW things work, with concrete evidence from the code
 
-3. **Mermaid Diagrams:**
-   - EXTENSIVELY use Mermaid diagrams (e.g., `flowchart TD`, `sequenceDiagram`, `classDiagram`, `erDiagram`, `graph TD`) to visually represent architectures, flows, relationships, and schemas found in the source files.
-   - Ensure diagrams are accurate and directly derived from information in the `[RELEVANT_SOURCE_FILES]`.
-   - Provide a brief explanation before or after each diagram to give context.
-   - CRITICAL: All diagrams MUST follow strict vertical orientation:
-     - Use "graph TD" (top-down) directive for flow diagrams
-     - NEVER use "graph LR" (left-right)
-     - Maximum node width should be 3-4 words
-     - For sequence diagrams, define all participants first and use Mermaid standard arrow syntax
+3. **Mermaid Diagrams:** Create diagrams that reflect the REAL architecture you observe in the provided source files.
 
-4. **Tables:**
-   - Use Markdown tables to summarize key components, API parameters, configuration options, or data model fields.
+4. **Tables:** Summarize key components you ACTUALLY found in the source files.
 
-5. **Code Snippets (ENTIRELY OPTIONAL):**
-   - Include short, relevant code snippets directly from the source files to illustrate implementation details.
+5. **Code Snippets:** Quote directly from the provided source files to illustrate key points.
 
-6. **Source Citations (EXTREMELY IMPORTANT):**
-   - For EVERY significant explanation, diagram, table entry, or code snippet, cite the specific source file(s) and relevant line numbers.
-   - Use repository-accessible links when possible.
-   - IMPORTANT: You MUST cite AT LEAST 5 different source files throughout the wiki page to ensure comprehensive coverage.
+6. **Source Citations:** For EVERY claim, cite the specific file and explain what you see there.
 
-7. **Technical Accuracy:** All information must be derived SOLELY from the `[RELEVANT_SOURCE_FILES]`. Do not infer, invent, or use external knowledge unless directly supported by the provided code.
+7. **Technical Accuracy:** ALL information MUST be derived from the source file contents provided above. If the files don't contain enough information to cover something, say so honestly.
 
 8. **Clarity and Conciseness:** Use clear, professional, and concise technical language suitable for other developers.
-
-9. **Conclusion/Summary:** End with a brief summary paragraph if appropriate for "{{page.Title}}", reiterating the key aspects covered and their significance within the project.
 
 IMPORTANT: Generate the content in {{languageDisplayName}} language.
 """;
