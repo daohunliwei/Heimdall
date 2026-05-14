@@ -4,16 +4,10 @@ namespace Heimdall.Core.Interfaces.Services;
 
 /// <summary>
 /// Wiki 任务统一提交服务接口。
-/// 该接口用于收敛 `/tasks/wiki` 与 `/wiki/refresh` 两条入口的任务创建、去重和队列调度逻辑。
+/// 该接口用于承载 `/wiki/refresh` 正式入口对应的任务创建、去重和队列调度逻辑。
 /// </summary>
 public interface IWikiTaskSubmissionService
 {
-    /// <summary>
-    /// 直接提交一次 Wiki 生成任务。
-    /// 该入口适用于“立即生成/重跑 Wiki”的场景，不额外做远端版本发现。
-    /// </summary>
-    Task<WikiTaskSubmissionResult> SubmitGenerateAsync(WikiTaskSubmissionRequest request, CancellationToken cancellationToken = default);
-
     /// <summary>
     /// 按刷新语义提交一次 Wiki 任务。
     /// 该入口会先执行版本决策，再决定复用已有结果还是排队新的后台任务。
@@ -94,7 +88,7 @@ public sealed class WikiTaskSubmissionRequest
 
 /// <summary>
 /// Wiki 任务统一提交结果。
-/// 返回字段同时覆盖旧前端兼容语义与 V3 版本化任务语义。
+/// 返回字段仅服务于 V3 的正式任务与版本语义。
 /// </summary>
 public sealed class WikiTaskSubmissionResult
 {
@@ -124,7 +118,7 @@ public sealed class WikiTaskSubmissionResult
 
     /// <summary>
     /// 结果类型。
-    /// 当前阶段主要取值为 queued、reused、no_change。
+    /// 当前阶段主要取值为 queued、reused。
     /// </summary>
     public string ResultType { get; set; } = "queued";
 

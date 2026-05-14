@@ -483,7 +483,7 @@ V3 文档本身的验证分两层：
 
 - 已确认落地的能力：
   - `TaskQueueService` 已真正承担 Wiki 任务执行职责，`ExecuteAsync` 会消费队列并调用 `WikiTaskService.ExecuteAsync`
-  - `TasksController` 已不再直接通过控制器内 `Task.Run` 启动 Wiki 主任务，`/tasks/wiki` 与 `/wiki/refresh` 已统一收敛到 `WikiTaskSubmissionService`
+  - `TasksController` 已不再直接通过控制器内 `Task.Run` 启动 Wiki 主任务，Wiki 刷新正式入口已统一为 `/api/repositories/{repositoryId}/wiki/refresh`
   - `TaskRecord` 已补齐 `CurrentStage`、`CurrentStageStatus`、`LastSuccessfulStage`、`LastArtifactId`、`AttemptCount` 等阶段状态字段，并已通过 `20260514155446_V3Phase1TaskArtifacts` 迁移落库
   - `task_artifacts` 已实际用于写入 `planning_artifact`、`page_batch_artifact`、`quality_report_artifact`、`relation_artifact`、`render_artifact`、`code_embedding_artifact`、`wiki_embedding_artifact`
   - `WikiTaskExecutionRepository` 已在单一事务中完成 Wiki 主数据、`RepositoryVersion`、`WikiVersion`、`WikiPage`、`WikiPageRelation` 与关键工件写入，并同步回写 `TaskRecord.ResultWikiVersionId` 与 `ResolvedRepositoryVersionId`
@@ -491,16 +491,11 @@ V3 文档本身的验证分两层：
   - 结构规划与页面草案已切换为“JSON DTO 优先，XML 仅兼容回退”；页面正文与渲染输出已转为 Markdown、Frontmatter 与结构元数据优先
   - `AskTaskService`、`SlidesTaskService`、`WorkshopTaskService` 已统一通过 `VersionedKnowledgeService` 继承 `RepositoryVersion` / `WikiVersion`
   - 本次会话已实际验证 `dotnet build backend/Heimdall.Api/Heimdall.Api.csproj` 与 `frontend` 下 `npm run build` 均通过
+  - 本次会话已实际完成 PostgreSQL 迁移、目标仓库导入、Wiki 刷新任务执行、工件查询、页面读取、Ask、Slides、Workshop 与前端页面访问验证
 
-- 当前仍未完全闭环的点：
-  - 前端仓库页仍保留“`/wiki/refresh` 未返回 `task_id` 时回退调用 `/api/tasks/wiki`”的兜底分支，因此“刷新后不再回退到旧任务创建双链路”这一点不能判定为完全完成
-  - `RefreshOrchestrationService` 在刷新异常时会返回 `result_type = "no_change"`，前端统一刷新流会按“可复用结果”路径继续处理，这意味着“刷新失败”和“无变化复用”在契约语义上仍存在混淆风险
-  - 因上述残留问题，“唯一正式入口”与“页面态 / 刷新态 / 任务态 / 版本态完全一致”仍只能判定为部分完成，不能作为已彻底验收项
-
-- 当前会话无法直接勾选的外部联调项：
-  - PostgreSQL 迁移、任务写库、向量表能力与调试环境验证
-  - Ollama 向量与生成服务的真实联调
-  - 目标仓库 `http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops` 的端到端验证
+- 当前仍需后续优化但不阻塞验收的点：
+  - `Ask` 的生成内容质量仍有提升空间，当前能够稳定返回版本绑定结果，但个别回答仍偏结构化模板风格
+  - `Slides` 规划输出仍偏 XML 风格文本，但最终 `slides[]` 与 `html` 页面已能正常生成与渲染
 
 - 与 Agent Framework 相关的边界：
   - 本轮仍未把 `Microsoft Agent Framework` 接入主链路

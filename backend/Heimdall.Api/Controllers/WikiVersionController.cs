@@ -145,7 +145,6 @@ public class WikiVersionController : ControllerBase
                 status = result.TaskStatus,
                 message = result.Message ?? result.ResultType switch
                 {
-                    "no_change" => "仓库无新提交，无需刷新",
                     "queued" => "刷新任务已排队",
                     "reused" => "复用已有版本",
                     _ => "刷新完成"

@@ -12,7 +12,6 @@ namespace Heimdall.Api.Controllers;
 public class TasksController : ControllerBase
 {
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly IWikiTaskSubmissionService _wikiTaskSubmissionService;
     private readonly IAskTaskService _askTaskService;
     private readonly ISlidesTaskService _slidesTaskService;
     private readonly IWorkshopTaskService _workshopTaskService;
@@ -23,74 +22,16 @@ public class TasksController : ControllerBase
     /// </summary>
     public TasksController(
         IRepositoryConfigRepository repoRepo,
-        IWikiTaskSubmissionService wikiTaskSubmissionService,
         IAskTaskService askTaskService,
         ISlidesTaskService slidesTaskService,
         IWorkshopTaskService workshopTaskService,
         ILogger<TasksController> logger)
     {
         _repoRepo = repoRepo;
-        _wikiTaskSubmissionService = wikiTaskSubmissionService;
         _askTaskService = askTaskService;
         _slidesTaskService = slidesTaskService;
         _workshopTaskService = workshopTaskService;
         _logger = logger;
-    }
-
-    /// <summary>
-    /// POST /tasks/wiki — 提交 Wiki 生成任务。
-    /// </summary>
-    [HttpPost("wiki")]
-    public async Task<IActionResult> GenerateWiki([FromBody] WikiGenerateRequest request)
-    {
-        if (string.IsNullOrWhiteSpace(request.RepositoryId) || !Guid.TryParse(request.RepositoryId, out var repoId))
-            return BadRequest(new { error = "repository_id 是必填字段" });
-
-        var repo = await _repoRepo.GetByIdAsync(repoId);
-        if (repo is null)
-            return NotFound(new { error = "仓库不存在" });
-
-        var repoUrl = repo.RepoUrl ?? $"https://github.com/{repo.Owner}/{repo.RepoName}";
-        var repoType = repo.RepoType;
-        var branch = !string.IsNullOrWhiteSpace(request.Branch) ? request.Branch : "main";
-        var refreshStrategy = !string.IsNullOrWhiteSpace(request.RefreshStrategy) ? request.RefreshStrategy : "latest";
-
-        _logger.LogInformation("收到 Wiki 生成请求 RepoId={RepoId} Url={Url} Branch={Branch} Strategy={Strategy}",
-            repoId, repoUrl, branch, refreshStrategy);
-
-        try
-        {
-            var result = await _wikiTaskSubmissionService.SubmitGenerateAsync(new WikiTaskSubmissionRequest
-            {
-                RepositoryId = repoId,
-                Branch = branch,
-                RefreshStrategy = refreshStrategy,
-                ForceRefresh = request.ForceRefresh,
-                Provider = request.Provider,
-                Model = request.Model,
-                CustomModel = request.CustomModel,
-                Language = request.Language,
-                Comprehensive = request.Comprehensive,
-                GenerationProfile = request.GenerationProfile,
-                Token = request.Token
-            }, HttpContext.RequestAborted);
-
-            return Ok(new
-            {
-                task_id = result.TaskId?.ToString(),
-                status = result.TaskStatus,
-                repository_version_id = result.RepositoryVersionId?.ToString(),
-                wiki_version_id = result.WikiVersionId?.ToString(),
-                result_type = result.ResultType,
-                change_status = result.ChangeStatus,
-                message = result.Message
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "创建 Wiki 任务失败");
-            return StatusCode(500, new { error = ex.Message });
-        }
     }
 
     /// <summary>

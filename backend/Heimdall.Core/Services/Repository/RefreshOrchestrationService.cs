@@ -87,14 +87,7 @@ public class RefreshOrchestrationService : IRefreshOrchestrationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "刷新版本失败 RepositoryId={RepoId}", request.RepositoryId);
-            return new RefreshResult
-            {
-                RepositoryId = request.RepositoryId,
-                RefreshStrategy = request.RefreshStrategy,
-                ChangeStatus = "unchanged",
-                ResultType = "no_change",
-                Message = $"刷新失败：{ex.Message}"
-            };
+            throw new InvalidOperationException($"刷新失败：{ex.Message}", ex);
         }
     }
 
