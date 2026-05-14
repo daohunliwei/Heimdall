@@ -19,6 +19,7 @@ using Heimdall.Core.Services.Admin;
 using Heimdall.Core.Services.Prompt;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Interfaces.Repositories;
+using Heimdall.Core.Interfaces.Services;
 using Heimdall.Repository.Data;
 using Heimdall.Repository.Repositories;
 
@@ -139,9 +140,16 @@ builder.Services.AddScoped<ITaskLlmCallLogRepository, TaskLlmCallLogRepository>(
 builder.Services.AddScoped<IEmbeddingRepository, EmbeddingRepository>();
 builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
 builder.Services.AddScoped<IRepositoryConfigRepository, RepositoryConfigRepository>();
+builder.Services.AddScoped<IRepositoryVersionRepository, RepositoryVersionRepository>();
+builder.Services.AddScoped<ICodeEmbeddingRepository, CodeEmbeddingRepository>();
+builder.Services.AddScoped<IWikiEmbeddingRepository, WikiEmbeddingRepository>();
 builder.Services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
 
 // Core Services (Scoped - 依赖 Repository)
+builder.Services.AddScoped<IRepositoryService, RepositoryService>();
+builder.Services.AddScoped<IVersionDiscoveryService, VersionDiscoveryService>();
+builder.Services.AddScoped<IRefreshOrchestrationService, RefreshOrchestrationService>();
+builder.Services.AddScoped<IDualVectorSearchService, DualVectorSearchService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<WikiCacheService>();

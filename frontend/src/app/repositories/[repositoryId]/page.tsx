@@ -11,7 +11,7 @@ import { readJsonSafely } from '@/utils/response';
 import { buildTaskRequestBody } from '@/utils/taskRequest';
 import getRepoUrl from '@/utils/getRepoUrl';
 import Link from 'next/link';
-import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FaBitbucket, FaBookOpen, FaComments, FaDownload, FaExclamationTriangle, FaFileExport, FaFolder, FaGithub, FaGitlab, FaHome, FaSync, FaTimes } from 'react-icons/fa';
 
@@ -44,15 +44,34 @@ interface WikiStructure {
   rootSections: string[];
 }
 
-interface WikiTaskResponse {
-  from_cache: boolean;
-  repo: RepoInfo;
-  language: string;
+interface ServerWikiCacheData {
+  repository_id?: string;
+  repo_url?: string;
+  repo?: RepoInfo;
   provider?: string;
   model?: string;
-  wikiStructure: WikiStructure;
-  generatedPages: Record<string, WikiPage>;
-  debug?: WikiTaskDebugInfo;
+  language?: string;
+  wikiStructure?: WikiStructure;
+  generatedPages?: Record<string, WikiPage>;
+}
+
+interface RepositoryDetail {
+  repository_id: string;
+  display_name: string;
+  owner: string;
+  repo_name: string;
+  provider_type: string;
+  repo_type: string;
+  repo_url: string;
+  default_branch: string;
+  default_language: string;
+  is_archived: boolean;
+}
+
+interface TaskErrorResponse {
+  error?: string;
+  details?: string;
+  request_id?: string;
 }
 
 interface WikiTaskDebugInfo {
@@ -66,112 +85,32 @@ interface WikiTaskDebugInfo {
   warnings?: string[];
 }
 
-interface TaskErrorResponse {
-  error?: string;
-  details?: string;
-  request_id?: string;
-}
-
-interface ServerWikiCacheData {
-  repo_url?: string;
-  repo?: RepoInfo;
-  provider?: string;
-  model?: string;
-  language?: string;
-  wikiStructure?: WikiStructure;
-  generatedPages?: Record<string, WikiPage>;
-}
-
-function deriveRepoType(repoUrl: string | undefined, typeParam: string | null): string {
-  if (!repoUrl) return typeParam || 'github';
-  try {
-    const host = new URL(repoUrl).hostname.toLowerCase();
-    if (host.includes('bitbucket')) return 'bitbucket';
-    if (host.includes('gitlab')) return 'gitlab';
-    if (host.includes('github')) return 'github';
-  } catch { return typeParam || 'github'; }
-  return typeParam || 'github';
-}
-
 function getRepositoryIcon(repoType: string) {
   if (repoType === 'github') return FaGithub;
   if (repoType === 'gitlab') return FaGitlab;
   return FaBitbucket;
 }
 
-export default function RepoWikiPage() {
+export default function RepositoryWikiPage() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const owner = params.owner as string;
-  const repo = params.repo as string;
-  const token = searchParams.get('token') || '';
-  const localPath = searchParams.get('local_path') ? decodeURIComponent(searchParams.get('local_path') || '') : undefined;
-  const repoUrl = searchParams.get('repo_url') ? decodeURIComponent(searchParams.get('repo_url') || '') : undefined;
+  const repositoryId = params.repositoryId as string;
   const providerParam = searchParams.get('provider') || '';
   const modelParam = searchParams.get('model') || '';
   const isCustomModelParam = searchParams.get('is_custom_model') === 'true';
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'zh';
-  const excludedDirsParam = searchParams.get('excluded_dirs') || '';
-  const excludedFilesParam = searchParams.get('excluded_files') || '';
-  const includedDirsParam = searchParams.get('included_dirs') || '';
-  const includedFilesParam = searchParams.get('included_files') || '';
   const isComprehensiveParam = searchParams.get('comprehensive') !== 'false';
-  const repoType = deriveRepoType(repoUrl, searchParams.get('type'));
   const { messages } = useLanguage();
 
-  const initialRepoInfo = useMemo<RepoInfo>(() => ({
-    owner, repo, type: repoType, token: token || null,
-    localPath: localPath || null, repoUrl: repoUrl || null,
-  }), [owner, repo, repoType, token, localPath, repoUrl]);
-
-  const [effectiveRepoInfo, setEffectiveRepoInfo] = useState(initialRepoInfo);
-  const [redirecting, setRedirecting] = useState(false);
-
-  // V2 兼容重定向：尝试将旧路由 /[owner]/[repo] 重定向到新路由 /repositories/[repositoryId]
-  useEffect(() => {
-    let cancelled = false;
-    async function tryRedirect() {
-      try {
-        const repoUrl = searchParams.get('repo_url');
-        const repoType = searchParams.get('type') || 'github';
-        const importUrl = repoUrl
-          ? decodeURIComponent(repoUrl)
-          : `https://github.com/${owner}/${repo}`;
-
-        const resp = await fetch('/api/repositories/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repo_url: importUrl }),
-        });
-
-        if (!cancelled && resp.ok) {
-          const data = await resp.json() as { repository_id: string };
-          // 保留所有现有查询参数并追加到新路由
-          const newParams = new URLSearchParams(searchParams.toString());
-          newParams.set('type', repoType);
-          const qs = newParams.toString();
-          router.replace(`/repositories/${data.repository_id}${qs ? `?${qs}` : ''}`);
-          setRedirecting(true);
-        }
-      } catch {
-        // 重定向失败，继续使用旧路由
-      }
-    }
-    tryRedirect();
-    return () => { cancelled = true; };
-  }, [owner, repo, searchParams, router]);
-
-  const [currentToken, setCurrentToken] = useState(token);
+  const [repoDetail, setRepoDetail] = useState<RepositoryDetail | null>(null);
+  const [effectiveRepoInfo, setEffectiveRepoInfo] = useState<RepoInfo>({
+    owner: '', repo: '', type: 'github', token: null, localPath: null, repoUrl: null,
+  });
   const [selectedProviderState, setSelectedProviderState] = useState(providerParam);
   const [selectedModelState, setSelectedModelState] = useState(modelParam);
   const [isCustomSelectedModelState, setIsCustomSelectedModelState] = useState(isCustomModelParam);
   const [customSelectedModelState, setCustomSelectedModelState] = useState(customModelParam);
-  const [modelExcludedDirs, setModelExcludedDirs] = useState(excludedDirsParam);
-  const [modelExcludedFiles, setModelExcludedFiles] = useState(excludedFilesParam);
-  const [modelIncludedDirs, setModelIncludedDirs] = useState(includedDirsParam);
-  const [modelIncludedFiles, setModelIncludedFiles] = useState(includedFilesParam);
   const [isComprehensiveView, setIsComprehensiveView] = useState(isComprehensiveParam);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState<string | undefined>(
@@ -187,18 +126,36 @@ export default function RepoWikiPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [isAskModalOpen, setIsAskModalOpen] = useState(false);
   const [isModelSelectionModalOpen, setIsModelSelectionModalOpen] = useState(false);
-  const [authRequired, setAuthRequired] = useState(false);
-  const [authCode, setAuthCode] = useState('');
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const askComponentRef = useRef<{ clearConversation: () => void } | null>(null);
   const initialLoadKeyRef = useRef('');
+
+  // 加载仓库详情
+  const loadRepoDetail = useCallback(async () => {
+    try {
+      const resp = await fetch(`/api/repositories/${repositoryId}`);
+      if (resp.ok) {
+        const detail = await resp.json() as RepositoryDetail;
+        setRepoDetail(detail);
+        setEffectiveRepoInfo({
+          owner: detail.owner,
+          repo: detail.repo_name,
+          type: detail.repo_type,
+          token: null,
+          localPath: null,
+          repoUrl: detail.repo_url,
+        });
+      }
+    } catch (e) {
+      console.error('加载仓库详情失败', e);
+    }
+  }, [repositoryId]);
 
   const applyWikiPayload = useCallback((payload: {
     repo?: RepoInfo; provider?: string; model?: string;
     wikiStructure: WikiStructure; generatedPages: Record<string, WikiPage>;
     debug?: WikiTaskDebugInfo;
   }) => {
-    setEffectiveRepoInfo(payload.repo || initialRepoInfo);
+    if (payload.repo) setEffectiveRepoInfo(payload.repo);
     setWikiStructure(payload.wikiStructure);
     setGeneratedPages(payload.generatedPages || {});
     setWikiDebug(payload.debug || null);
@@ -208,28 +165,23 @@ export default function RepoWikiPage() {
     });
     if (payload.provider) setSelectedProviderState(payload.provider);
     if (payload.model) setSelectedModelState(payload.model);
-  }, [initialRepoInfo]);
+  }, []);
 
   const loadWikiFromCache = useCallback(async (): Promise<boolean> => {
     setLoadingMessage(messages.loading?.fetchingCache || '正在读取缓存 Wiki...');
-    const cacheParams = new URLSearchParams({
-      owner: effectiveRepoInfo.owner, repo: effectiveRepoInfo.repo,
-      repo_type: effectiveRepoInfo.type, language,
-    });
-    const response = await fetch(`/api/wiki_cache?${cacheParams.toString()}`);
-    if (!response.ok) return false;
-    const cachedData = await readJsonSafely<ServerWikiCacheData>(response);
+    const cacheResp = await fetch(`/api/repositories/${repositoryId}/wiki?language=${language}`);
+    if (!cacheResp.ok) return false;
+    const cachedData = await readJsonSafely<ServerWikiCacheData>(cacheResp);
     if (!cachedData?.wikiStructure) return false;
     applyWikiPayload({
       repo: cachedData.repo, provider: cachedData.provider, model: cachedData.model,
       wikiStructure: cachedData.wikiStructure, generatedPages: cachedData.generatedPages || {},
     });
     return true;
-  }, [applyWikiPayload, effectiveRepoInfo, language, messages.loading]);
+  }, [applyWikiPayload, repositoryId, language, messages.loading]);
 
-  const generateWikiTask = useCallback(async (options?: { forceRefresh?: boolean; tokenOverride?: string }) => {
+  const generateWikiTask = useCallback(async (options?: { forceRefresh?: boolean }) => {
     const forceRefresh = options?.forceRefresh ?? false;
-    const tokenOverride = options?.tokenOverride ?? currentToken;
     setIsLoading(true);
     setError(null);
     setErrorDetails(null);
@@ -238,17 +190,19 @@ export default function RepoWikiPage() {
 
     try {
       const requestBody = buildTaskRequestBody({
-        repoInfo: effectiveRepoInfo, token: tokenOverride,
+        repoInfo: effectiveRepoInfo, token: null,
         provider: selectedProviderState, model: selectedModelState,
         isCustomModel: isCustomSelectedModelState, customModel: customSelectedModelState,
-        language, excludedDirs: modelExcludedDirs, excludedFiles: modelExcludedFiles,
-        includedDirs: modelIncludedDirs, includedFiles: modelIncludedFiles,
+        language,
       }, { comprehensive: isComprehensiveView, force_refresh: forceRefresh });
+
+      // 添加 repository_id 参数
+      const bodyWithRepoId = { ...requestBody, repository_id: repositoryId };
 
       const response = await fetch('/api/tasks/wiki', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(bodyWithRepoId),
       });
 
       if (!response.ok) {
@@ -264,17 +218,15 @@ export default function RepoWikiPage() {
       const data = await response.json() as { task_id: string; status: string; message: string };
       const taskId = data.task_id;
 
-      // 如果已完成（去重命中），直接加载缓存
       if (data.status === 'completed') {
         setLoadingMessage(messages.loading?.fetchingCache || '正在加载已完成 Wiki...');
         const loaded = await loadWikiFromCache();
         if (loaded) { setIsLoading(false); setLoadingMessage(undefined); return; }
       }
 
-      // 轮询等待任务完成
       setLoadingMessage(data.message || '任务已接收，后台处理中...');
       let pollCount = 0;
-      const maxPolls = 360; // 最多等 30 分钟 (5s × 360)
+      const maxPolls = 360;
       while (pollCount < maxPolls) {
         await new Promise(resolve => setTimeout(resolve, 5000));
         pollCount++;
@@ -315,15 +267,15 @@ export default function RepoWikiPage() {
       setIsLoading(false);
       setLoadingMessage(undefined);
     }
-  }, [applyWikiPayload, loadWikiFromCache, currentToken, customSelectedModelState, effectiveRepoInfo,
+  }, [applyWikiPayload, loadWikiFromCache, customSelectedModelState, effectiveRepoInfo,
     isComprehensiveView, isCustomSelectedModelState, language, messages.loading,
-    modelExcludedDirs, modelExcludedFiles, modelIncludedDirs, modelIncludedFiles,
-    selectedModelState, selectedProviderState]);
+    selectedModelState, selectedProviderState, repositoryId]);
 
   const loadInitialData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
+      await loadRepoDetail();
       const loadedFromCache = await loadWikiFromCache();
       if (loadedFromCache) { setIsLoading(false); setLoadingMessage(undefined); return; }
       await generateWikiTask();
@@ -333,7 +285,7 @@ export default function RepoWikiPage() {
       setIsLoading(false);
       setLoadingMessage(undefined);
     }
-  }, [generateWikiTask, loadWikiFromCache]);
+  }, [generateWikiTask, loadWikiFromCache, loadRepoDetail]);
 
   const exportWiki = useCallback(async (format: 'markdown' | 'json') => {
     if (!wikiStructure || Object.keys(generatedPages).length === 0) {
@@ -376,34 +328,20 @@ export default function RepoWikiPage() {
     } finally { setIsExporting(false); }
   }, [effectiveRepoInfo, generatedPages, wikiStructure]);
 
-  const confirmRefresh = useCallback(async (newToken?: string) => {
-    if (authRequired && !authCode) { setError('缺少授权码，无法清理缓存。'); return; }
-    const nextToken = newToken || currentToken;
-    if (newToken) setCurrentToken(newToken);
+  const confirmRefresh = useCallback(async () => {
     setIsLoading(true); setError(null); setErrorDetails(null);
     setLoadingMessage(messages.loading?.clearingCache || '正在清理缓存并重新生成 Wiki...');
     try {
-      const deleteParams = new URLSearchParams({
-        owner: effectiveRepoInfo.owner, repo: effectiveRepoInfo.repo,
-        repo_type: effectiveRepoInfo.type, language,
-      });
-      if (authCode) deleteParams.set('authorization_code', authCode);
-      const deleteResponse = await fetch(`/api/wiki_cache?${deleteParams.toString()}`, { method: 'DELETE' });
-      if (!deleteResponse.ok && deleteResponse.status !== 404) {
-        const deleteBody = await deleteResponse.json().catch(() => ({ error: '缓存清理失败' }));
-        throw new Error(deleteBody.error || `缓存清理失败：${deleteResponse.status}`);
-      }
-      await generateWikiTask({ forceRefresh: true, tokenOverride: nextToken });
+      await fetch(`/api/repositories/${repositoryId}/wiki?language=${language}`, { method: 'DELETE' });
+      await generateWikiTask({ forceRefresh: true });
     } catch (err) {
       console.error('Error refreshing wiki:', err);
       setIsLoading(false); setLoadingMessage(undefined);
       setError(err instanceof Error ? err.message : '刷新 Wiki 失败');
     }
-  }, [authCode, authRequired, currentToken, effectiveRepoInfo, generateWikiTask, language, messages.loading]);
+  }, [repositoryId, language, generateWikiTask, messages.loading]);
 
   const handlePageSelect = useCallback((pageId: string) => { setCurrentPageId(pageId); }, []);
-
-  useEffect(() => { setEffectiveRepoInfo(initialRepoInfo); setCurrentToken(token); }, [initialRepoInfo, token]);
 
   useEffect(() => {
     const wikiContent = document.getElementById('wiki-content');
@@ -416,27 +354,14 @@ export default function RepoWikiPage() {
   }, [isAskModalOpen]);
 
   useEffect(() => {
-    const fetchAuthStatus = async () => {
-      try {
-        setIsAuthLoading(true);
-        const response = await fetch('/api/auth/status');
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        setAuthRequired(Boolean(data.auth_required));
-      } catch (err) { console.error('Failed to fetch auth status:', err); setAuthRequired(true); }
-      finally { setIsAuthLoading(false); }
-    };
-    fetchAuthStatus();
-  }, []);
-
-  useEffect(() => {
-    const loadKey = [owner, repo, repoType, language, isComprehensiveParam ? 'comprehensive' : 'concise', repoUrl || '', localPath || ''].join('|');
+    const loadKey = [repositoryId, language, isComprehensiveParam ? 'comprehensive' : 'concise'].join('|');
     if (initialLoadKeyRef.current === loadKey) return;
     initialLoadKeyRef.current = loadKey;
     loadInitialData();
-  }, [isComprehensiveParam, language, loadInitialData, localPath, owner, repo, repoType, repoUrl]);
+  }, [isComprehensiveParam, language, loadInitialData, repositoryId]);
 
   const currentPage = currentPageId ? generatedPages[currentPageId] : undefined;
+  const displayName = repoDetail?.display_name || effectiveRepoInfo.owner ? `${effectiveRepoInfo.owner}/${effectiveRepoInfo.repo}` : '...';
   const RepositoryIcon = getRepositoryIcon(effectiveRepoInfo.type);
 
   return (
@@ -483,7 +408,7 @@ export default function RepoWikiPage() {
                       <RepositoryIcon className="flex-shrink-0" />
                       <a href={effectiveRepoInfo.repoUrl ?? ''} target="_blank" rel="noopener noreferrer"
                         className="text-[var(--accent-primary)] hover:underline truncate">
-                        {effectiveRepoInfo.owner}/{effectiveRepoInfo.repo}
+                        {displayName}
                       </a>
                     </>
                   )}
@@ -544,19 +469,6 @@ export default function RepoWikiPage() {
                   <p className="text-sm text-[var(--foreground)] mb-3">{error}</p>
                   {errorDetails && (
                     <pre className="text-xs whitespace-pre-wrap break-words bg-[var(--background)]/70 border border-[var(--border-color)] rounded-md p-3 mb-3 overflow-x-auto">{errorDetails}</pre>
-                  )}
-                  {wikiDebug && (
-                    <div className="text-xs text-[var(--muted)] bg-[var(--background)]/60 border border-[var(--border-color)] rounded-md p-3 mb-3 space-y-1">
-                      <div>Provider: {selectedProviderState || 'unknown'} / Model: {selectedModelState || 'unknown'}</div>
-                      <div>RequestId: {wikiDebug.request_id || 'N/A'} | 结构页数: {wikiDebug.structure_page_count ?? 0} | 生成页数: {wikiDebug.generated_page_count ?? 0}</div>
-                      {wikiDebug.fallback_used && <div className="text-[var(--highlight)]">后端已启用兜底结构</div>}
-                      {wikiDebug.warnings && wikiDebug.warnings.length > 0 && (
-                        <details className="mt-2">
-                          <summary className="cursor-pointer">调试警告（{wikiDebug.warnings.length}）</summary>
-                          <pre className="mt-2 whitespace-pre-wrap break-words">{wikiDebug.warnings.join('\n')}</pre>
-                        </details>
-                      )}
-                    </div>
                   )}
                 </div>
               )}
@@ -662,17 +574,17 @@ export default function RepoWikiPage() {
         isCustomModel={isCustomSelectedModelState} setIsCustomModel={setIsCustomSelectedModelState}
         customModel={customSelectedModelState} setCustomModel={setCustomSelectedModelState}
         isComprehensiveView={isComprehensiveView} setIsComprehensiveView={setIsComprehensiveView}
-        showFileFilters={true}
-        excludedDirs={modelExcludedDirs} setExcludedDirs={setModelExcludedDirs}
-        excludedFiles={modelExcludedFiles} setExcludedFiles={setModelExcludedFiles}
-        includedDirs={modelIncludedDirs} setIncludedDirs={setModelIncludedDirs}
-        includedFiles={modelIncludedFiles} setIncludedFiles={setModelIncludedFiles}
+        showFileFilters={false}
+        excludedDirs={''} setExcludedDirs={() => {}}
+        excludedFiles={''} setExcludedFiles={() => {}}
+        includedDirs={''} setIncludedDirs={() => {}}
+        includedFiles={''} setIncludedFiles={() => {}}
         onApply={confirmRefresh}
         showWikiType={true}
-        showTokenInput={effectiveRepoInfo.type !== 'local' && !currentToken}
+        showTokenInput={false}
         repositoryType={effectiveRepoInfo.type as 'github' | 'gitlab' | 'bitbucket'}
-        authRequired={authRequired} authCode={authCode} setAuthCode={setAuthCode}
-        isAuthLoading={isAuthLoading}
+        authRequired={false} authCode={''} setAuthCode={() => {}}
+        isAuthLoading={false}
       />
     </div>
   );
