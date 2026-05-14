@@ -24,6 +24,7 @@ export default function WorkshopPage() {
   const language = searchParams.get('language') || 'zh';
   const { messages } = useLanguage();
 
+  const [repo, setRepo] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<string | undefined>(
     messages.loading?.initializing || '正在初始化训练营任务...'
@@ -73,6 +74,19 @@ export default function WorkshopPage() {
       setExportError(err instanceof Error ? err.message : '导出训练营内容失败');
     } finally { setIsExporting(false); }
   }, [workshopContent, repo]);
+
+  useEffect(() => {
+    const loadRepo = async () => {
+      try {
+        const resp = await fetch(`/api/repositories/${repositoryId}`);
+        if (resp.ok) {
+          const detail = await resp.json();
+          setRepo(detail.repo_name || detail.display_name || repositoryId);
+        }
+      } catch { setRepo(repositoryId); }
+    };
+    loadRepo();
+  }, [repositoryId]);
 
   const contentGeneratedRef = useRef(false);
   useEffect(() => {

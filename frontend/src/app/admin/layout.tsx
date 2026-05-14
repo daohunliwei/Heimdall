@@ -27,8 +27,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-[var(--background)]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent-primary)] border-t-transparent" />
       </div>
     );
   }
@@ -36,10 +36,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!isAuthenticated) return null;
 
   return (
-    <div className="flex min-h-screen bg-gray-100 dark:bg-gray-900">
-      <aside className="w-56 bg-white shadow-md dark:bg-gray-800">
-        <div className="border-b border-gray-200 px-4 py-4 dark:border-gray-700">
-          <h1 className="text-lg font-bold text-gray-900 dark:text-white">Heimdall 管理</h1>
+    <div className="flex min-h-screen bg-[var(--background)]">
+      <aside className="w-56 bg-[var(--card-bg)] shadow-sm border-r border-[var(--border-color)]">
+        <div className="border-b border-[var(--border-color)] px-4 py-4">
+          <h1 className="text-lg font-bold text-[var(--foreground)]">Heimdall 管理</h1>
         </div>
         <nav className="mt-2">
           {navItems.map((item) => (
@@ -48,8 +48,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               href={item.href}
               className={`block px-4 py-2 text-sm transition-colors ${
                 pathname === item.href
-                  ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
-                  : "text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50"
+                  ? "bg-[var(--accent-secondary)] text-[var(--accent-primary)] border-r-2 border-[var(--accent-primary)]"
+                  : "text-[var(--foreground)] hover:bg-[var(--background)]"
               }`}
             >
               {item.label}

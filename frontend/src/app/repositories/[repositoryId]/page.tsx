@@ -603,7 +603,7 @@ export default function RepositoryWikiPage() {
       {!isLoading && wikiStructure && (
         <button
           onClick={() => setIsAskModalOpen(true)}
-          className="fixed bottom-6 right-6 w-13 h-13 rounded-full gradient-accent text-white shadow-lg flex items-center justify-center hover:shadow-xl transition-all z-50 hover:scale-105"
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full gradient-accent text-white shadow-lg flex items-center justify-center hover:shadow-xl transition-all z-50 hover:scale-105"
           aria-label={messages.ask?.title || 'Ask about this repository'}
         >
           <FaComments className="text-xl" />

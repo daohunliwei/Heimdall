@@ -20,19 +20,48 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const NO_AUTH_USER: User = {
+  id: "no-auth",
+  username: "admin",
+  email: null,
+  role: "Admin",
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("heimdall_token");
-    if (savedToken) {
-      setToken(savedToken);
-      fetchUser(savedToken);
-    } else {
-      setLoading(false);
+    async function initAuth() {
+      try {
+        // 先检查是否需要认证
+        const statusRes = await fetch("/api/auth/status");
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          if (!status.auth_required || status.authRequired === false) {
+            // auth=none 模式：自动设置默认管理员用户
+            setUser(NO_AUTH_USER);
+            setToken("no-auth-token");
+            setLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // 如果检查失败，回退到 token 检查
+      }
+
+      // JWT 模式：检查本地存储的 token
+      const savedToken = localStorage.getItem("heimdall_token");
+      if (savedToken) {
+        setToken(savedToken);
+        fetchUser(savedToken);
+      } else {
+        setLoading(false);
+      }
     }
+
+    initAuth();
   }, []);
 
   async function fetchUser(t: string) {
