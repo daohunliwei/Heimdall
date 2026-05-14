@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { FaArrowLeft, FaSync, FaDownload, FaArrowRight, FaArrowUp, FaTimes } from 'react-icons/fa';
 import ThemeToggle from '@/components/theme-toggle';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { RepoInfo } from '@/types/repoinfo';
 import { buildTaskRequestBody } from '@/utils/taskRequest';
 
 interface Slide {
@@ -32,21 +31,6 @@ export default function SlidesPage() {
   const language = searchParams.get('language') || 'zh';
   const { messages } = useLanguage();
 
-  // 从查询参数还原仓库信息
-  const repoType = searchParams.get('type') || 'github';
-  const repoUrl = searchParams.get('repo_url') ? decodeURIComponent(searchParams.get('repo_url') || '') : undefined;
-  const owner = searchParams.get('owner') || '';
-  const repo = searchParams.get('repo') || '';
-
-  const repoInfo = useMemo<RepoInfo>(() => ({
-    owner,
-    repo,
-    type: repoType,
-    token: null,
-    localPath: null,
-    repoUrl: repoUrl || null,
-  }), [owner, repo, repoType, repoUrl]);
-
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<string | undefined>(
     messages.loading?.initializing || '正在初始化演示文稿任务...'
@@ -69,7 +53,6 @@ export default function SlidesPage() {
 
     try {
       const requestBody = buildTaskRequestBody({
-        repoInfo,
         token: null,
         provider: providerParam,
         model: modelParam,
@@ -100,7 +83,7 @@ export default function SlidesPage() {
       setIsLoading(false);
       setLoadingMessage(undefined);
     }
-  }, [repoInfo, providerParam, modelParam, isCustomModelParam, customModelParam, language, isLoading, messages.loading, repositoryId]);
+  }, [providerParam, modelParam, isCustomModelParam, customModelParam, language, isLoading, messages.loading, repositoryId]);
 
   const exportSlides = useCallback(async () => {
     if (slides.length === 0) { setExportError('暂无可导出的演示文稿内容'); return; }

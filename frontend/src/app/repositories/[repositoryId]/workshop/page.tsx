@@ -7,7 +7,6 @@ import { FaArrowLeft, FaSync, FaDownload } from 'react-icons/fa';
 import ThemeToggle from '@/components/theme-toggle';
 import Markdown from '@/components/Markdown';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { RepoInfo } from '@/types/repoinfo';
 import { buildTaskRequestBody } from '@/utils/taskRequest';
 
 interface WorkshopTaskResponse {
@@ -18,20 +17,12 @@ export default function WorkshopPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const repositoryId = params.repositoryId as string;
-  const repoType = searchParams.get('type') || 'github';
-  const repoUrl = searchParams.get('repo_url') ? decodeURIComponent(searchParams.get('repo_url') || '') : undefined;
-  const owner = searchParams.get('owner') || '';
-  const repo = searchParams.get('repo') || '';
   const providerParam = searchParams.get('provider') || '';
   const modelParam = searchParams.get('model') || '';
   const isCustomModelParam = searchParams.get('is_custom_model') === 'true';
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'zh';
   const { messages } = useLanguage();
-
-  const repoInfo = useMemo<RepoInfo>(() => ({
-    owner, repo, type: repoType, token: null, localPath: null, repoUrl: repoUrl || null,
-  }), [owner, repo, repoType, repoUrl]);
 
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<string | undefined>(
@@ -48,7 +39,7 @@ export default function WorkshopPage() {
     setLoadingMessage(messages.loading?.generatingWorkshop || '正在调用后端生成训练营内容...');
     try {
       const requestBody = buildTaskRequestBody({
-        repoInfo, token: null, provider: providerParam, model: modelParam,
+        token: null, provider: providerParam, model: modelParam,
         isCustomModel: isCustomModelParam, customModel: customModelParam, language,
       }, { comprehensive: true });
 
@@ -66,7 +57,7 @@ export default function WorkshopPage() {
       console.error('Error generating workshop content:', err);
       setError(err instanceof Error ? err.message : '生成 Workshop 失败');
     } finally { setIsLoading(false); setLoadingMessage(undefined); }
-  }, [repoInfo, providerParam, modelParam, isCustomModelParam, customModelParam, language, isLoading, messages.loading, repositoryId]);
+  }, [providerParam, modelParam, isCustomModelParam, customModelParam, language, isLoading, messages.loading, repositoryId]);
 
   const exportWorkshop = useCallback(async () => {
     if (!workshopContent) { setExportError('暂无可导出的训练营内容'); return; }

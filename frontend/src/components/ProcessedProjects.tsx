@@ -16,6 +16,8 @@ interface ProcessedProject {
   submittedAt: number;
   language: string;
   default_branch?: string;
+  latest_wiki_version_id?: string;
+  published_wiki_version_id?: string;
 }
 
 interface ProcessedProjectsProps {
@@ -109,27 +111,13 @@ export default function ProcessedProjects({
       return;
     }
     try {
-      // V2: 使用 repositoryId 删除
       const repoId = project.repository_id || project.id;
       const response = await fetch(`/api/processed_projects/${repoId}`, {
         method: 'DELETE',
       });
       if (!response.ok) {
-        // 兜底：尝试旧接口
-        const fallbackResp = await fetch('/api/wiki/projects', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            owner: project.owner,
-            repo: project.repo,
-            repo_type: project.repo_type,
-            language: project.language,
-          }),
-        });
-        if (!fallbackResp.ok) {
-          const errorBody = await fallbackResp.json().catch(() => ({ error: fallbackResp.statusText }));
-          throw new Error(errorBody.error || fallbackResp.statusText);
-        }
+        const errorBody = await response.json().catch(() => ({ error: response.statusText }));
+        throw new Error(errorBody.error || response.statusText);
       }
       setProjects(prev => prev.filter(p => p.id !== project.id));
     } catch (e: unknown) {
