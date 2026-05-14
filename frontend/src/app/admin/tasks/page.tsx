@@ -16,12 +16,12 @@ interface TaskInfo {
   completed_at: string | null;
 }
 
-const statusColors: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700",
-  running: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  cancelled: "bg-gray-100 text-gray-700",
+const statusBadge: Record<string, string> = {
+  pending: "tag tag-default",
+  running: "tag-primary",
+  completed: "bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium",
+  failed: "bg-[var(--highlight)]/10 text-[var(--highlight)] border border-[var(--highlight)]/20 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium",
+  cancelled: "tag tag-default",
 };
 
 const typeLabels: Record<string, string> = {
@@ -35,36 +35,33 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
   const [filter, setFilter] = useState("");
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-  const authHeader = { Authorization: `Bearer ${localStorage.getItem("heimdall_token")}` };
-
   useEffect(() => {
     const params = new URLSearchParams({ limit: "100" });
     if (filter) params.set("status", filter);
-    fetch(`${baseUrl}/admin/tasks?${params}`, { headers: authHeader })
+    fetch(`/api/admin/tasks?${params}`)
       .then((r) => r.json())
       .then((d) => setTasks(d.tasks || []))
       .catch(() => {});
   }, [filter]);
 
   async function handleCancel(id: string) {
-    await fetch(`${baseUrl}/admin/tasks/${id}/cancel`, { method: "POST", headers: authHeader });
+    await fetch(`/api/admin/tasks/${id}/cancel`, { method: "POST" });
     window.location.reload();
   }
 
   async function handleRetry(id: string) {
-    await fetch(`${baseUrl}/admin/tasks/${id}/retry`, { method: "POST", headers: authHeader });
+    await fetch(`/api/admin/tasks/${id}/retry`, { method: "POST" });
     window.location.reload();
   }
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">任务监控</h2>
+        <h2 className="text-xl font-bold text-[var(--foreground)]">任务监控</h2>
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="rounded border px-2 py-1 text-sm dark:bg-gray-700 dark:text-white"
+          className="input text-sm w-auto"
         >
           <option value="">全部</option>
           <option value="pending">等待中</option>
@@ -75,38 +72,38 @@ export default function TasksPage() {
         </select>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-x-auto rounded-lg border border-[var(--border-color)]">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800">
+          <thead className="bg-[var(--background)]">
             <tr>
-              <th className="px-4 py-2 text-left">ID</th>
-              <th className="px-4 py-2 text-left">类型</th>
-              <th className="px-4 py-2 text-left">状态</th>
-              <th className="px-4 py-2 text-left">进度</th>
-              <th className="px-4 py-2 text-left">Token</th>
-              <th className="px-4 py-2 text-left">创建时间</th>
-              <th className="px-4 py-2 text-right">操作</th>
+              <th className="px-4 py-2 text-left text-[var(--foreground)]">ID</th>
+              <th className="px-4 py-2 text-left text-[var(--foreground)]">类型</th>
+              <th className="px-4 py-2 text-left text-[var(--foreground)]">状态</th>
+              <th className="px-4 py-2 text-left text-[var(--foreground)]">进度</th>
+              <th className="px-4 py-2 text-left text-[var(--foreground)]">Token</th>
+              <th className="px-4 py-2 text-left text-[var(--foreground)]">创建时间</th>
+              <th className="px-4 py-2 text-right text-[var(--foreground)]">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody className="divide-y divide-[var(--border-color)]">
             {tasks.map((t) => (
-              <tr key={t.id} className="bg-white dark:bg-gray-800">
-                <td className="px-4 py-2 font-mono text-xs">{t.id.slice(0, 8)}</td>
-                <td className="px-4 py-2">{typeLabels[t.task_type] || t.task_type}</td>
+              <tr key={t.id} className="bg-[var(--card-bg)]">
+                <td className="px-4 py-2 font-mono text-xs text-[var(--foreground)]">{t.id.slice(0, 8)}</td>
+                <td className="px-4 py-2 text-[var(--foreground)]">{typeLabels[t.task_type] || t.task_type}</td>
                 <td className="px-4 py-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${statusColors[t.status] || ""}`}>
+                  <span className={statusBadge[t.status] || "tag tag-default"}>
                     {t.status}
                   </span>
                 </td>
-                <td className="px-4 py-2">{t.progress_percent}%</td>
-                <td className="px-4 py-2">{t.total_prompt_tokens + t.total_completion_tokens}</td>
-                <td className="px-4 py-2 text-xs text-gray-500">{new Date(t.created_at).toLocaleString()}</td>
+                <td className="px-4 py-2 text-[var(--foreground)]">{t.progress_percent}%</td>
+                <td className="px-4 py-2 text-[var(--foreground)]">{t.total_prompt_tokens + t.total_completion_tokens}</td>
+                <td className="px-4 py-2 text-xs text-[var(--muted)]">{new Date(t.created_at).toLocaleString()}</td>
                 <td className="px-4 py-2 text-right">
                   {t.status === "running" && (
-                    <button onClick={() => handleCancel(t.id)} className="text-xs text-orange-600 hover:underline">取消</button>
+                    <button onClick={() => handleCancel(t.id)} className="text-xs text-[var(--warning)] hover:underline">取消</button>
                   )}
                   {t.status === "failed" && (
-                    <button onClick={() => handleRetry(t.id)} className="text-xs text-blue-600 hover:underline">重试</button>
+                    <button onClick={() => handleRetry(t.id)} className="text-xs text-[var(--accent-primary)] hover:underline">重试</button>
                   )}
                 </td>
               </tr>

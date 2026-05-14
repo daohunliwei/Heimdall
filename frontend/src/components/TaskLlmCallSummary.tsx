@@ -41,12 +41,11 @@ export default function TaskLlmCallSummary({ taskId }: TaskLlmCallSummaryProps) 
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    fetch(`${baseUrl}/tasks/${taskId}/token-summary`)
+    fetch(`/api/tasks/${taskId}/token-summary`)
       .then((r) => r.json())
       .then(setSummary)
       .catch(() => {});
-    fetch(`${baseUrl}/tasks/${taskId}/llm-calls`)
+    fetch(`/api/tasks/${taskId}/llm-calls`)
       .then((r) => r.json())
       .then(setLogs)
       .catch(() => {});
@@ -55,9 +54,9 @@ export default function TaskLlmCallSummary({ taskId }: TaskLlmCallSummaryProps) 
   if (!summary) return null;
 
   return (
-    <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
-      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">生成统计</h3>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-400">
+    <div className="card p-4 mt-6">
+      <h3 className="text-sm font-semibold text-[var(--foreground)]">生成统计</h3>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[var(--muted)]">
         <span>Prompt Token</span><span className="text-right">{summary.prompt_tokens.toLocaleString()}</span>
         <span>Completion Token</span><span className="text-right">{summary.completion_tokens.toLocaleString()}</span>
         <span>总 Token</span><span className="text-right font-medium">{summary.total_tokens.toLocaleString()}</span>
@@ -67,7 +66,7 @@ export default function TaskLlmCallSummary({ taskId }: TaskLlmCallSummaryProps) 
       {logs.length > 0 && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="mt-3 text-xs text-blue-600 hover:underline"
+          className="mt-3 text-xs text-[var(--accent-primary)] hover:underline"
         >
           {expanded ? "收起明细" : "展开调用明细"}
         </button>
@@ -76,7 +75,7 @@ export default function TaskLlmCallSummary({ taskId }: TaskLlmCallSummaryProps) 
         <div className="mt-2 max-h-60 overflow-y-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left text-gray-500">
+              <tr className="text-left text-[var(--muted)]">
                 <th className="py-1">步骤</th>
                 <th>类型</th>
                 <th>Tokens</th>
@@ -85,7 +84,7 @@ export default function TaskLlmCallSummary({ taskId }: TaskLlmCallSummaryProps) 
             </thead>
             <tbody>
               {logs.map((log) => (
-                <tr key={log.step_order} className="border-t border-gray-200 dark:border-gray-700">
+                <tr key={log.step_order} className="border-t border-[var(--border-color)]">
                   <td className="py-1">{log.step_order}</td>
                   <td>{callTypeLabels[log.call_type] || log.call_type}</td>
                   <td>{(log.prompt_tokens + log.completion_tokens).toLocaleString()}</td>

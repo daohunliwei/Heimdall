@@ -16,7 +16,12 @@ public class AppDbContext : DbContext
     public DbSet<TaskLlmCallLog> TaskLlmCallLogs => Set<TaskLlmCallLog>();
     public DbSet<Wiki> Wikis => Set<Wiki>();
     public DbSet<WikiPage> WikiPages => Set<WikiPage>();
-    public DbSet<EmbeddingDocument> EmbeddingDocuments => Set<EmbeddingDocument>();
+    public DbSet<RepositoryVersion> RepositoryVersions => Set<RepositoryVersion>();
+    public DbSet<WikiSpace> WikiSpaces => Set<WikiSpace>();
+    public DbSet<WikiVersion> WikiVersions => Set<WikiVersion>();
+    public DbSet<WikiPageRelation> WikiPageRelations => Set<WikiPageRelation>();
+    public DbSet<CodeEmbeddingChunk> CodeEmbeddingChunks => Set<CodeEmbeddingChunk>();
+    public DbSet<WikiEmbeddingChunk> WikiEmbeddingChunks => Set<WikiEmbeddingChunk>();
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<RepositoryPromptOverride> RepositoryPromptOverrides => Set<RepositoryPromptOverride>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
@@ -29,7 +34,12 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TaskLlmCallLogConfiguration());
         modelBuilder.ApplyConfiguration(new WikiConfiguration());
         modelBuilder.ApplyConfiguration(new WikiPageConfiguration());
-        modelBuilder.ApplyConfiguration(new EmbeddingDocumentConfiguration());
+        modelBuilder.ApplyConfiguration(new RepositoryVersionConfiguration());
+        modelBuilder.ApplyConfiguration(new WikiSpaceConfiguration());
+        modelBuilder.ApplyConfiguration(new WikiVersionConfiguration());
+        modelBuilder.ApplyConfiguration(new WikiPageRelationConfiguration());
+        modelBuilder.ApplyConfiguration(new CodeEmbeddingChunkConfiguration());
+        modelBuilder.ApplyConfiguration(new WikiEmbeddingChunkConfiguration());
         modelBuilder.ApplyConfiguration(new PromptTemplateConfiguration());
         modelBuilder.ApplyConfiguration(new RepositoryPromptOverrideConfiguration());
         modelBuilder.ApplyConfiguration(new SystemSettingConfiguration());

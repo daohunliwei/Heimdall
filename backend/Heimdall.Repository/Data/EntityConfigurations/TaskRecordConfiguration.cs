@@ -23,9 +23,18 @@ public class TaskRecordConfiguration : IEntityTypeConfiguration<TaskRecord>
         builder.Property(e => e.TotalCompletionTokens).HasDefaultValue(0);
         builder.Property(e => e.ResultJson).HasColumnType("jsonb");
         builder.Property(e => e.ErrorMessage).HasColumnType("text");
+        // V2 版本关联字段
+        builder.Property(e => e.TargetBranch).HasColumnName("target_branch").HasMaxLength(128);
+        builder.Property(e => e.ResolvedRepositoryVersionId).HasColumnName("resolved_repository_version_id");
+        builder.Property(e => e.ResultWikiVersionId).HasColumnName("result_wiki_version_id");
+        builder.Property(e => e.RefreshStrategy).HasColumnName("refresh_strategy").HasMaxLength(16);
+        builder.Property(e => e.ForceRefresh).HasColumnName("force_refresh").HasDefaultValue(false);
+        builder.Property(e => e.ConfigHash).HasColumnName("config_hash").HasMaxLength(64);
         builder.Property(e => e.CreatedAt).IsRequired();
         builder.Property(e => e.UpdatedAt).IsRequired();
         builder.HasOne(e => e.Repository).WithMany(r => r.Tasks).HasForeignKey(e => e.RepositoryId);
+        builder.HasOne(e => e.ResolvedRepositoryVersion).WithMany().HasForeignKey(e => e.ResolvedRepositoryVersionId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne(e => e.ResultWikiVersion).WithMany().HasForeignKey(e => e.ResultWikiVersionId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne(e => e.User).WithMany(u => u.Tasks).HasForeignKey(e => e.UserId);
 
         // 并发控制：同一仓库+分支，同一时间仅允许一个 running 任务

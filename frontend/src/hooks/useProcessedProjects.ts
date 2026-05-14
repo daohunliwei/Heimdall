@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 
 interface ProcessedProject {
+  repository_id: string;
   id: string;
   owner: string;
   repo: string;
   name: string;
+  display_name?: string;
   repo_type: string;
   submittedAt: number;
   language: string;
+  default_branch?: string;
 }
 
 export function useProcessedProjects() {
