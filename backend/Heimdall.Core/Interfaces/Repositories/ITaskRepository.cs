@@ -14,5 +14,6 @@ public interface ITaskRepository
     Task<TaskRecord> EnqueueAsync(TaskRecord task);
 
     Task<TaskRecord> UpdateStatusAsync(Guid id, string status, int? progressPercent = null, string? progressMessage = null, string? errorMessage = null);
+    Task IncrementTokensAsync(Guid taskId, int promptTokens, int completionTokens);
     Task<(List<TaskRecord> Items, int TotalCount)> GetAllAsync(string? status = null, string? taskType = null, Guid? repositoryId = null, int offset = 0, int limit = 20);
 }
