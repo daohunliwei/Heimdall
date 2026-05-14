@@ -208,7 +208,7 @@ if ($DryRun) {
     }
     Write-Host ''
     Write-Host '启动命令:' -ForegroundColor Yellow
-    Write-Host "  后端: dotnet run --project `"$backendDir\Heimdall.Api.csproj`"" -ForegroundColor DarkGray
+    Write-Host "  后端: dotnet run --no-launch-profile --project `"$backendDir\Heimdall.Api.csproj`"" -ForegroundColor DarkGray
     Write-Host "  前端: cd `"$frontendDir`"; $($pm.Name) run dev" -ForegroundColor DarkGray
     exit 0
 }
@@ -250,7 +250,7 @@ $backendProc = $null
 if (-not $FrontendOnly) {
     Write-Host '▸ 启动后端服务...' -ForegroundColor Green
     $result = Start-InNewWindow 'Heimdall 后端 API' $backendDir `
-        "dotnet run --project `"$backendDir\Heimdall.Api.csproj`""
+        "dotnet run --no-launch-profile --project `"$backendDir\Heimdall.Api.csproj`""
     $backendProc = $result.Process
 }
 
