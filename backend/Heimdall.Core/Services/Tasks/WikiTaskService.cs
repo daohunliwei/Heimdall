@@ -7,7 +7,6 @@ using System.Xml.Linq;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
-using Heimdall.Core.Services.Cache;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Repository;

@@ -60,55 +60,6 @@ public class WikiCacheController : ControllerBase
         return Ok(new { message = "缓存已清除" });
     }
 
-    // ===== 旧接口兼容（双轨期保留） =====
-
-    /// <summary>
-    /// GET /api/wiki_cache?owner=&repo=&repo_type=&language= — 旧接口，获取缓存的 Wiki 数据。
-    /// </summary>
-    [HttpGet("api/wiki_cache")]
-    public async Task<IActionResult> GetWikiCache(
-        [FromQuery] string owner,
-        [FromQuery] string repo,
-        [FromQuery] string repo_type,
-        [FromQuery] string language)
-    {
-        var repoEntity = await _repoRepo.GetByOwnerRepoTypeAsync(owner, repo, repo_type)
-            ?? await _repoRepo.GetByOwnerRepoAnyTypeAsync(owner, repo);
-
-        if (repoEntity is null)
-            return NotFound(new { error = "仓库不存在" });
-
-        var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repoEntity.Id, "main", language);
-        if (wiki is null)
-            return NotFound(new { error = "Wiki 缓存不存在" });
-
-        return Ok(await BuildWikiResponse(repoEntity, wiki));
-    }
-
-    /// <summary>
-    /// DELETE /api/wiki_cache?owner=&repo=&repo_type=&language= — 旧接口，删除指定仓库的 Wiki 缓存。
-    /// </summary>
-    [HttpDelete("api/wiki_cache")]
-    public async Task<IActionResult> DeleteWikiCache(
-        [FromQuery] string owner,
-        [FromQuery] string repo,
-        [FromQuery] string repo_type,
-        [FromQuery] string language)
-    {
-        var repoEntity = await _repoRepo.GetByOwnerRepoTypeAsync(owner, repo, repo_type);
-        if (repoEntity is null)
-            return NotFound(new { error = "仓库不存在" });
-
-        var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repoEntity.Id, "main", language);
-        if (wiki is not null)
-        {
-            await _pageRepo.DeleteByWikiIdAsync(wiki.Id);
-            await _wikiRepo.DeleteAsync(wiki.Id);
-        }
-
-        return Ok(new { message = "缓存已清除" });
-    }
-
     private async Task<object> BuildWikiResponse(Core.Entities.Repository repoEntity, Core.Entities.Wiki wiki)
     {
         var pages = await _pageRepo.GetByWikiIdAsync(wiki.Id);

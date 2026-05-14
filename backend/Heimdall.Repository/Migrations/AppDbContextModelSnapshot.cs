@@ -108,47 +108,6 @@ namespace Heimdall.Repository.Migrations
                     b.ToTable("code_embedding_chunks", (string)null);
                 });
 
-            modelBuilder.Entity("Heimdall.Core.Entities.EmbeddingDocument", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ChunkIndex")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("Embedding")
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsCode")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
-                    b.Property<Guid>("RepositoryId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("TextContent")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int?>("TokenCount")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryId");
-
-                    b.ToTable("embedding_documents", (string)null);
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.PromptTemplate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1096,17 +1055,6 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("RepositoryVersion");
                 });
 
-            modelBuilder.Entity("Heimdall.Core.Entities.EmbeddingDocument", b =>
-                {
-                    b.HasOne("Heimdall.Core.Entities.Repository", "Repository")
-                        .WithMany("EmbeddingDocuments")
-                        .HasForeignKey("RepositoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Repository");
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.RepositoryPromptOverride", b =>
                 {
                     b.HasOne("Heimdall.Core.Entities.PromptTemplate", "PromptTemplate")
@@ -1301,8 +1249,6 @@ namespace Heimdall.Repository.Migrations
 
             modelBuilder.Entity("Heimdall.Core.Entities.Repository", b =>
                 {
-                    b.Navigation("EmbeddingDocuments");
-
                     b.Navigation("RepositoryVersions");
 
                     b.Navigation("Tasks");

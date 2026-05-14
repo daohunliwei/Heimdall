@@ -22,7 +22,6 @@ public class Repository
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public ICollection<TaskRecord> Tasks { get; set; } = new List<TaskRecord>();
     public ICollection<Wiki> Wikis { get; set; } = new List<Wiki>();
-    public ICollection<EmbeddingDocument> EmbeddingDocuments { get; set; } = new List<EmbeddingDocument>();
     public ICollection<RepositoryVersion> RepositoryVersions { get; set; } = new List<RepositoryVersion>();
     public ICollection<WikiSpace> WikiSpaces { get; set; } = new List<WikiSpace>();
 }

@@ -11,7 +11,6 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { RepoInfo } from '@/types/repoinfo';
 import { readJsonSafely } from '@/utils/response';
 import { buildTaskRequestBody } from '@/utils/taskRequest';
-import getRepoUrl from '@/utils/getRepoUrl';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -193,13 +192,12 @@ export default function RepositoryWikiPage() {
 
     try {
       const requestBody = buildTaskRequestBody({
-        repoInfo: effectiveRepoInfo, token: null,
+        token: null,
         provider: selectedProviderState, model: selectedModelState,
         isCustomModel: isCustomSelectedModelState, customModel: customSelectedModelState,
         language,
       }, { comprehensive: isComprehensiveView, force_refresh: forceRefresh });
 
-      // 添加 repository_id 参数
       const bodyWithRepoId = { ...requestBody, repository_id: repositoryId };
 
       const response = await fetch('/api/tasks/wiki', {
@@ -305,7 +303,7 @@ export default function RepositoryWikiPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          repo_url: getRepoUrl(effectiveRepoInfo), type: effectiveRepoInfo.type,
+          repository_id: repositoryId,
           pages: pagesToExport, format,
         }),
       });
@@ -626,7 +624,7 @@ export default function RepositoryWikiPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <Ask
-                repoInfo={effectiveRepoInfo}
+                repositoryId={repositoryId}
                 provider={selectedProviderState} model={selectedModelState}
                 isCustomModel={isCustomSelectedModelState} customModel={customSelectedModelState}
                 language={language}

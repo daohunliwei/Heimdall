@@ -11,20 +11,23 @@ public class RepositoryService : IRepositoryService
     private readonly IRepositoryConfigRepository _repoRepo;
     private readonly IWikiRepository _wikiRepo;
     private readonly IWikiPageRepository _pageRepo;
-    private readonly IEmbeddingRepository _embeddingRepo;
+    private readonly ICodeEmbeddingRepository _codeEmbeddingRepo;
+    private readonly IWikiEmbeddingRepository _wikiEmbeddingRepo;
     private readonly ILogger<RepositoryService> _logger;
 
     public RepositoryService(
         IRepositoryConfigRepository repoRepo,
         IWikiRepository wikiRepo,
         IWikiPageRepository pageRepo,
-        IEmbeddingRepository embeddingRepo,
+        ICodeEmbeddingRepository codeEmbeddingRepo,
+        IWikiEmbeddingRepository wikiEmbeddingRepo,
         ILogger<RepositoryService> logger)
     {
         _repoRepo = repoRepo;
         _wikiRepo = wikiRepo;
         _pageRepo = pageRepo;
-        _embeddingRepo = embeddingRepo;
+        _codeEmbeddingRepo = codeEmbeddingRepo;
+        _wikiEmbeddingRepo = wikiEmbeddingRepo;
         _logger = logger;
     }
 
@@ -109,7 +112,7 @@ public class RepositoryService : IRepositoryService
             await _wikiRepo.DeleteAsync(wiki.Id);
         }
 
-        await _embeddingRepo.DeleteByRepoAsync(repositoryId);
+        // 清理 V2 向量数据（通过版本级联删除）
         return await _repoRepo.DeleteAsync(repositoryId);
     }
 
