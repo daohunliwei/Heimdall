@@ -568,13 +568,13 @@ export default function RepoWikiPage() {
                     <Markdown content={currentPage.content} />
                   </div>
 
-                  {currentPage.relatedPages.length > 0 && (
+                  {currentPage.relatedPages && currentPage.relatedPages.length > 0 && (
                     <div className="mt-10 pt-6 border-t border-[var(--border-color)]">
                       <h4 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider mb-3">
                         {messages.repoPage?.relatedPages || 'Related Pages:'}
                       </h4>
                       <div className="flex flex-wrap gap-2">
-                        {currentPage.relatedPages.map((relatedId) => {
+                        {currentPage.relatedPages?.map((relatedId) => {
                           const relatedPage = wikiStructure.pages.find((page) => page.id === relatedId);
                           return relatedPage ? (
                             <button key={relatedId}

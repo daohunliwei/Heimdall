@@ -73,7 +73,10 @@ public class TasksController : ControllerBase
                 request.Language ?? "zh",
                 request.Comprehensive,
                 request.ForceRefresh,
-                null // userId
+                null, // userId
+                branch,
+                refreshStrategy,
+                request.GenerationProfile ?? "comprehensive"
             );
 
             // 步骤 2：如果任务是新创建的（非去重），入队后台处理
@@ -88,7 +91,9 @@ public class TasksController : ControllerBase
                             repoType,
                             request.Token, request.Provider, request.Model,
                             request.CustomModel, request.Language ?? "zh",
-                            request.Comprehensive, CancellationToken.None);
+                            request.Comprehensive, CancellationToken.None,
+                            branch,
+                            request.GenerationProfile ?? "comprehensive");
                     }
                     catch (Exception ex)
                     {
