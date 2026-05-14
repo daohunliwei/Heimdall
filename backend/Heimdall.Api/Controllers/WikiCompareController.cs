@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Heimdall.Api.Controllers;
@@ -38,6 +39,8 @@ public class WikiCompareController : ControllerBase
 
 public class CompareRequest
 {
+    [JsonPropertyName("version_id_a")]
     public Guid VersionIdA { get; set; }
+    [JsonPropertyName("version_id_b")]
     public Guid VersionIdB { get; set; }
 }
