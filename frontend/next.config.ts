@@ -51,6 +51,20 @@ const nextConfig: NextConfig = {
         source: '/api/processed_projects',
         destination: `${TARGET_SERVER_BASE_URL}/api/processed_projects`,
       },
+      // 模型配置与 Chat API
+      {
+        source: '/api/models/config',
+        destination: `${TARGET_SERVER_BASE_URL}/models/config`,
+      },
+      {
+        source: '/api/chat/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/chat/:path*`,
+      },
+      // 管理后台 API
+      {
+        source: '/api/admin/:path*',
+        destination: `${TARGET_SERVER_BASE_URL}/api/admin/:path*`,
+      },
     ];
   },
 };
