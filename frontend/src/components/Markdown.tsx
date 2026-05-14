@@ -16,7 +16,8 @@ interface MarkdownProps {
 const Markdown: React.FC<MarkdownProps> = ({ content }) => {
   const MarkdownComponents: React.ComponentProps<typeof ReactMarkdown>['components'] = {
     pre({ children }: { children?: React.ReactNode }) {
-      return <>{children}</>;
+      // 使用 div 包装而非 Fragment，避免 block 元素直接嵌套在 <p> 中导致 hydration 错误
+      return <div>{children}</div>;
     },
     p({ children, ...props }: { children?: React.ReactNode }) {
       return <p className="mb-3 text-sm leading-relaxed text-[var(--foreground)]" {...props}>{children}</p>;
