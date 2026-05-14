@@ -42,6 +42,7 @@ export function buildTaskRequestBody(
   }
 
   if (isCustomModel) {
+    body.is_custom_model = true;
     if (customModel) {
       body.custom_model = customModel;
     }

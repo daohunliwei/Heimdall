@@ -21,14 +21,36 @@ public static class ModelMappingExtensions
         Id = task.Id.ToString(),
         TaskType = task.TaskType,
         Status = task.Status,
+        CurrentStage = task.CurrentStage,
+        CurrentStageStatus = task.CurrentStageStatus,
+        LastSuccessfulStage = task.LastSuccessfulStage,
+        LastArtifactId = task.LastArtifactId?.ToString(),
+        AttemptCount = task.AttemptCount,
         ProgressPercent = task.ProgressPercent,
         ProgressMessage = task.ProgressMessage,
         TotalPromptTokens = task.TotalPromptTokens,
         TotalCompletionTokens = task.TotalCompletionTokens,
         ErrorMessage = task.ErrorMessage,
+        ResolvedRepositoryVersionId = task.ResolvedRepositoryVersionId?.ToString(),
+        ResultWikiVersionId = task.ResultWikiVersionId?.ToString(),
         CreatedAt = task.CreatedAt,
         StartedAt = task.StartedAt,
         CompletedAt = task.CompletedAt
+    };
+
+    public static TaskArtifactResponse ToTaskArtifactResponse(this TaskArtifact artifact) => new()
+    {
+        Id = artifact.Id.ToString(),
+        ArtifactType = artifact.ArtifactType,
+        ArtifactKey = artifact.ArtifactKey,
+        StageName = artifact.StageName,
+        Status = artifact.Status,
+        Sequence = artifact.Sequence,
+        Summary = artifact.Summary,
+        PayloadJson = artifact.PayloadJson,
+        ErrorMessage = artifact.ErrorMessage,
+        CreatedAt = artifact.CreatedAt,
+        UpdatedAt = artifact.UpdatedAt
     };
 
     // Token summary mappings

@@ -384,6 +384,85 @@ namespace Heimdall.Repository.Migrations
                     b.ToTable("system_settings", (string)null);
                 });
 
+            modelBuilder.Entity("Heimdall.Core.Entities.TaskArtifact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ArtifactKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("artifact_key");
+
+                    b.Property<string>("ArtifactType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("artifact_type");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("error_message");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<int>("Sequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sequence");
+
+                    b.Property<string>("StageName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("stage_name");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("completed")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("text")
+                        .HasColumnName("summary");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TaskId", "ArtifactType", "ArtifactKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_task_artifacts_task_type_key");
+
+                    b.HasIndex("TaskId", "StageName", "Sequence")
+                        .HasDatabaseName("ix_task_artifacts_task_stage_sequence");
+
+                    b.ToTable("task_artifacts", (string)null);
+                });
+
             modelBuilder.Entity("Heimdall.Core.Entities.TaskLlmCallLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -458,6 +537,12 @@ namespace Heimdall.Repository.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("attempt_count");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -468,6 +553,22 @@ namespace Heimdall.Repository.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentStage")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("queued")
+                        .HasColumnName("current_stage");
+
+                    b.Property<string>("CurrentStageStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("pending")
+                        .HasColumnName("current_stage_status");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
@@ -481,6 +582,15 @@ namespace Heimdall.Repository.Migrations
                     b.Property<string>("Language")
                         .HasMaxLength(8)
                         .HasColumnType("character varying(8)");
+
+                    b.Property<Guid?>("LastArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_artifact_id");
+
+                    b.Property<string>("LastSuccessfulStage")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_successful_stage");
 
                     b.Property<string>("Model")
                         .HasMaxLength(64)
@@ -568,6 +678,8 @@ namespace Heimdall.Repository.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LastArtifactId");
 
                     b.HasIndex("ResolvedRepositoryVersionId");
 
@@ -1085,6 +1197,17 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("Repository");
                 });
 
+            modelBuilder.Entity("Heimdall.Core.Entities.TaskArtifact", b =>
+                {
+                    b.HasOne("Heimdall.Core.Entities.TaskRecord", "Task")
+                        .WithMany("Artifacts")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Task");
+                });
+
             modelBuilder.Entity("Heimdall.Core.Entities.TaskLlmCallLog", b =>
                 {
                     b.HasOne("Heimdall.Core.Entities.TaskRecord", "Task")
@@ -1098,6 +1221,11 @@ namespace Heimdall.Repository.Migrations
 
             modelBuilder.Entity("Heimdall.Core.Entities.TaskRecord", b =>
                 {
+                    b.HasOne("Heimdall.Core.Entities.TaskArtifact", null)
+                        .WithMany()
+                        .HasForeignKey("LastArtifactId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Heimdall.Core.Entities.Repository", "Repository")
                         .WithMany("Tasks")
                         .HasForeignKey("RepositoryId");
@@ -1265,6 +1393,8 @@ namespace Heimdall.Repository.Migrations
 
             modelBuilder.Entity("Heimdall.Core.Entities.TaskRecord", b =>
                 {
+                    b.Navigation("Artifacts");
+
                     b.Navigation("LlmCallLogs");
 
                     b.Navigation("WikiPages");

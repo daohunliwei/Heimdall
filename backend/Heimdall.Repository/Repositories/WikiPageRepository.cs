@@ -23,6 +23,19 @@ public class WikiPageRepository : IWikiPageRepository
             .ToListAsync();
     }
 
+    /// <summary>
+    /// 按 WikiVersion 直接读取页面集合。
+    /// 该查询用于版本切换、版本比较以及缓存回放等版本化读取场景。
+    /// </summary>
+    public async Task<List<WikiPage>> GetByWikiVersionIdAsync(Guid wikiVersionId)
+    {
+        return await _context.WikiPages
+            .AsNoTracking()
+            .Where(p => p.WikiVersionId == wikiVersionId)
+            .OrderBy(p => p.PageOrder)
+            .ToListAsync();
+    }
+
     public async Task<WikiPage> AddAsync(WikiPage page)
     {
         page.CreatedAt = DateTime.UtcNow;

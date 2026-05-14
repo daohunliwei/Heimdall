@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { FaArrowLeft, FaSync, FaDownload, FaArrowRight, FaArrowUp, FaTimes } from 'react-icons/fa';
 import ThemeToggle from '@/components/theme-toggle';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useArtifactVersionContext } from '@/hooks/useArtifactVersionContext';
 import { buildTaskRequestBody } from '@/utils/taskRequest';
 
 interface Slide {
@@ -30,6 +31,18 @@ export default function SlidesPage() {
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'zh';
   const { messages } = useLanguage();
+  const {
+    versionContext,
+    wikiVersion,
+    repositoryVersion,
+    isValidating,
+    isReady: isVersionContextReady,
+    validationMessage,
+  } = useArtifactVersionContext({
+    repositoryId,
+    language,
+    searchParams,
+  });
 
   const [repo, setRepo] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -44,7 +57,12 @@ export default function SlidesPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const generateSlidesContent = useCallback(async () => {
-    if (isLoading) return;
+    if (isLoading || isValidating) return;
+
+    if (!isVersionContextReady || !versionContext.repositoryVersionId || !versionContext.wikiVersionId) {
+      setError(validationMessage || '当前页面缺少有效的版本上下文，请返回仓库页重新进入 Slides 页面。');
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -60,7 +78,11 @@ export default function SlidesPage() {
         isCustomModel: isCustomModelParam,
         customModel: customModelParam,
         language,
-      }, { comprehensive: true });
+      }, {
+        comprehensive: true,
+        repository_version_id: versionContext.repositoryVersionId,
+        wiki_version_id: versionContext.wikiVersionId,
+      });
 
       const bodyWithRepoId = { ...requestBody, repository_id: repositoryId };
 
@@ -84,7 +106,21 @@ export default function SlidesPage() {
       setIsLoading(false);
       setLoadingMessage(undefined);
     }
-  }, [providerParam, modelParam, isCustomModelParam, customModelParam, language, isLoading, messages.loading, repositoryId]);
+  }, [
+    customModelParam,
+    isCustomModelParam,
+    isLoading,
+    isValidating,
+    isVersionContextReady,
+    language,
+    messages.loading,
+    modelParam,
+    providerParam,
+    repositoryId,
+    validationMessage,
+    versionContext.repositoryVersionId,
+    versionContext.wikiVersionId,
+  ]);
 
   const exportSlides = useCallback(async () => {
     if (slides.length === 0) { setExportError('暂无可导出的演示文稿内容'); return; }
@@ -132,8 +168,11 @@ export default function SlidesPage() {
 
   const contentGeneratedRef = useRef(false);
   useEffect(() => {
-    if (!contentGeneratedRef.current) { contentGeneratedRef.current = true; generateSlidesContent(); }
-  }, [generateSlidesContent]);
+    if (!contentGeneratedRef.current && isVersionContextReady) {
+      contentGeneratedRef.current = true;
+      generateSlidesContent();
+    }
+  }, [generateSlidesContent, isVersionContextReady]);
 
   return (
     <div className={`min-h-screen flex flex-col ${isFullscreen ? 'fixed inset-0 z-50 bg-[#0d1117]' : 'bg-[var(--background)]'}`}>
@@ -148,9 +187,15 @@ export default function SlidesPage() {
               <h1 className="text-xl font-bold text-[var(--accent-primary)]">
                 {messages.slides?.title || 'Slides'}: {repo}
               </h1>
+              {wikiVersion && repositoryVersion && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+                  <span className="tag tag-default">Wiki v{wikiVersion.version_no}</span>
+                  <span className="tag tag-default">{repositoryVersion.commit_sha.slice(0, 8)}</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center space-x-3">
-              <button onClick={generateSlidesContent} disabled={isLoading}
+              <button onClick={generateSlidesContent} disabled={isLoading || !isVersionContextReady}
                 className={`p-2 rounded-md ${isLoading ? 'bg-[var(--button-disabled-bg)] text-[var(--button-disabled-text)]' : 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20'} transition-colors`}
                 title={messages.slides?.regenerate || 'Regenerate Slides'}>
                 <FaSync className={`${isLoading ? 'animate-spin' : ''}`} />
@@ -168,7 +213,17 @@ export default function SlidesPage() {
         </header>
       )}
       <main className={`flex-1 flex flex-col ${isFullscreen ? 'p-0' : 'container mx-auto px-4 py-6'}`}>
-        {isLoading && !slides.length ? (
+        {isValidating ? (
+          <div className="flex flex-col items-center justify-center p-8 flex-grow">
+            <div className="w-12 h-12 border-4 border-[var(--accent-primary)]/30 border-t-[var(--accent-primary)] rounded-full animate-spin mb-4"></div>
+            <p className="text-[var(--foreground)]">正在校验当前浏览版本...</p>
+          </div>
+        ) : validationMessage ? (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4 mb-6">
+            <h3 className="text-red-800 dark:text-red-400 font-medium mb-2">版本校验失败</h3>
+            <p className="text-red-700 dark:text-red-300">{validationMessage}</p>
+          </div>
+        ) : isLoading && !slides.length ? (
           <div className="flex flex-col items-center justify-center p-8 flex-grow">
             <div className="w-12 h-12 border-4 border-[var(--accent-primary)]/30 border-t-[var(--accent-primary)] rounded-full animate-spin mb-4"></div>
             <p className="text-[var(--foreground)]">{loadingMessage}</p>

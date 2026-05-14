@@ -1,0 +1,24 @@
+- [ ] Wiki 刷新、任务创建、任务状态返回已统一为唯一正式入口与稳定返回字段
+- [x] `TasksController` 不再直接用 `Task.Run` 执行 Wiki 主任务
+- [x] `TaskQueueService` 已真正承担任务执行职责，而不只是消费日志
+- [x] `WikiVersionController`、`WikiCacheController` 已修正 `WikiId` / `WikiSpaceId` / `WikiVersionId` 混用问题
+- [ ] 前端仓库页刷新后不再回退到旧 `generateWikiTask` 双链路
+- [ ] 前端页面、刷新态、任务态、版本态契约已保持一致
+- [x] 已落地任务阶段状态与 `task_artifacts` 工件持久化
+- [x] 任务失败后能够定位失败阶段并从最近恢复点重试
+- [x] `TaskRecord.ResultWikiVersionId` 与 `ResolvedRepositoryVersionId` 与真实落库结果一致
+- [x] 代码向量与 Wiki 向量写入已纳入主链路可观测阶段
+- [x] 结构规划已不再以 XML 作为长期主格式
+- [x] 页面草案已以 Markdown、Frontmatter、Mermaid 或结构块元数据为主表达格式
+- [x] 已实现全局收敛阶段，能够处理重复、遗漏、前置阅读或交叉引用修补
+- [x] 渲染后处理已输出前端稳定消费的页面树与内容结构
+- [x] Ask 已继承当前 `RepositoryVersion` / `WikiVersion`
+- [x] Slides 已继承当前 `RepositoryVersion` / `WikiVersion`
+- [x] Workshop 已继承当前 `RepositoryVersion` / `WikiVersion`
+- [ ] PostgreSQL 调试环境可用于迁移、任务写库、版本写库与向量表验证
+- [ ] Ollama 向量化与生成服务已完成实际联调验证
+- [ ] 目标仓库 `http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops` 已完成至少一轮端到端验证
+- [x] `dotnet build backend/Heimdall.Api/Heimdall.Api.csproj` 通过
+- [x] `npm run build`（frontend）通过
+- [ ] 必要的前后端联调问题已修复并复验
+- [x] 本轮未实现 `Microsoft Agent Framework` 主链路接入，但已明确后续试点边界与前置条件

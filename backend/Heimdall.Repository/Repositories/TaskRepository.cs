@@ -18,6 +18,7 @@ public class TaskRepository : ITaskRepository
     {
         return await _context.Tasks
             .Include(t => t.LlmCallLogs)
+            .Include(t => t.Artifacts)
             .Include(t => t.WikiPages)
             .FirstOrDefaultAsync(t => t.Id == id);
     }
@@ -73,6 +74,18 @@ public class TaskRepository : ITaskRepository
         }
     }
 
+    /// <summary>
+    /// 持久化任务实体的完整变更。
+    /// 该方法用于保存结果版本、结果摘要、开始/结束时间等非状态字段，避免被 UpdateStatusAsync 丢失。
+    /// </summary>
+    public async Task<TaskRecord> UpdateAsync(TaskRecord task)
+    {
+        task.UpdatedAt = DateTime.UtcNow;
+        _context.Tasks.Update(task);
+        await _context.SaveChangesAsync();
+        return task;
+    }
+
     public async Task<TaskRecord> UpdateStatusAsync(Guid id, string status,
         int? progressPercent = null, string? progressMessage = null, string? errorMessage = null)
     {
@@ -113,6 +126,19 @@ public class TaskRepository : ITaskRepository
             .Where(t => t.RequestHash == requestHash && t.Status == "completed")
             .OrderByDescending(t => t.CompletedAt)
             .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
+    /// 读取需要恢复调度的任务集合。
+    /// 该方法用于服务重启后的恢复，覆盖 pending 与 running 两类未终结任务。
+    /// </summary>
+    public async Task<List<TaskRecord>> GetRecoverableAsync(string taskType)
+    {
+        return await _context.Tasks
+            .AsNoTracking()
+            .Where(t => t.TaskType == taskType && (t.Status == "pending" || t.Status == "running"))
+            .OrderBy(t => t.CreatedAt)
+            .ToListAsync();
     }
 
     public async Task IncrementTokensAsync(Guid taskId, int promptTokens, int completionTokens)

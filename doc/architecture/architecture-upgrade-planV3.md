@@ -477,6 +477,35 @@ V3 文档本身的验证分两层：
 - 失败后是否可从结构工件或批次工件恢复
 - 复杂 Wiki 是否能在不依赖原始 HTML 的前提下稳定生成
 
+### 11.3 当前代码核验结论（2026-05-14）
+
+基于 `.trae/specs/implement-architecture-upgrade-v3/tasks.md`、`.trae/specs/implement-architecture-upgrade-v3/checklist.md`、当前仓库代码与本次实际构建结果，可以形成以下实施对齐结论：
+
+- 已确认落地的能力：
+  - `TaskQueueService` 已真正承担 Wiki 任务执行职责，`ExecuteAsync` 会消费队列并调用 `WikiTaskService.ExecuteAsync`
+  - `TasksController` 已不再直接通过控制器内 `Task.Run` 启动 Wiki 主任务，`/tasks/wiki` 与 `/wiki/refresh` 已统一收敛到 `WikiTaskSubmissionService`
+  - `TaskRecord` 已补齐 `CurrentStage`、`CurrentStageStatus`、`LastSuccessfulStage`、`LastArtifactId`、`AttemptCount` 等阶段状态字段，并已通过 `20260514155446_V3Phase1TaskArtifacts` 迁移落库
+  - `task_artifacts` 已实际用于写入 `planning_artifact`、`page_batch_artifact`、`quality_report_artifact`、`relation_artifact`、`render_artifact`、`code_embedding_artifact`、`wiki_embedding_artifact`
+  - `WikiTaskExecutionRepository` 已在单一事务中完成 Wiki 主数据、`RepositoryVersion`、`WikiVersion`、`WikiPage`、`WikiPageRelation` 与关键工件写入，并同步回写 `TaskRecord.ResultWikiVersionId` 与 `ResolvedRepositoryVersionId`
+  - 代码向量与 Wiki 向量写入已从主链路中的“火忘式后台动作”改为显式可观测阶段
+  - 结构规划与页面草案已切换为“JSON DTO 优先，XML 仅兼容回退”；页面正文与渲染输出已转为 Markdown、Frontmatter 与结构元数据优先
+  - `AskTaskService`、`SlidesTaskService`、`WorkshopTaskService` 已统一通过 `VersionedKnowledgeService` 继承 `RepositoryVersion` / `WikiVersion`
+  - 本次会话已实际验证 `dotnet build backend/Heimdall.Api/Heimdall.Api.csproj` 与 `frontend` 下 `npm run build` 均通过
+
+- 当前仍未完全闭环的点：
+  - 前端仓库页仍保留“`/wiki/refresh` 未返回 `task_id` 时回退调用 `/api/tasks/wiki`”的兜底分支，因此“刷新后不再回退到旧任务创建双链路”这一点不能判定为完全完成
+  - `RefreshOrchestrationService` 在刷新异常时会返回 `result_type = "no_change"`，前端统一刷新流会按“可复用结果”路径继续处理，这意味着“刷新失败”和“无变化复用”在契约语义上仍存在混淆风险
+  - 因上述残留问题，“唯一正式入口”与“页面态 / 刷新态 / 任务态 / 版本态完全一致”仍只能判定为部分完成，不能作为已彻底验收项
+
+- 当前会话无法直接勾选的外部联调项：
+  - PostgreSQL 迁移、任务写库、向量表能力与调试环境验证
+  - Ollama 向量与生成服务的真实联调
+  - 目标仓库 `http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops` 的端到端验证
+
+- 与 Agent Framework 相关的边界：
+  - 本轮仍未把 `Microsoft Agent Framework` 接入主链路
+  - 其前置条件与局部试点边界已在第 9 节明确，可作为后续阶段输入
+
 ## 12. 结论
 
 V3 的本质不是再追加一轮“大重构设想”，而是把 Heimdall 从“V1 缓存模型 + V2 表结构”的混合态，升级为“版本主导、任务可恢复、Markdown 优先、结构与渲染解耦”的稳定系统。

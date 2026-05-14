@@ -133,6 +133,8 @@ builder.Services.AddSingleton<IEmbeddingProvider, BedrockEmbeddingProvider>();
 // Repository Layer (Scoped - 依赖 DbContext)
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
+builder.Services.AddScoped<ITaskArtifactRepository, TaskArtifactRepository>();
+builder.Services.AddScoped<IWikiTaskExecutionRepository, WikiTaskExecutionRepository>();
 builder.Services.AddScoped<IWikiRepository, WikiRepository>();
 builder.Services.AddScoped<IWikiPageRepository, WikiPageRepository>();
 builder.Services.AddScoped<ITaskLlmCallLogRepository, TaskLlmCallLogRepository>();
@@ -153,21 +155,30 @@ builder.Services.AddScoped<IRefreshOrchestrationService, RefreshOrchestrationSer
 builder.Services.AddScoped<IDualVectorSearchService, DualVectorSearchService>();
 builder.Services.AddScoped<ICodeEmbeddingService, CodeEmbeddingService>();
 builder.Services.AddScoped<IWikiEmbeddingService, WikiEmbeddingService>();
+builder.Services.AddScoped<IVersionedKnowledgeService, VersionedKnowledgeService>();
+builder.Services.AddScoped<IAskTaskService, AskTaskService>();
+builder.Services.AddScoped<ISlidesTaskService, SlidesTaskService>();
+builder.Services.AddScoped<IWorkshopTaskService, WorkshopTaskService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<RagContextService>();
 builder.Services.AddScoped<TaskRequestUtilityService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<TaskLlmCallLogService>();
+builder.Services.AddScoped<IWikiTaskSubmissionService, WikiTaskSubmissionService>();
 builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
 builder.Services.AddSingleton<TaskPromptService>();
+builder.Services.AddSingleton<WikiGenerationParserService>();
+builder.Services.AddSingleton<WikiGlobalConvergenceService>();
+builder.Services.AddSingleton<WikiRenderPostProcessor>();
 builder.Services.AddSingleton<WikiTaskService>();
 builder.Services.AddScoped<PromptTemplateService>();
 
 // Core Task Services (Singleton - 无状态或使用 IServiceScopeFactory)
 builder.Services.AddSingleton<TaskProgressService>();
 builder.Services.AddSingleton<TaskQueueService>();
+builder.Services.AddSingleton<ITaskQueueService>(sp => sp.GetRequiredService<TaskQueueService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TaskQueueService>());
 
 // JWT Authentication

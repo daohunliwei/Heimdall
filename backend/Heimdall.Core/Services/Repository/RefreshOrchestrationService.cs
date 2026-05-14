@@ -8,15 +8,21 @@ public class RefreshOrchestrationService : IRefreshOrchestrationService
 {
     private readonly IVersionDiscoveryService _versionDiscovery;
     private readonly IRepositoryConfigRepository _repoRepo;
+    private readonly IWikiSpaceRepository _spaceRepo;
+    private readonly IWikiVersionRepository _wikiVersionRepo;
     private readonly ILogger<RefreshOrchestrationService> _logger;
 
     public RefreshOrchestrationService(
         IVersionDiscoveryService versionDiscovery,
         IRepositoryConfigRepository repoRepo,
+        IWikiSpaceRepository spaceRepo,
+        IWikiVersionRepository wikiVersionRepo,
         ILogger<RefreshOrchestrationService> logger)
     {
         _versionDiscovery = versionDiscovery;
         _repoRepo = repoRepo;
+        _spaceRepo = spaceRepo;
+        _wikiVersionRepo = wikiVersionRepo;
         _logger = logger;
     }
 
@@ -30,10 +36,12 @@ public class RefreshOrchestrationService : IRefreshOrchestrationService
         if (string.Equals(request.RefreshStrategy, "current", StringComparison.OrdinalIgnoreCase))
         {
             var currentVersion = await _versionDiscovery.GetLatestVersionAsync(request.RepositoryId, request.Branch, cancellationToken);
+            var currentWikiVersionId = await ResolveEffectiveWikiVersionIdAsync(request.RepositoryId, request.Language);
             var result = new RefreshResult
             {
                 RepositoryId = request.RepositoryId,
                 RepositoryVersionId = currentVersion?.Id,
+                WikiVersionId = currentWikiVersionId,
                 RefreshStrategy = "current",
                 ChangeStatus = "unchanged",
                 ResultType = request.ForceRefresh ? "queued" : "reused",
@@ -51,10 +59,12 @@ public class RefreshOrchestrationService : IRefreshOrchestrationService
             if (latestVersion is not null && latestVersion.CommitSha == discoveredVersion.CommitSha)
             {
                 // 无新版本
+                var existingWikiVersionId = await ResolveEffectiveWikiVersionIdAsync(request.RepositoryId, request.Language);
                 var result = new RefreshResult
                 {
                     RepositoryId = request.RepositoryId,
                     RepositoryVersionId = latestVersion.Id,
+                    WikiVersionId = existingWikiVersionId,
                     RefreshStrategy = "latest",
                     ChangeStatus = "unchanged",
                     ResultType = request.ForceRefresh ? "queued" : "reused",
@@ -86,5 +96,22 @@ public class RefreshOrchestrationService : IRefreshOrchestrationService
                 Message = $"刷新失败：{ex.Message}"
             };
         }
+    }
+
+    /// <summary>
+    /// 解析指定仓库当前对外可读的 WikiVersion。
+    /// 优先返回已发布版本；如果尚未发布，则回退到空间中的最新生成版本。
+    /// </summary>
+    private async Task<Guid?> ResolveEffectiveWikiVersionIdAsync(Guid repositoryId, string language)
+    {
+        var space = await _spaceRepo.GetByRepoLangViewAsync(repositoryId, language, "default");
+        if (space is null)
+            return null;
+
+        if (space.PublishedWikiVersionId.HasValue)
+            return space.PublishedWikiVersionId.Value;
+
+        var versions = await _wikiVersionRepo.GetBySpaceIdAsync(space.Id);
+        return versions.OrderByDescending(v => v.VersionNo).FirstOrDefault()?.Id;
     }
 }
