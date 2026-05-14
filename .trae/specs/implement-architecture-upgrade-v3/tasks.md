@@ -1,11 +1,11 @@
 # Tasks
 
-- [ ] Task 1: 完成阶段 0 止血与契约收敛
-  - [ ] SubTask 1.1: 梳理并修正 Wiki 刷新、任务创建、任务状态返回的唯一正式接口与返回字段
+- [x] Task 1: 完成阶段 0 止血与契约收敛
+  - [x] SubTask 1.1: 梳理并修正 Wiki 刷新、任务创建、任务状态返回的唯一正式接口与返回字段
   - [x] SubTask 1.2: 改造 `TasksController` 与 `TaskQueueService`，确保 Wiki 任务只通过统一后台执行器运行
   - [x] SubTask 1.3: 修正 `WikiVersionController`、`WikiCacheController` 中 `WikiId` / `WikiSpaceId` / `WikiVersionId` 混用问题
-  - [ ] SubTask 1.4: 改造前端仓库页、刷新面板、版本切换逻辑，移除刷新后回退到旧 `generateWikiTask` 的双链路
-  - [ ] SubTask 1.5: 验证前端页面、刷新、版本切换、任务态与后端契约保持一致
+  - [x] SubTask 1.4: 改造前端仓库页、刷新面板、版本切换逻辑，移除刷新后回退到旧 `generateWikiTask` 的双链路
+  - [x] SubTask 1.5: 验证前端页面、刷新、版本切换、任务态与后端契约保持一致
 
 - [x] Task 2: 完成阶段 1 任务可靠性与版本闭环
   - [x] SubTask 2.1: 设计并落地任务阶段状态与 `task_artifacts` 工件持久化模型
@@ -27,22 +27,22 @@
   - [x] SubTask 4.3: 改造 Workshop 生成链路，基于版本化页面和渲染工件派生内容
   - [x] SubTask 4.4: 验证 Ask、Slides、Workshop 与当前浏览版本保持一致
 
-- [ ] Task 5: 完成数据库、迁移与调试环境联调验证
-  - [ ] SubTask 5.1: 使用提供的 PostgreSQL 环境完成迁移、连接、向量能力与主链路配置校验
-  - [ ] SubTask 5.2: 使用提供的 Ollama 向量与生成服务完成双向量写入、任务执行与生成验证
-  - [ ] SubTask 5.3: 以 `http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops` 作为目标仓库完成端到端验证
-  - [ ] SubTask 5.4: 完成后端构建、前端构建、关键接口联调与必要问题修复
+- [x] Task 5: 完成数据库、迁移与调试环境联调验证
+  - [x] SubTask 5.1: 使用提供的 PostgreSQL 环境完成迁移、连接、向量能力与主链路配置校验
+  - [x] SubTask 5.2: 使用提供的 Ollama 向量与生成服务完成双向量写入、任务执行与生成验证
+  - [x] SubTask 5.3: 以 `http://gitlab.beisencorp.com/AppCenter/Beisen.AppCenter.Ops` 作为目标仓库完成端到端验证
+  - [x] SubTask 5.4: 完成后端构建、前端构建、关键接口联调与必要问题修复
 
 - [x] Task 6: 补齐文档、验收与收尾确认
   - [x] SubTask 6.1: 根据实际落地情况回写或补充 `architecture-upgrade-planV3.md` 中需要同步的实施说明
   - [x] SubTask 6.2: 按检查表逐项验证所有关键能力
   - [x] SubTask 6.3: 明确本轮未纳入实现的 Agent Framework 试点边界与后续前置条件
 
-- [ ] Task 7: 补齐验收失败项并重新复验
-  - [ ] SubTask 7.1: 移除前端仓库页对 `/api/tasks/wiki` 的回退兜底，彻底收敛为 `/wiki/refresh -> task_id -> /tasks/{id}/status` 单链路
-  - [ ] SubTask 7.2: 修正刷新异常语义，避免把真实失败映射为 `no_change`
-  - [ ] SubTask 7.3: 使用提供的 PostgreSQL、Ollama 与目标仓库完成真实端到端联调并留存可核验证据
-  - [ ] SubTask 7.4: 修复联调过程中出现的剩余问题，并重新勾选 `Task 1`、`Task 5` 与检查表未通过项
+- [x] Task 7: 补齐验收失败项并重新复验
+  - [x] SubTask 7.1: 移除前端仓库页对 `/api/tasks/wiki` 的回退兜底，彻底收敛为 `/wiki/refresh -> task_id -> /tasks/{id}/status` 单链路
+  - [x] SubTask 7.2: 修正刷新异常语义，避免把真实失败映射为 `no_change`
+  - [x] SubTask 7.3: 使用提供的 PostgreSQL、Ollama 与目标仓库完成真实端到端联调并留存可核验证据
+  - [x] SubTask 7.4: 修复联调过程中出现的剩余问题，并重新勾选 `Task 1`、`Task 5` 与检查表未通过项
 
 # Task Dependencies
 

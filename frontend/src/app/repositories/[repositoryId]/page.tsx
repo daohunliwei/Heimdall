@@ -18,7 +18,6 @@ import {
   WikiVersionSummary,
 } from '@/types/wiki';
 import { readJsonSafely } from '@/utils/response';
-import { buildTaskRequestBody } from '@/utils/taskRequest';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -81,18 +80,6 @@ interface WikiRefreshResponse {
 }
 
 /**
- * 任务创建响应。
- */
-interface WikiTaskExecutionResponse {
-  /** 任务 ID。 */
-  task_id: string;
-  /** 任务状态。 */
-  status: string;
-  /** 后端返回消息。 */
-  message: string;
-}
-
-/**
  * 任务状态响应。
  */
 interface WikiTaskStatusResponse {
@@ -133,45 +120,27 @@ interface TaskCompletionTarget {
 }
 
 /**
- * 读取多个候选值中的第一个非空字符串。
+ * 解析 `/wiki/refresh` 的正式响应结构。
  */
-function pickStringValue(...values: unknown[]): string | undefined {
-  return values.find((value) => typeof value === 'string' && value.trim().length > 0) as string | undefined;
-}
+function parseRefreshResponse(payload: Record<string, unknown>): WikiRefreshResponse {
+  const repositoryVersionId = typeof payload.repository_version_id === 'string' ? payload.repository_version_id : undefined;
+  const wikiVersionId = typeof payload.wiki_version_id === 'string' ? payload.wiki_version_id : undefined;
+  const resultType = typeof payload.result_type === 'string' ? payload.result_type : undefined;
+  const changeStatus = typeof payload.change_status === 'string' ? payload.change_status : undefined;
+  const taskId = typeof payload.task_id === 'string' ? payload.task_id : undefined;
+  const message = typeof payload.message === 'string' ? payload.message : undefined;
 
-/**
- * 统一解析 `/wiki/refresh` 返回字段。
- * 当前后端仍存在 camelCase / snake_case / PascalCase 混用的过渡期，
- * 因此前端在阶段 0 先做兼容，避免再次退回旧链路。
- */
-function normalizeRefreshResponse(payload: Record<string, unknown>): WikiRefreshResponse {
+  if (!resultType) {
+    throw new Error('刷新接口未返回 result_type');
+  }
+
   return {
-    repositoryVersionId: pickStringValue(
-      payload.repositoryVersionId,
-      payload.repository_version_id,
-      payload.RepositoryVersionId,
-    ),
-    wikiVersionId: pickStringValue(
-      payload.wikiVersionId,
-      payload.wiki_version_id,
-      payload.WikiVersionId,
-    ),
-    resultType: pickStringValue(
-      payload.resultType,
-      payload.result_type,
-      payload.ResultType,
-    ) ?? 'queued',
-    changeStatus: pickStringValue(
-      payload.changeStatus,
-      payload.change_status,
-      payload.ChangeStatus,
-    ),
-    taskId: pickStringValue(
-      payload.taskId,
-      payload.task_id,
-      payload.TaskId,
-    ),
-    message: pickStringValue(payload.message, payload.Message),
+    repositoryVersionId,
+    wikiVersionId,
+    resultType,
+    changeStatus,
+    taskId,
+    message,
   };
 }
 
@@ -459,52 +428,6 @@ export default function RepositoryWikiPage() {
   }, [applyWikiViewState, language, messages.loading, repositoryId]);
 
   /**
-   * 使用统一任务入口创建 Wiki 生成任务。
-   * 该方法只负责“执行任务”，不再承担页面刷新与版本选择职责。
-   */
-  const executeWikiTask = useCallback(async (
-    refreshOptions: RefreshOptions,
-    executionOptions: WikiTaskExecutionOptions,
-  ) => {
-    const requestBody = buildTaskRequestBody({
-      token: null,
-      provider: executionOptions.provider,
-      model: executionOptions.model,
-      isCustomModel: executionOptions.isCustomModel,
-      customModel: executionOptions.customModel,
-      language,
-    }, {
-      repository_id: repositoryId,
-      branch: refreshOptions.branch,
-      refresh_strategy: refreshOptions.refreshStrategy,
-      force_refresh: refreshOptions.forceRefresh,
-      generation_profile: refreshOptions.generationProfile,
-      comprehensive: refreshOptions.generationProfile === 'comprehensive',
-    });
-
-    const response = await fetch('/api/tasks/wiki', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorBody = await readJsonSafely<TaskErrorResponse>(response);
-      const detailText = [
-        errorBody?.details,
-        errorBody?.request_id ? `RequestId: ${errorBody.request_id}` : null,
-      ].filter(Boolean).join('\n');
-      if (detailText) {
-        setErrorDetails(detailText);
-      }
-
-      throw new Error(errorBody?.error || `Wiki 任务提交失败：${response.status}`);
-    }
-
-    return await response.json() as WikiTaskExecutionResponse;
-  }, [language, repositoryId]);
-
-  /**
    * 轮询任务状态，并在完成后重新对齐版本目录与正文内容。
    */
   const waitForTaskCompletion = useCallback(async (
@@ -616,10 +539,10 @@ export default function RepositoryWikiPage() {
       }
 
       const refreshPayload = await refreshResponse.json() as Record<string, unknown>;
-      const refreshResult = normalizeRefreshResponse(refreshPayload);
+      const refreshResult = parseRefreshResponse(refreshPayload);
       setLoadingMessage(refreshResult.message || '正在处理刷新请求...');
 
-      if (refreshResult.resultType === 'reused' || refreshResult.resultType === 'no_change') {
+      if (refreshResult.resultType === 'reused') {
         const { wikiVersionList } = await loadVersionCatalog();
         const preferredVersion = selectPreferredWikiVersion(
           wikiVersionList,
@@ -635,14 +558,15 @@ export default function RepositoryWikiPage() {
         return;
       }
 
-      let taskId = refreshResult.taskId;
-      if (!taskId) {
-        const taskResponse = await executeWikiTask(refreshOptions, executionOptions);
-        taskId = taskResponse.task_id;
-        setLoadingMessage(taskResponse.message || '任务已创建，正在后台生成...');
+      if (refreshResult.resultType !== 'queued') {
+        throw new Error(refreshResult.message || `未知的刷新结果类型：${refreshResult.resultType}`);
       }
 
-      await waitForTaskCompletion(taskId, {
+      if (!refreshResult.taskId) {
+        throw new Error('刷新接口未返回 task_id，无法进入统一任务链路');
+      }
+
+      await waitForTaskCompletion(refreshResult.taskId, {
         wikiVersionId: refreshResult.wikiVersionId,
         repositoryVersionId: refreshResult.repositoryVersionId,
       });
@@ -655,7 +579,7 @@ export default function RepositoryWikiPage() {
       setIsLoading(false);
       setLoadingMessage(undefined);
     }
-  }, [executeWikiTask, language, loadVersionCatalog, loadWikiVersionContent, repositoryId, selectPreferredWikiVersion, waitForTaskCompletion]);
+  }, [language, loadVersionCatalog, loadWikiVersionContent, repositoryId, selectPreferredWikiVersion, waitForTaskCompletion]);
 
   /**
    * 页面首次加载逻辑。

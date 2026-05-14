@@ -9,7 +9,7 @@ namespace Heimdall.Core.Services.Tasks;
 
 /// <summary>
 /// Wiki 任务统一提交服务。
-/// 该服务把 `/tasks/wiki` 与 `/wiki/refresh` 的创建、去重、复用与队列调度逻辑收敛到同一处。
+/// 该服务负责 `/wiki/refresh` 正式入口的创建、去重、复用与队列调度逻辑。
 /// </summary>
 public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
 {
@@ -40,37 +40,6 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
         _wikiTaskService = wikiTaskService;
         _taskQueueService = taskQueueService;
         _logger = logger;
-    }
-
-    /// <summary>
-    /// 直接提交 Wiki 生成任务，不执行额外版本发现。
-    /// </summary>
-    public async Task<WikiTaskSubmissionResult> SubmitGenerateAsync(
-        WikiTaskSubmissionRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        var repo = await GetRequiredRepositoryAsync(request.RepositoryId);
-        var branch = ResolveBranch(repo, request.Branch);
-        var language = ResolveLanguage(repo, request.Language);
-        var generationProfile = ResolveGenerationProfile(request.GenerationProfile);
-        var task = await CreateOrReuseTaskAsync(request, repo, branch, language, generationProfile);
-
-        await QueuePendingTaskAsync(task, repo, request, branch, language, generationProfile, cancellationToken);
-
-        return new WikiTaskSubmissionResult
-        {
-            TaskId = task.Id,
-            TaskStatus = task.Status,
-            RepositoryVersionId = task.ResolvedRepositoryVersionId,
-            WikiVersionId = task.ResultWikiVersionId,
-            ResultType = task.Status == "completed" ? "reused" : "queued",
-            ChangeStatus = task.Status == "completed" ? "unchanged" : "changed",
-            Message = task.Status == "completed"
-                ? "复用已有 Wiki 结果"
-                : task.Status == "running"
-                    ? "已有相同任务正在执行"
-                    : "任务已接收，进入统一队列执行"
-        };
     }
 
     /// <summary>

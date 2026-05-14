@@ -25,7 +25,7 @@ public class RefreshResult
     public Guid RepositoryId { get; set; }
     public Guid? RepositoryVersionId { get; set; }
     public Guid? WikiVersionId { get; set; }
-    /// <summary>queued / reused / no_change</summary>
+    /// <summary>queued / reused</summary>
     public string ResultType { get; set; } = "queued";
     public string RefreshStrategy { get; set; } = "latest";
     /// <summary>changed / unchanged</summary>

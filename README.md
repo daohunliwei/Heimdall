@@ -176,7 +176,7 @@ docker compose up -d
 
 | 端点 | 说明 |
 |------|------|
-| `POST /tasks/wiki` | 提交 Wiki 生成任务（异步，立即返回 task_id） |
+| `POST /api/repositories/{repositoryId}/wiki/refresh` | 提交 Wiki 刷新/生成任务（异步，立即返回 task_id） |
 | `GET /tasks/{id}/status` | 查询任务状态 |
 | `GET /tasks/{id}/stream` | SSE 订阅任务进度 |
 | `GET /tasks/{id}/token-summary` | Token 消耗汇总 |
