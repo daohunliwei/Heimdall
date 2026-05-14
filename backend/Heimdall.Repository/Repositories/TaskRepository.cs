@@ -106,6 +106,15 @@ public class TaskRepository : ITaskRepository
         throw new InvalidOperationException("Unreachable");
     }
 
+    public async Task IncrementTokensAsync(Guid taskId, int promptTokens, int completionTokens)
+    {
+        await _context.Tasks
+            .Where(t => t.Id == taskId)
+            .ExecuteUpdateAsync(calls => calls
+                .SetProperty(t => t.TotalPromptTokens, t => t.TotalPromptTokens + promptTokens)
+                .SetProperty(t => t.TotalCompletionTokens, t => t.TotalCompletionTokens + completionTokens));
+    }
+
     public async Task<(List<TaskRecord> Items, int TotalCount)> GetAllAsync(
         string? status = null, string? taskType = null, Guid? repositoryId = null,
         int offset = 0, int limit = 20)

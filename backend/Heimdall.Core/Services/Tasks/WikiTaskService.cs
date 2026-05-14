@@ -371,15 +371,8 @@ public sealed class WikiTaskService
 
         await logRepo.AddAsync(log);
 
-        // 更新累计 token
-        var task = await taskRepo.GetByIdAsync(taskId);
-        if (task is not null)
-        {
-            task.TotalPromptTokens += promptTokens;
-            task.TotalCompletionTokens += completionTokens;
-            await taskRepo.UpdateStatusAsync(task.Id, task.Status,
-                task.ProgressPercent, task.ProgressMessage, task.ErrorMessage);
-        }
+        // 使用原子 SQL 更新累计 token，避免跨 scope 并发冲突
+        await taskRepo.IncrementTokensAsync(taskId, promptTokens, completionTokens);
     }
 
     private async Task SaveWikiPageAsync(Guid taskId, Guid wikiId, int pageOrder, WikiPageDto dto)
