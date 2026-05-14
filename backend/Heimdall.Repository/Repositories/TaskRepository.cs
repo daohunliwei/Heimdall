@@ -106,6 +106,15 @@ public class TaskRepository : ITaskRepository
         throw new InvalidOperationException("Unreachable");
     }
 
+    public async Task<TaskRecord?> GetCompletedByHashAsync(string requestHash)
+    {
+        return await _context.Tasks
+            .AsNoTracking()
+            .Where(t => t.RequestHash == requestHash && t.Status == "completed")
+            .OrderByDescending(t => t.CompletedAt)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task IncrementTokensAsync(Guid taskId, int promptTokens, int completionTokens)
     {
         await _context.Tasks

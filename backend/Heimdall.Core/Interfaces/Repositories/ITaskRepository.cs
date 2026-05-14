@@ -9,6 +9,7 @@ public interface ITaskRepository
     Task<TaskRecord?> GetByRepoAndBranchAsync(Guid repositoryId, string sourceBranch);
     Task<TaskRecord?> GetRunningByRepoAndBranchAsync(Guid repositoryId, string sourceBranch);
     Task<TaskRecord?> GetPendingByRepoBranchTypeAsync(Guid repositoryId, string sourceBranch, string taskType);
+    Task<TaskRecord?> GetCompletedByHashAsync(string requestHash);
 
     /// <summary>Atomically upserts a task: inserts if no matching pending/running task exists, otherwise returns the existing one.</summary>
     Task<TaskRecord> EnqueueAsync(TaskRecord task);

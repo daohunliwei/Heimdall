@@ -91,6 +91,13 @@ public sealed class WikiTaskService
         var pending = await taskRepo.GetPendingByRepoBranchTypeAsync(repositoryId.Value, "main", "wiki");
         if (pending is not null) return pending;
 
+        // 非强制刷新时，已完成任务直接返回（防止重复生成覆盖已有数据）
+        if (!forceRefresh)
+        {
+            var completed = await taskRepo.GetCompletedByHashAsync(requestHash);
+            if (completed is not null) return completed;
+        }
+
         var task = new TaskRecord
         {
             TaskType = "wiki",
