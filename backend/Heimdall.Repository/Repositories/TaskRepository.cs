@@ -76,19 +76,34 @@ public class TaskRepository : ITaskRepository
     public async Task<TaskRecord> UpdateStatusAsync(Guid id, string status,
         int? progressPercent = null, string? progressMessage = null, string? errorMessage = null)
     {
-        var task = await _context.Tasks.FindAsync(id)
-            ?? throw new InvalidOperationException($"Task not found: {id}");
+        for (var retry = 0; retry < 3; retry++)
+        {
+            try
+            {
+                var task = await _context.Tasks.FindAsync(id)
+                    ?? throw new InvalidOperationException($"Task not found: {id}");
 
-        task.Status = status;
-        if (progressPercent.HasValue) task.ProgressPercent = progressPercent.Value;
-        if (progressMessage is not null) task.ProgressMessage = progressMessage;
-        if (errorMessage is not null) task.ErrorMessage = errorMessage;
+                task.Status = status;
+                if (progressPercent.HasValue) task.ProgressPercent = progressPercent.Value;
+                if (progressMessage is not null) task.ProgressMessage = progressMessage;
+                if (errorMessage is not null) task.ErrorMessage = errorMessage;
 
-        if (status == "running" && task.StartedAt is null) task.StartedAt = DateTime.UtcNow;
-        if (status is "completed" or "failed") task.CompletedAt = DateTime.UtcNow;
+                if (status == "running" && task.StartedAt is null) task.StartedAt = DateTime.UtcNow;
+                if (status is "completed" or "failed") task.CompletedAt = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync();
-        return task;
+                await _context.SaveChangesAsync();
+                return task;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (retry == 2) throw;
+                // 重新加载实体后重试
+                foreach (var entry in _context.ChangeTracker.Entries())
+                    await entry.ReloadAsync();
+            }
+        }
+
+        throw new InvalidOperationException("Unreachable");
     }
 
     public async Task<(List<TaskRecord> Items, int TotalCount)> GetAllAsync(
