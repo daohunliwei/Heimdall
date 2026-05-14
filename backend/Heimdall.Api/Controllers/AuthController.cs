@@ -77,6 +77,46 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// GET /auth/status — 返回认证状态（是否需要认证）。
+    /// </summary>
+    [HttpGet("status")]
+    public IActionResult Status()
+    {
+        var authMode = _configuration["HEIMDALL_AUTH_MODE"] ?? "jwt";
+        var authRequired = !string.Equals(authMode, "none", StringComparison.OrdinalIgnoreCase);
+        return Ok(new AuthStatusResponse { AuthRequired = authRequired });
+    }
+
+    /// <summary>
+    /// POST /auth/validate — 验证 JWT Token 有效性。
+    /// </summary>
+    [HttpPost("validate")]
+    public async Task<IActionResult> Validate([FromBody] AuthTokenResponse request)
+    {
+        if (string.IsNullOrWhiteSpace(request.AccessToken))
+            return BadRequest(new { error = "Token 为空。" });
+
+        try
+        {
+            var principal = await _jwtTokenService.ValidateTokenAsync(request.AccessToken);
+            if (principal is null)
+                return Unauthorized(new { error = "Token 无效或已过期。" });
+
+            var userIdClaim = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+                return Unauthorized(new { error = "Token 中未包含有效用户标识。" });
+
+            var user = await _userService.GetByIdAsync(userId);
+            if (user is null) return NotFound(new { error = "用户不存在。" });
+            return Ok(user.ToUserInfoResponse());
+        }
+        catch
+        {
+            return Unauthorized(new { error = "Token 无效或已过期。" });
+        }
+    }
+
     [HttpGet("me")]
     [Authorize]
     public async Task<IActionResult> Me()
