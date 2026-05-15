@@ -3,8 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3000",
-    "dev:turbo": "set NODE_OPTIONS=--max-old-space-size=4096 && next dev --turbopack --port 3000",
+    "dev": "next dev --turbopack --port 3000",
     "dev:all": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1",
     "dev:backend": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1 -BackendOnly",
     "dev:frontend": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1 -FrontendOnly",
