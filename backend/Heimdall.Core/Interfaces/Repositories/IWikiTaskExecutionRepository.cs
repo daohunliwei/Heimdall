@@ -11,9 +11,10 @@ namespace Heimdall.Core.Interfaces.Repositories;
 public interface IWikiTaskExecutionRepository
 {
     /// <summary>
-    /// 在单一事务内持久化 Wiki 主数据、版本数据、页面数据、页面关系与渲染快照。
+    /// 在单一事务内持久化 Wiki 版本数据、页面数据、页面关系与渲染快照。
+    /// V4：已移除旧 Wiki 实体，不再返回 WikiId。
     /// </summary>
-    Task<(Guid WikiId, Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
+    Task<(Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
         TaskRecord task,
         WikiStructureDto structure,
         string structureJson,

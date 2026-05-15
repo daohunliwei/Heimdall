@@ -135,7 +135,7 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
 builder.Services.AddScoped<ITaskArtifactRepository, TaskArtifactRepository>();
 builder.Services.AddScoped<IWikiTaskExecutionRepository, WikiTaskExecutionRepository>();
-builder.Services.AddScoped<IWikiRepository, WikiRepository>();
+// V4 清理：IWikiRepository 随旧 Wiki 实体一并移除，Wiki 数据走 IWikiVersionRepository + IWikiPageRepository
 builder.Services.AddScoped<IWikiPageRepository, WikiPageRepository>();
 builder.Services.AddScoped<ITaskLlmCallLogRepository, TaskLlmCallLogRepository>();
 builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
