@@ -90,6 +90,21 @@ public sealed class WikiGlobalConvergenceService
         var emptyContentPageCount = structure.Pages.Count(page => string.IsNullOrWhiteSpace(page.Content));
         var fallbackPageCount = structure.Pages.Count(page => page.IsFallbackDraft);
 
+        // V4: 对每页计算质量评分并识别弱页面
+        var pageQualityScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var weakPageIds = new List<string>();
+        const int qualityThreshold = 60;
+
+        foreach (var page in structure.Pages)
+        {
+            var score = CalculatePageQualityScore(page, pageLookup);
+            pageQualityScores[page.Id] = score;
+            if (score < qualityThreshold && !page.IsFallbackDraft)
+            {
+                weakPageIds.Add(page.Id);
+            }
+        }
+
         return new WikiConvergenceResultDto
         {
             Structure = structure,
@@ -101,8 +116,53 @@ public sealed class WikiGlobalConvergenceService
                 NormalizedNavTitleCount = normalizedNavTitleCount,
                 AddedReciprocalRelationCount = reciprocalRelationCount,
                 AddedChildLinkCount = childLinkCount,
-                Issues = issues
+                Issues = issues,
+                PageQualityScores = pageQualityScores,
+                WeakPageIds = weakPageIds
             }
         };
+    }
+
+    /// <summary>
+    /// V4 计算单页质量评分（0-100），评估维度：内容覆盖度、技术深度、可读性、相关性。
+    /// </summary>
+    /// <param name="page">被评估的页面。</param>
+    /// <param name="allPages">所有页面查找表。</param>
+    /// <returns>0-100 的质量评分。</returns>
+    private static int CalculatePageQualityScore(WikiPageDto page, Dictionary<string, WikiPageDto> allPages)
+    {
+        var score = 50; // 基础分
+
+        // 内容覆盖度：正文长度
+        if (!string.IsNullOrWhiteSpace(page.Content))
+        {
+            var contentLen = page.Content.Length;
+            if (contentLen > 3000) score += 15;
+            else if (contentLen > 1000) score += 10;
+            else if (contentLen > 300) score += 5;
+            else score -= 10; // 内容过短
+        }
+        else
+        {
+            score -= 30; // 无内容
+        }
+
+        // 技术深度：包含代码块、表格等技术元素
+        if (page.Content?.Contains("```") == true) score += 10;
+        if (page.Content?.Contains("|") == true && page.Content?.Contains("---") == true) score += 5;
+        if (page.Content?.Contains("##") == true) score += 5; // 有结构化标题
+
+        // 关联性：有相关页面引用
+        if (page.RelatedPages.Count >= 3) score += 8;
+        else if (page.RelatedPages.Count >= 1) score += 4;
+
+        // 源文件覆盖：有足够的源文件关联
+        if (page.FilePaths.Count >= 8) score += 7;
+        else if (page.FilePaths.Count >= 3) score += 3;
+
+        // 兜底草案扣分
+        if (page.IsFallbackDraft) score -= 20;
+
+        return Math.Clamp(score, 0, 100);
     }
 }

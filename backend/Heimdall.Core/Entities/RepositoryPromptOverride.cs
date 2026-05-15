@@ -8,5 +8,8 @@ public class RepositoryPromptOverride
     public Guid PromptTemplateId { get; set; }
     public PromptTemplate PromptTemplate { get; set; } = null!;
     public string? OverrideContent { get; set; }
+    public string Strategy { get; set; } = "override";
+    public int Priority { get; set; }
     public bool IsEnabled { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

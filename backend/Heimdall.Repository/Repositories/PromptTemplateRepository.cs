@@ -27,6 +27,13 @@ public class PromptTemplateRepository : IPromptTemplateRepository
         return await _context.PromptTemplates.FindAsync(id);
     }
 
+    public async Task<PromptTemplate?> GetBySlugAsync(string slug)
+    {
+        return await _context.PromptTemplates
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Slug == slug && p.IsActive);
+    }
+
     public async Task<List<PromptTemplate>> GetByLayerAsync(string layer)
     {
         return await _context.PromptTemplates
