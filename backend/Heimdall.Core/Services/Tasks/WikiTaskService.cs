@@ -914,7 +914,11 @@ public sealed class WikiTaskService
     /// 持久化 Wiki 主数据、版本数据、页面数据、关系数据与渲染快照。
     /// 该方法在同一数据库事务中完成主链路落库，确保完成态与真实结果一致。
     /// </summary>
-    private static async Task<(Guid WikiId, Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
+    /// <summary>
+    /// 在同一数据库事务中完成主链路落库，确保完成态与真实结果一致。
+    /// V4：已移除旧 Wiki 实体，不再返回 WikiId。
+    /// </summary>
+    private static async Task<(Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
         IWikiTaskExecutionRepository executionRepository,
         TaskRecord task,
         WikiStructureDto structure,

@@ -4,6 +4,10 @@ const TARGET_SERVER_BASE_URL = process.env.SERVER_BASE_URL || 'http://localhost:
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+
+  // V4：Windows 下文件监听排除大目录，避免内存泄露
+  // Next.js 默认 watchOptions 不可在此扩展，改用环境变量 CHOKIDAR_USEPOLLING=1 或 .next 缓存控制
+  // 实际内存优化在前端根目录 .gitignore 中排除 backend/ .trae/ doc/ .playwright-mcp/
   async rewrites() {
     return [
       {
