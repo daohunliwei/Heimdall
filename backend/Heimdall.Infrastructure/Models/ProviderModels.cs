@@ -30,6 +30,7 @@ public class ProviderChatRequest
     public string ProviderId { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
     public string Prompt { get; set; } = string.Empty;
+    public string? SystemPrompt { get; set; }
     public double? Temperature { get; set; }
     public double? TopP { get; set; }
     public int? TopK { get; set; }

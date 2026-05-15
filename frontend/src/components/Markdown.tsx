@@ -115,7 +115,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       const language = match?.[1] ?? nodeLanguage;
       const normalizedLanguage = language ? language.toLowerCase() : undefined;
 
-      if (!inline && normalizedLanguage === 'mermaid') {
+      if (inline === false && normalizedLanguage === 'mermaid') {
         return (
           <div className="my-8 rounded-lg overflow-hidden border border-[var(--border-color)]">
             <Mermaid chart={codeContent} className="w-full max-w-full" zoomingEnabled={true} />
@@ -123,7 +123,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
         );
       }
 
-      if (!inline) {
+      if (inline === false) {
         const displayLanguage = normalizedLanguage ?? 'code';
         return (
           <div className="my-6 rounded-lg overflow-hidden text-sm border border-[var(--border-color)]">

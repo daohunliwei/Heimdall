@@ -44,17 +44,25 @@ public sealed class MiniMaxChatProvider : IChatProvider
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+        var messages = new List<Dictionary<string, string>>();
+        if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
+        {
+            messages.Add(new Dictionary<string, string>
+            {
+                ["role"] = "system",
+                ["content"] = request.SystemPrompt
+            });
+        }
+        messages.Add(new Dictionary<string, string>
+        {
+            ["role"] = "user",
+            ["content"] = request.Prompt
+        });
+
         var payload = new Dictionary<string, object?>
         {
             ["model"] = request.Model,
-            ["messages"] = new[]
-            {
-                new Dictionary<string, string>
-                {
-                    ["role"] = "user",
-                    ["content"] = request.Prompt
-                }
-            },
+            ["messages"] = messages,
             ["stream"] = false
         };
 

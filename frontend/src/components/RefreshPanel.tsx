@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { FaSync, FaCog, FaCodeBranch } from 'react-icons/fa';
+import UserSelector from '@/components/UserSelector';
 
 /**
  * 刷新面板属性。
@@ -66,6 +67,8 @@ export default function RefreshPanel({
   const [generationProfile, setGenerationProfile] = useState<'concise' | 'comprehensive'>(defaultGenerationProfile);
   const [provider, setProvider] = useState(defaultProvider);
   const [model, setModel] = useState(defaultModel);
+  const [isCustomModel, setIsCustomModel] = useState(false);
+  const [customModel, setCustomModel] = useState('');
 
   /**
    * 当父组件的默认值更新时，同步刷新面板状态，
@@ -167,7 +170,9 @@ export default function RefreshPanel({
 
               {/* 刷新策略 */}
               <div>
-                <label className="text-xs text-[var(--muted)] mb-1 block">刷新策略</label>
+                <label className="text-xs text-[var(--muted)] mb-1 block" title="最新版本：拉取远程仓库最新代码后重新生成 Wiki；当前快照：基于已保存的仓库快照重新生成，不拉取新代码">
+                  刷新策略 <span className="text-[var(--muted)]/60 ml-0.5 cursor-help" title="最新版本：拉取远程仓库最新代码后重新生成 Wiki；当前快照：基于已保存的仓库快照重新生成，不拉取新代码">ⓘ</span>
+                </label>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -210,7 +215,9 @@ export default function RefreshPanel({
 
               {/* 生成档位 */}
               <div>
-                <label className="text-xs text-[var(--muted)] mb-1 block">生成档位</label>
+                <label className="text-xs text-[var(--muted)] mb-1 block" title="完整：生成全面的代码分析、架构图和模块文档；简洁：仅生成核心文件和入口点文档，速度更快">
+                  生成档位 <span className="text-[var(--muted)]/60 ml-0.5 cursor-help" title="完整：生成全面的代码分析、架构图和模块文档；简洁：仅生成核心文件和入口点文档，速度更快">ⓘ</span>
+                </label>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -238,31 +245,18 @@ export default function RefreshPanel({
               </div>
 
               {/* Provider / Model */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-[var(--muted)] mb-1 block">Provider</label>
-                  <select
-                    value={provider}
-                    onChange={(e) => setProvider(e.target.value)}
-                    className="input w-full text-xs"
-                  >
-                    <option value="ollama">Ollama</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="google">Google</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-[var(--muted)] mb-1 block">Model</label>
-                  <select
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="input w-full text-xs"
-                  >
-                    <option value="gemma4:e2b">gemma4:e2b</option>
-                    <option value="qwen3">qwen3</option>
-                    <option value="llama4">llama4</option>
-                  </select>
-                </div>
+              <div>
+                <label className="text-xs text-[var(--muted)] mb-1 block">模型选择</label>
+                <UserSelector
+                  provider={provider}
+                  setProvider={setProvider}
+                  model={model}
+                  setModel={setModel}
+                  isCustomModel={isCustomModel}
+                  setIsCustomModel={setIsCustomModel}
+                  customModel={customModel}
+                  setCustomModel={setCustomModel}
+                />
               </div>
 
               {/* 提交 */}

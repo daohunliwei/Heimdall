@@ -91,7 +91,7 @@ public sealed class WikiGenerationParserService
         }
         catch (JsonException ex)
         {
-            _logger.LogDebug(ex, "结构规划 JSON 反序列化失败");
+            _logger.LogWarning(ex, "结构规划 JSON 反序列化失败，回退到 XML/正则解析");
             return false;
         }
     }
@@ -115,7 +115,7 @@ public sealed class WikiGenerationParserService
         }
         catch (JsonException ex)
         {
-            _logger.LogDebug(ex, "页面草案 JSON 反序列化失败");
+            _logger.LogWarning(ex, "页面草案 JSON 反序列化失败，回退到 Markdown 兜底解析 ResponseLen={ResponseLen}", response.Length);
             return false;
         }
     }

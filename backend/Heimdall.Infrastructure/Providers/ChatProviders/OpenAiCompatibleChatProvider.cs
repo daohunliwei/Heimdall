@@ -60,17 +60,25 @@ public sealed class OpenAiCompatibleChatProvider : IChatProvider
             }
         }
 
+        var messages = new List<Dictionary<string, string>>();
+        if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
+        {
+            messages.Add(new Dictionary<string, string>
+            {
+                ["role"] = "system",
+                ["content"] = request.SystemPrompt
+            });
+        }
+        messages.Add(new Dictionary<string, string>
+        {
+            ["role"] = "user",
+            ["content"] = request.Prompt
+        });
+
         var payload = new Dictionary<string, object?>
         {
             ["model"] = request.Model,
-            ["messages"] = new[]
-            {
-                new Dictionary<string, string>
-                {
-                    ["role"] = "user",
-                    ["content"] = request.Prompt
-                }
-            },
+            ["messages"] = messages,
             ["stream"] = false
         };
 
