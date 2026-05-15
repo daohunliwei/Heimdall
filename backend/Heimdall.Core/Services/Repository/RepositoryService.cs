@@ -9,23 +9,20 @@ namespace Heimdall.Core.Services.Repository;
 public class RepositoryService : IRepositoryService
 {
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly IWikiRepository _wikiRepo;
-    private readonly IWikiPageRepository _pageRepo;
     private readonly ICodeEmbeddingRepository _codeEmbeddingRepo;
     private readonly IWikiEmbeddingRepository _wikiEmbeddingRepo;
     private readonly ILogger<RepositoryService> _logger;
 
+    /// <summary>
+    /// 初始化仓库服务。V4 已移除 IWikiRepository 依赖，旧 Wiki 数据清理由 DB 级联删除处理。
+    /// </summary>
     public RepositoryService(
         IRepositoryConfigRepository repoRepo,
-        IWikiRepository wikiRepo,
-        IWikiPageRepository pageRepo,
         ICodeEmbeddingRepository codeEmbeddingRepo,
         IWikiEmbeddingRepository wikiEmbeddingRepo,
         ILogger<RepositoryService> logger)
     {
         _repoRepo = repoRepo;
-        _wikiRepo = wikiRepo;
-        _pageRepo = pageRepo;
         _codeEmbeddingRepo = codeEmbeddingRepo;
         _wikiEmbeddingRepo = wikiEmbeddingRepo;
         _logger = logger;
@@ -101,18 +98,13 @@ public class RepositoryService : IRepositoryService
         return await _repoRepo.UpdateAsync(entity);
     }
 
+    /// <summary>
+    /// 删除仓库及其关联数据。V4：数据库外键级联删除自动处理 WikiSpace/WikiVersion/WikiPage 清理。
+    /// </summary>
     public async Task<bool> DeleteAsync(Guid repositoryId, CancellationToken cancellationToken = default)
     {
-        // 清理关联数据
-        var wikis = await _wikiRepo.GetAllAsync();
-        var repoWikis = wikis.Where(w => w.SourceRepositoryId == repositoryId).ToList();
-        foreach (var wiki in repoWikis)
-        {
-            await _pageRepo.DeleteByWikiIdAsync(wiki.Id);
-            await _wikiRepo.DeleteAsync(wiki.Id);
-        }
-
-        // 清理 V2 向量数据（通过版本级联删除）
+        // 数据库外键 CASCADE 自动清理 WikiSpace → WikiVersion → WikiPage 链路
+        // 无需手动清理旧 Wiki 实体
         return await _repoRepo.DeleteAsync(repositoryId);
     }
 

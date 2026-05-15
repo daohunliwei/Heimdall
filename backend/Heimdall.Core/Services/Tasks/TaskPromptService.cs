@@ -1,14 +1,39 @@
 using System.Text;
 using Heimdall.Core.Models;
+using Heimdall.Core.Services.Prompt;
 using Heimdall.Infrastructure.Models;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Heimdall.Core.Services.Tasks;
 
 /// <summary>
 /// 任务提示词服务，承载前端迁移过来的任务编排提示词。
+/// 通过 IServiceScopeFactory 按需解析 PromptManagementService。
 /// </summary>
 public sealed class TaskPromptService
 {
+    private readonly IServiceScopeFactory? _scopeFactory;
+
+    public TaskPromptService(IServiceScopeFactory? scopeFactory = null)
+    {
+        _scopeFactory = scopeFactory;
+    }
+
+    /// <summary>
+    /// 尝试从数据库解析托管提示词模板，失败则返回 null。
+    /// </summary>
+    /// <param name="slug">提示词模板唯一标识。</param>
+    /// <param name="repositoryId">仓库 ID（可选，用于查找覆写）。</param>
+    /// <param name="variables">模板变量。</param>
+    /// <returns>解析后的提示词文本；未找到模板则返回 null。</returns>
+    public async Task<string?> TryResolveManagedTemplateAsync(
+        string slug, Guid? repositoryId, Dictionary<string, string>? variables = null)
+    {
+        if (_scopeFactory is null) return null;
+        using var scope = _scopeFactory.CreateScope();
+        var promptManagement = scope.ServiceProvider.GetRequiredService<PromptManagementService>();
+        return await promptManagement.ResolveTemplateAsync(slug, repositoryId, variables);
+    }
     public string BuildWikiStructurePrompt(
         string owner, string repo, string fileTree, string readme,
         string languageDisplayName, bool isComprehensiveView,
@@ -131,10 +156,23 @@ QUALITY CHECKLIST before generating JSON:
 """;
     }
 
+    /// <summary>
+    /// 构建单个 Wiki 页面的生成提示词。
+    /// </summary>
+    /// <param name="page">目标页面 DTO。</param>
+    /// <param name="allPages">所有页面。</param>
+    /// <param name="repoOwner">仓库所有者。</param>
+    /// <param name="repoName">仓库名称。</param>
+    /// <param name="repoType">仓库类型。</param>
+    /// <param name="repoUrl">仓库 URL。</param>
+    /// <param name="languageDisplayName">输出语言。</param>
+    /// <param name="fileContents">相关文件内容。</param>
+    /// <param name="previousPageContext">V4 跨页面上下文——已生成页面的标题与摘要文本。</param>
     public string BuildWikiPagePrompt(
         WikiPageDto page, IEnumerable<WikiPageDto> allPages,
         string repoOwner, string repoName, string repoType, string? repoUrl,
-        string languageDisplayName, string fileContents)
+        string languageDisplayName, string fileContents,
+        string? previousPageContext = null)
     {
         var relatedPagesContext = string.Join('\n',
             page.RelatedPages
@@ -151,6 +189,7 @@ Your task is to generate a comprehensive and accurate technical wiki page in Mar
 
 CONTEXT AWARENESS: This wiki has multiple pages. You are generating content for "{{page.Title}}" specifically.
 {{(string.IsNullOrWhiteSpace(relatedPagesContext) ? string.Empty : $"\nRelated pages in this wiki:\n{relatedPagesContext}\n\nEnsure your content is DISTINCT from these related pages and does not duplicate their coverage.")}}
+{{(string.IsNullOrWhiteSpace(previousPageContext) ? string.Empty : $"\nPages already generated (V4 cross-page context) — avoid duplicate coverage, reference where appropriate:\n{previousPageContext}")}}
 
 ## [WIKI_PAGE_TOPIC]
 Title: {{page.Title}}
@@ -550,5 +589,115 @@ Return your analysis in the following JSON format:
             "bitbucket" => $"{normalized}/src/main/{filePath}",
             _ => $"{normalized}/blob/main/{filePath}"
         };
+    }
+
+    /// <summary>
+    /// 构建包含深度代码分析结果的增强型 Wiki 结构规划提示词（V4）。
+    /// 将系统级摘要、模块级摘要与入口文件信息注入规划上下文，
+    /// 使生成的 Wiki 结构基于实际代码语义而非仅依赖文件树与 README。
+    /// </summary>
+    /// <param name="owner">仓库所有者。</param>
+    /// <param name="repo">仓库名称。</param>
+    /// <param name="fileTree">文件树文本。</param>
+    /// <param name="readme">README 内容。</param>
+    /// <param name="languageDisplayName">输出语言展示名。</param>
+    /// <param name="isComprehensiveView">是否完整视角。</param>
+    /// <param name="generationProfile">生成档位。</param>
+    /// <param name="systemSummaryText">系统级架构摘要文本（由 CodeSummaryService 产出）。</param>
+    /// <param name="moduleSummariesText">模块级摘要文本，每个模块一行描述。</param>
+    /// <param name="recommendedPageCount">基于代码复杂度推荐的页面数量。</param>
+    /// <returns>增强型结构规划提示词。</returns>
+    public string BuildEnhancedWikiStructurePrompt(
+        string owner, string repo, string fileTree, string readme,
+        string languageDisplayName, bool isComprehensiveView,
+        string generationProfile, string? systemSummaryText,
+        string? moduleSummariesText, int recommendedPageCount)
+    {
+        var hasAnalysis = !string.IsNullOrWhiteSpace(systemSummaryText);
+        var analysisSection = hasAnalysis
+            ? $"""
+<code_analysis>
+系统架构概述：
+{systemSummaryText}
+
+模块级摘要：
+{moduleSummariesText}
+
+基于以上分析，建议生成约 {recommendedPageCount} 个页面。
+</code_analysis>
+"""
+            : string.Empty;
+
+        return $$"""
+你是资深软件架构师和技术文档专家。分析此仓库并创建逻辑全面的 Wiki 结构。
+
+步骤 1：仓库分析
+分析 {{owner}}/{{repo}} 仓库的架构、用途和关键组件：
+
+1. 完整文件树：
+<file_tree>
+{{fileTree}}
+</file_tree>
+
+2. README 内容：
+<readme>
+{{readme}}
+</readme>
+
+{{analysisSection}}
+步骤 2：架构理解
+基于文件结构和以上分析，识别：
+1. **项目类型与架构**：Web 应用、库、CLI 工具？主要技术栈？
+2. **核心系统组件**：入口点、关键模块/包、数据层、UI 组件、配置与构建系统
+3. **关键关系与依赖**：模块间交互、数据流、外部依赖
+4. **开发与部署工作流**：构建方式、测试结构、部署流程
+
+步骤 3：Wiki 结构设计
+创建提供深度技术洞察的 Wiki 结构。重点关注：
+- **系统架构**：组件之间如何交互
+- **实现细节**：关键算法、数据结构、设计模式
+- **集成点**：API、数据库、外部服务
+- **开发工作流**：设置、测试、部署流程
+- **可扩展性**：如何扩展或修改系统
+
+{{(hasAnalysis ? $"目标页面数：约 {recommendedPageCount} 页，3 层目录嵌套。" : $"创建 {(isComprehensiveView ? "8-12" : "4-6")} 个提供深度技术洞察的页面。")}}
+
+步骤 4：智能文件映射
+每个页面必须识别最相关的源文件。关键要求：
+- 每个页面至少 8-10 个相关源文件
+- 文件应直接关联页面主题
+- 包含核心实现文件、配置文件和辅助模块
+- 优先包含页面主题核心逻辑的文件
+
+{{GetWikiStructureFormatInstructions(isComprehensiveView)}}
+
+格式化说明：
+- 仅返回下方指定的有效 JSON 对象
+- 不要在 markdown 代码块中包装 JSON
+- 不要在 JSON 前后包含解释文本
+- 直接以 { 开头以 } 结尾
+- 所有数组必须仅包含符合模式的字符串 ID 或对象
+- `parentId` 必须引用另一个页面 ID 或为 null
+
+关键要求：
+1. 创建 {{(hasAnalysis ? recommendedPageCount.ToString() : (isComprehensiveView ? "8-12" : "4-6"))}} 个提供深度技术洞察的页面
+2. 每页聚焦特定方面并提供全面分析（非表面描述）
+3. `relevant_files` 必须精心选择包含每页核心实现的实际文件
+4. 确保页面之间重叠最小——每页覆盖系统不同方面
+5. 页面描述应具体且技术化，说明将覆盖哪些实现细节
+6. 优先包含：详细代码分析和架构模式、系统集成点和数据流、性能考虑和优化、可扩展机制和设计决策
+7. 仅返回上述指定结构的有效 JSON，不带 markdown 代码块分隔符
+8. `sections.pages` 应包含已在 `pages` 中定义的页面 ID
+9. 仓库级入口页面优先使用 `pageType=overview`，主题着陆页使用 `section`，深度技术页使用 `article`
+10. 存在有意义的交叉引用时，为每页提供至少 1-3 个 `relatedPages`
+
+质量检查清单：
+- 各页面是否有清晰、不重叠的技术焦点？
+- `relevant_files` 是否直接关联页面核心功能？
+- 此页面结构是否能够产生深度技术文档而非表面概述？
+- 页面描述是否具体到足以指导全面的内容生成？
+
+以 {{languageDisplayName}} 输出。
+""";
     }
 }

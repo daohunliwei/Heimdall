@@ -135,10 +135,12 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
 builder.Services.AddScoped<ITaskArtifactRepository, TaskArtifactRepository>();
 builder.Services.AddScoped<IWikiTaskExecutionRepository, WikiTaskExecutionRepository>();
-builder.Services.AddScoped<IWikiRepository, WikiRepository>();
+// V4 清理：IWikiRepository 随旧 Wiki 实体一并移除，Wiki 数据走 IWikiVersionRepository + IWikiPageRepository
 builder.Services.AddScoped<IWikiPageRepository, WikiPageRepository>();
 builder.Services.AddScoped<ITaskLlmCallLogRepository, TaskLlmCallLogRepository>();
 builder.Services.AddScoped<IPromptTemplateRepository, PromptTemplateRepository>();
+builder.Services.AddScoped<IPromptOverrideRepository, PromptOverrideRepository>();
+builder.Services.AddScoped<IPromptTemplateHistoryRepository, PromptTemplateHistoryRepository>();
 builder.Services.AddScoped<IRepositoryConfigRepository, RepositoryConfigRepository>();
 builder.Services.AddScoped<IRepositoryVersionRepository, RepositoryVersionRepository>();
 builder.Services.AddScoped<ICodeEmbeddingRepository, CodeEmbeddingRepository>();
@@ -174,6 +176,10 @@ builder.Services.AddSingleton<WikiGlobalConvergenceService>();
 builder.Services.AddSingleton<WikiRenderPostProcessor>();
 builder.Services.AddSingleton<WikiTaskService>();
 builder.Services.AddScoped<PromptTemplateService>();
+builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptManagementService>();
+builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptSeedData>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeStructureIndexService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeSummaryService>();
 
 // Core Task Services (Singleton - 无状态或使用 IServiceScopeFactory)
 builder.Services.AddSingleton<TaskProgressService>();
@@ -234,11 +240,13 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// 确保数据库已创建
+// 确保数据库已创建并初始化种子数据
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.EnsureCreatedAsync();
+    var seedData = scope.ServiceProvider.GetRequiredService<Heimdall.Core.Services.Prompt.PromptSeedData>();
+    await seedData.SeedAsync();
 }
 
 app.Run();

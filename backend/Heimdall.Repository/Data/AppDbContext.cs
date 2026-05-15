@@ -15,7 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<TaskRecord> Tasks => Set<TaskRecord>();
     public DbSet<TaskArtifact> TaskArtifacts => Set<TaskArtifact>();
     public DbSet<TaskLlmCallLog> TaskLlmCallLogs => Set<TaskLlmCallLog>();
-    public DbSet<Wiki> Wikis => Set<Wiki>();
+    /// <summary>Wiki 页面表（V4：直接归属 WikiVersion，不再通过 Wiki 关联）</summary>
     public DbSet<WikiPage> WikiPages => Set<WikiPage>();
     public DbSet<RepositoryVersion> RepositoryVersions => Set<RepositoryVersion>();
     public DbSet<WikiSpace> WikiSpaces => Set<WikiSpace>();
@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<WikiEmbeddingChunk> WikiEmbeddingChunks => Set<WikiEmbeddingChunk>();
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<RepositoryPromptOverride> RepositoryPromptOverrides => Set<RepositoryPromptOverride>();
+    public DbSet<PromptTemplateHistory> PromptTemplateHistories => Set<PromptTemplateHistory>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -34,7 +35,6 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new TaskRecordConfiguration());
         modelBuilder.ApplyConfiguration(new TaskArtifactConfiguration());
         modelBuilder.ApplyConfiguration(new TaskLlmCallLogConfiguration());
-        modelBuilder.ApplyConfiguration(new WikiConfiguration());
         modelBuilder.ApplyConfiguration(new WikiPageConfiguration());
         modelBuilder.ApplyConfiguration(new RepositoryVersionConfiguration());
         modelBuilder.ApplyConfiguration(new WikiSpaceConfiguration());
@@ -44,6 +44,7 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new WikiEmbeddingChunkConfiguration());
         modelBuilder.ApplyConfiguration(new PromptTemplateConfiguration());
         modelBuilder.ApplyConfiguration(new RepositoryPromptOverrideConfiguration());
+        modelBuilder.ApplyConfiguration(new PromptTemplateHistoryConfiguration());
         modelBuilder.ApplyConfiguration(new SystemSettingConfiguration());
     }
 }

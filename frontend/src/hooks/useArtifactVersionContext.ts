@@ -65,8 +65,12 @@ function pickSearchParamValue(
  * 判断字符串是否为合法 GUID。
  * 当前前端使用该方法提前拦截错误链接，避免把无效版本参数提交给后端。
  */
+/// <summary>
+/// 判断字符串是否为合法 GUID/UUID（含 v1-v8 各版本）。
+/// V4 修复：放宽版本号位匹配范围以支持 .NET Guid.CreateVersion7() 生成的 UUID v7。
+/// </summary>
 function isGuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 /**

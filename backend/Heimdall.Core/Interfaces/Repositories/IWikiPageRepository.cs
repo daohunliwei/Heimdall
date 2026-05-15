@@ -2,19 +2,21 @@ using Heimdall.Core.Entities;
 
 namespace Heimdall.Core.Interfaces.Repositories;
 
-/// <summary>Data access for <see cref="WikiPage"/> entities.</summary>
+/// <summary>
+/// Wiki 页面数据访问接口。
+/// V4：已移除旧 WikiId 相关方法，页面读写统一通过 WikiVersionId。
+/// </summary>
 public interface IWikiPageRepository
 {
-    Task<List<WikiPage>> GetByWikiIdAsync(Guid wikiId);
-
-    /// <summary>
-    /// 按 WikiVersion 标识读取页面。
-    /// 该方法是版本化页面读取的主入口，避免再通过旧 Wiki 主表间接筛选版本数据。
-    /// </summary>
+    /// <summary>按 WikiVersionId 读取页面集合（版本化读取主入口）</summary>
     Task<List<WikiPage>> GetByWikiVersionIdAsync(Guid wikiVersionId);
 
+    /// <summary>新增页面</summary>
     Task<WikiPage> AddAsync(WikiPage page);
+
+    /// <summary>批量新增页面</summary>
     Task<List<WikiPage>> AddRangeAsync(IEnumerable<WikiPage> pages);
+
+    /// <summary>更新页面</summary>
     Task<WikiPage> UpdateAsync(WikiPage page);
-    Task<bool> DeleteByWikiIdAsync(Guid wikiId);
 }

@@ -25,8 +25,8 @@ public class WikiPageConfiguration : IEntityTypeConfiguration<WikiPage>
         builder.Property(e => e.Status).HasColumnName("status").HasMaxLength(16).HasDefaultValue("ready");
         builder.Property(e => e.CreatedAt).IsRequired();
         builder.Property(e => e.UpdatedAt).IsRequired();
-        builder.HasOne(e => e.Wiki).WithMany(w => w.Pages).HasForeignKey(e => e.WikiId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasOne(e => e.WikiVersion).WithMany(v => v.WikiPages).HasForeignKey(e => e.WikiVersionId).OnDelete(DeleteBehavior.SetNull);
+        // V4：WikiPage 直接归属 WikiVersion，不再通过 Wiki 间接关联
+        builder.HasOne(e => e.WikiVersion).WithMany(v => v.WikiPages).HasForeignKey(e => e.WikiVersionId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(e => e.Task).WithMany(t => t.WikiPages).HasForeignKey(e => e.TaskId);
         builder.HasOne(e => e.ParentPage).WithMany(p => p.Children).HasForeignKey(e => e.ParentPageId);
     }

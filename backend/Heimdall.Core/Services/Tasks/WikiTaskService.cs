@@ -8,6 +8,7 @@ using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Infrastructure.Models;
+using CodeAnalysisModels = Heimdall.Core.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -24,6 +25,8 @@ public sealed class WikiTaskService
     private readonly WikiGenerationParserService _wikiParser;
     private readonly WikiGlobalConvergenceService _wikiConvergence;
     private readonly WikiRenderPostProcessor _wikiRenderPostProcessor;
+    private readonly CodeStructureIndexService _codeIndexService;
+    private readonly CodeSummaryService _codeSummaryService;
     private readonly RepositoryAccessService _repoAccess;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<WikiTaskService> _logger;
@@ -35,6 +38,8 @@ public sealed class WikiTaskService
         WikiGenerationParserService wikiParser,
         WikiGlobalConvergenceService wikiConvergence,
         WikiRenderPostProcessor wikiRenderPostProcessor,
+        CodeStructureIndexService codeIndexService,
+        CodeSummaryService codeSummaryService,
         RepositoryAccessService repoAccess,
         IHostApplicationLifetime appLifetime,
         ILogger<WikiTaskService> logger)
@@ -45,6 +50,8 @@ public sealed class WikiTaskService
         _wikiParser = wikiParser;
         _wikiConvergence = wikiConvergence;
         _wikiRenderPostProcessor = wikiRenderPostProcessor;
+        _codeIndexService = codeIndexService;
+        _codeSummaryService = codeSummaryService;
         _repoAccess = repoAccess;
         _appLifetime = appLifetime;
         _logger = logger;
@@ -190,6 +197,91 @@ public sealed class WikiTaskService
             _logger.LogInformation("仓库准备完成 TaskId={TaskId} Files={Count} Path={Path}", task.Id, fileCount, repoPath);
 
             var langDisplay = language == "zh" ? "中文" : "English";
+
+            // ── V4: 深度代码分析阶段 ──
+            CodeAnalysisModels.SystemSummary? systemSummary = null;
+            List<CodeAnalysisModels.ModuleSummary> moduleSummaries = new();
+            var codeAnalysisRecovery = await TryLoadArtifactByTypeAsync(artifactRepo, executingTask.Id, "code_analysis_artifact", execToken);
+
+            if (codeAnalysisRecovery is not null)
+            {
+                _logger.LogInformation("从工件恢复代码分析结果 TaskId={TaskId}", task.Id);
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "completed", 25,
+                    "已从工件恢复代码分析结果", execToken, markStageAsSuccessful: true);
+            }
+            else
+            {
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 17,
+                    "正在执行代码结构索引...", execToken);
+
+                var codeIndexResult = _codeIndexService.IndexRepository(repoPath);
+
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 20,
+                    $"结构索引完成，共 {codeIndexResult.SourceFileCount} 个源文件，{codeIndexResult.ModuleNames.Count} 个模块",
+                    execToken);
+
+                // 文件级摘要（仅对大仓库做，小仓库跳过以节省时间）
+                if (codeIndexResult.SourceFileCount <= 100)
+                {
+                    _logger.LogInformation("小仓库跳过文件级摘要 TaskId={TaskId} Files={Count}", task.Id, codeIndexResult.SourceFileCount);
+                }
+                else
+                {
+                    await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 22,
+                        "正在生成文件级摘要...", execToken);
+                    await _codeSummaryService.GenerateFileSummariesAsync(
+                        codeIndexResult.Entries, repoPath, effectiveProvider, model, langDisplay, execToken);
+                }
+
+                // 模块级摘要
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 24,
+                    $"正在生成 {codeIndexResult.ModuleNames.Count} 个模块的摘要...", execToken);
+                var fileSummaries = new List<CodeAnalysisModels.FileSummary>();
+                moduleSummaries = await _codeSummaryService.GenerateModuleSummariesAsync(
+                    fileSummaries, codeIndexResult.Entries, effectiveProvider, model, langDisplay, execToken);
+
+                // 系统级摘要
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 26,
+                    "正在生成系统架构概述...", execToken);
+                systemSummary = await _codeSummaryService.GenerateSystemSummaryAsync(
+                    new SystemSummaryInput
+                    {
+                        ProjectType = codeIndexResult.ProjectType,
+                        TechStack = codeIndexResult.TechStack,
+                        TotalFileCount = codeIndexResult.TotalFileCount,
+                        ModuleNames = codeIndexResult.ModuleNames,
+                        EntryPointFiles = codeIndexResult.EntryPointFiles,
+                        CoreComponents = codeIndexResult.ModuleNames.Take(8).ToList(),
+                        ModuleDescriptions = moduleSummaries.ToDictionary(m => m.ModuleName, m => m.Summary)
+                    }, effectiveProvider, model, langDisplay, execToken);
+
+                // 持久化分析结果
+                await UpsertTaskArtifactAsync(artifactRepo, taskRepo, executingTask,
+                    "code_analysis_artifact", "analysis", "code_analysis", 0,
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        project_type = codeIndexResult.ProjectType,
+                        tech_stack = codeIndexResult.TechStack,
+                        total_files = codeIndexResult.TotalFileCount,
+                        source_files = codeIndexResult.SourceFileCount,
+                        module_count = codeIndexResult.ModuleNames.Count,
+                        entry_points = codeIndexResult.EntryPointFiles,
+                        module_summaries = moduleSummaries,
+                        system_summary = systemSummary
+                    }, ArtifactJsonOptions),
+                    $"代码分析完成：{codeIndexResult.ModuleNames.Count} 个模块",
+                    execToken);
+
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "completed", 28,
+                    $"代码分析完成：{codeIndexResult.ProjectType} / {codeIndexResult.TechStack}，{codeIndexResult.ModuleNames.Count} 个模块",
+                    execToken, markStageAsSuccessful: true);
+            }
+
+            // 计算基于代码分析的建议页面数量
+            var recommendedPageCount = CodeStructureIndexService.CalculateRecommendedPageCount(
+                moduleSummaries.Count > 0 ? moduleSummaries.Count : (int)Math.Ceiling(fileCount / 20.0),
+                systemSummary?.EntryPointCount ?? 1);
+
             var (execOwner, execRepo) = repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
             var structureRecovery = await TryLoadPlanningArtifactAsync(artifactRepo, executingTask.Id, execToken);
             string structureRawResponse;
@@ -213,9 +305,19 @@ public sealed class WikiTaskService
             }
             else
             {
-                var structurePrompt = _taskPrompt.BuildWikiStructurePrompt(
-                    execOwner, execRepo, localStructure.FileTree, localStructure.Readme, langDisplay, comprehensive,
-                    generationProfile);
+                var hasCodeAnalysis = systemSummary is not null && moduleSummaries.Count > 0;
+                var moduleSummaryText = hasCodeAnalysis
+                    ? string.Join("\n", moduleSummaries.Select(m => $"- **{m.ModuleName}** ({m.FileCount} 文件): {m.Summary}"))
+                    : null;
+
+                var structurePrompt = hasCodeAnalysis
+                    ? _taskPrompt.BuildEnhancedWikiStructurePrompt(
+                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
+                        langDisplay, comprehensive, generationProfile,
+                        systemSummary?.ArchitectureOverview, moduleSummaryText, recommendedPageCount)
+                    : _taskPrompt.BuildWikiStructurePrompt(
+                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
+                        langDisplay, comprehensive, generationProfile);
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -268,6 +370,9 @@ public sealed class WikiTaskService
             var totalPages = wikiStructure.Pages.Count;
             var totalBatchCount = Math.Max(1, (int)Math.Ceiling(totalPages / (double)PageBatchSize));
 
+            // V4: 跨页面上下文收集器——将已生成页面摘要注入后续页面 prompt
+            var generatedPageContexts = new List<(string Title, string Summary)>();
+
             for (var batchIndex = 0; batchIndex < totalBatchCount; batchIndex++)
             {
                 execToken.ThrowIfCancellationRequested();
@@ -301,13 +406,22 @@ public sealed class WikiTaskService
                     $"正在生成页面批次 {batchIndex + 1}/{totalBatchCount}",
                     execToken);
 
+                // V4: 为当前批次构建跨页面上下文（仅注入最相关的已生成页面摘要）
+                var activePageContext = generatedPageContexts.Count switch
+                {
+                    0 => null,
+                    <= 20 => string.Join("\n", generatedPageContexts.Select(c => $"- **{c.Title}**: {c.Summary}")),
+                    _ => string.Join("\n", generatedPageContexts.TakeLast(10).Select(c => $"- **{c.Title}**: {c.Summary}"))
+                };
+
                 foreach (var page in batchPages)
                 {
                     execToken.ThrowIfCancellationRequested();
 
                     var fileContents = ReadPageFiles(repoPath, page.FilePaths);
                     var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
-                        page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay, fileContents);
+                        page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay, fileContents,
+                        activePageContext);
 
                     var pageSw = Stopwatch.StartNew();
                     var stepOrder = wikiStructure.Pages.FindIndex(p => p.Id == page.Id) + 1;
@@ -319,6 +433,11 @@ public sealed class WikiTaskService
 
                         var pageDraft = _wikiParser.ParsePageDraft(page, pageResponse);
                         ApplyGeneratedPageDraft(page, pageDraft);
+                        // V4: 收集已生成页面摘要用于跨页面上下文传递
+                        var contentPreview = pageDraft.Content.Length > 200
+                            ? pageDraft.Content[..200] + "..."
+                            : pageDraft.Content;
+                        generatedPageContexts.Add((page.Title, contentPreview));
                     }
                     catch (Exception ex)
                     {
@@ -384,15 +503,51 @@ public sealed class WikiTaskService
                 $"质量报告已生成，兜底页面 {convergenceResult.QualityReport.FallbackPageCount} 个",
                 execToken);
 
-            await MarkTaskStageAsync(
-                taskRepo,
-                executingTask,
-                "quality_assurance",
-                "completed",
-                80,
-                "全局收敛已完成",
-                execToken,
-                markStageAsSuccessful: true);
+            // V4: 弱页面自动重生成（最多 1 轮）
+            var weakPageIds = convergenceResult.QualityReport.WeakPageIds;
+            if (weakPageIds.Count > 0)
+            {
+                _logger.LogInformation("检测到 {Count} 个弱页面，开始自动重生成 TaskId={TaskId}",
+                    weakPageIds.Count, task.Id);
+
+                await MarkTaskStageAsync(taskRepo, executingTask, "page_regeneration", "running", 82,
+                    $"正在重新生成 {weakPageIds.Count} 个弱页面...", execToken);
+
+                var regeneratedCount = 0;
+                foreach (var weakPageId in weakPageIds)
+                {
+                    execToken.ThrowIfCancellationRequested();
+                    var weakPage = wikiStructure.Pages.FirstOrDefault(p => p.Id == weakPageId);
+                    if (weakPage is null) continue;
+
+                    var qualityScore = convergenceResult.QualityReport.PageQualityScores
+                        .TryGetValue(weakPageId, out var score) ? score : 0;
+
+                    var fileContents = ReadPageFiles(repoPath, weakPage.FilePaths);
+                    var regenerationPrompt = BuildRegenerationPrompt(
+                        weakPage, fileContents, qualityScore, langDisplay);
+
+                    try
+                    {
+                        var regenerated = await _taskLlm.GenerateTextAsync(
+                            effectiveProvider, model, customModel, regenerationPrompt, execToken);
+                        var newDraft = _wikiParser.ParsePageDraft(weakPage, regenerated);
+                        if (!string.IsNullOrWhiteSpace(newDraft.Content))
+                        {
+                            ApplyGeneratedPageDraft(weakPage, newDraft);
+                            regeneratedCount++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "弱页面重生成失败 Page={Title} TaskId={TaskId}",
+                            weakPage.Title, task.Id);
+                    }
+                }
+
+                _logger.LogInformation("弱页面重生成完成：{Count}/{Total} TaskId={TaskId}",
+                    regeneratedCount, weakPageIds.Count, task.Id);
+            }
 
             await MarkTaskStageAsync(
                 taskRepo,
@@ -617,6 +772,28 @@ public sealed class WikiTaskService
     }
 
     /// <summary>
+    /// <summary>
+    /// 尝试按工件类型从数据库加载已完成的分析工件产物。
+    /// 若找到已完成工件则返回其载荷文本，否则返回 null。
+    /// </summary>
+    /// <param name="artifactRepo">工件仓储。</param>
+    /// <param name="taskId">当前任务 ID。</param>
+    /// <param name="artifactType">工件类型标识（如 code_analysis_artifact）。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>工件载荷 JSON 文本；未找到或未完成则返回 null。</returns>
+    private static async Task<string?> TryLoadArtifactByTypeAsync(
+        ITaskArtifactRepository artifactRepo,
+        Guid taskId,
+        string artifactType,
+        CancellationToken cancellationToken)
+    {
+        var artifact = await artifactRepo.GetByTypeAndKeyAsync(taskId, artifactType, "analysis");
+        if (artifact is null || artifact.Status != "completed")
+            return null;
+        return artifact.PayloadJson;
+    }
+
+    /// <summary>
     /// 尝试读取结构规划工件。
     /// 读取成功后即可跳过结构规划阶段并从该恢复点继续执行。
     /// </summary>
@@ -737,7 +914,11 @@ public sealed class WikiTaskService
     /// 持久化 Wiki 主数据、版本数据、页面数据、关系数据与渲染快照。
     /// 该方法在同一数据库事务中完成主链路落库，确保完成态与真实结果一致。
     /// </summary>
-    private static async Task<(Guid WikiId, Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
+    /// <summary>
+    /// 在同一数据库事务中完成主链路落库，确保完成态与真实结果一致。
+    /// V4：已移除旧 Wiki 实体，不再返回 WikiId。
+    /// </summary>
+    private static async Task<(Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
         IWikiTaskExecutionRepository executionRepository,
         TaskRecord task,
         WikiStructureDto structure,
@@ -847,6 +1028,49 @@ public sealed class WikiTaskService
         target.SourceCoverage = draft.SourceCoverage;
         target.Warnings = draft.Warnings;
         target.IsFallbackDraft = draft.IsFallbackDraft;
+    }
+
+    /// <summary>
+    /// <summary>
+    /// V4 构建弱页面的重生成提示词，包含原始内容摘要与质量改进指导。
+    /// </summary>
+    /// <param name="page">需要重新生成的弱页面。</param>
+    /// <param name="fileContents">关联文件内容。</param>
+    /// <param name="qualityScore">当前质量评分。</param>
+    /// <param name="languageDisplayName">输出语言。</param>
+    /// <returns>重生成提示词。</returns>
+    private static string BuildRegenerationPrompt(
+        WikiPageDto page, string fileContents, int qualityScore, string languageDisplayName)
+    {
+        var weaknessHint = qualityScore switch
+        {
+            < 30 => "原始内容过短或质量很低，请提供更详细、更有技术深度的内容。",
+            < 45 => "原始内容技术深度不足，请增加代码示例、架构分析和实现细节。",
+            _ => "原始内容有一定基础但仍需改进，请增强结构化程度和具体代码引用。"
+        };
+
+        return $$"""
+你是资深技术文档专家。请重新生成以下 Wiki 页面，显著提升内容质量。
+
+页面标题：{{page.Title}}
+页面描述：{{page.Description}}
+当前质量评分：{{qualityScore}}/100
+改进方向：{{weaknessHint}}
+
+原始内容摘要（需要改进）：
+{{(page.Content.Length > 500 ? page.Content[..500] + "..." : page.Content)}}
+
+相关源文件内容：
+{{fileContents}}
+
+请生成改进后的完整 Markdown 内容，要求：
+1. 提供具体代码引用和实现细节
+2. 使用清晰的结构化标题层级
+3. 包含代码块、表格等技术元素
+4. 确保技术深度和覆盖面
+
+以 {{languageDisplayName}} 输出。
+""";
     }
 
     /// <summary>
