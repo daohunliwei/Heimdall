@@ -179,56 +179,7 @@ Wiki 内容：{{wiki_content}}',
     true, true, 1, 'workshop', 'global', now(), now()
 ) ON CONFLICT (slug) DO NOTHING;
 
--- 9. 代码文件摘要
-INSERT INTO prompt_templates (id, slug, name, category, sub_category, priority, applicable_providers, template_content, variables, is_system, is_active, version, layer, scope_type, created_at, updated_at)
-VALUES (
-    gen_random_uuid(), 'code-summary-file', '代码文件摘要',
-    'code_summary', 'file', 10, NULL,
-    '你是一位代码分析专家。请为以下文件提供 2-4 句话的简明摘要。
-
-文件路径：{{file_path}}
-
-```
-{{content}}
-```
-
-请用 {{language}} 输出摘要（2-4 句话），直接以文字开头。',
-    ARRAY['file_path','language','content'],
-    true, true, 1, 'code_summary', 'global', now(), now()
-) ON CONFLICT (slug) DO NOTHING;
-
--- 10. 代码模块摘要
-INSERT INTO prompt_templates (id, slug, name, category, sub_category, priority, applicable_providers, template_content, variables, is_system, is_active, version, layer, scope_type, created_at, updated_at)
-VALUES (
-    gen_random_uuid(), 'code-summary-module', '代码模块摘要',
-    'code_summary', 'module', 10, NULL,
-    '你是一位软件架构师。基于以下文件摘要，为 "{{module_name}}" 模块提供 4-6 句话的描述。
-
-关键文件：{{key_files}}
-文件摘要：{{file_summaries}}
-
-请用 {{language}} 输出模块描述（4-6 句话），直接以文字开头。',
-    ARRAY['module_name','key_files','file_summaries','language'],
-    true, true, 1, 'code_summary', 'global', now(), now()
-) ON CONFLICT (slug) DO NOTHING;
-
--- 11. 系统架构概览
-INSERT INTO prompt_templates (id, slug, name, category, sub_category, priority, applicable_providers, template_content, variables, is_system, is_active, version, layer, scope_type, created_at, updated_at)
-VALUES (
-    gen_random_uuid(), 'code-summary-system', '系统架构概览',
-    'code_summary', 'system', 10, NULL,
-    '你是一位资深软件架构师。基于对 {{project_type}} 仓库（技术栈：{{tech_stack}}）的分析，提供系统架构概览。
-
-文件总数：{{total_files}}，模块数：{{module_count}}
-入口点：{{entry_points}}
-模块描述：{{module_descriptions}}
-
-请覆盖：整体架构模式、核心组件交互、关键数据流、设计决策。用 {{language}} 输出。',
-    ARRAY['project_type','tech_stack','total_files','module_count','entry_points','module_descriptions','language'],
-    true, true, 1, 'code_summary', 'global', now(), now()
-) ON CONFLICT (slug) DO NOTHING;
-
--- 12. 聊天助手角色设定
+-- 9. 聊天助手角色设定
 INSERT INTO prompt_templates (id, slug, name, category, sub_category, priority, applicable_providers, template_content, variables, is_system, is_active, version, layer, scope_type, created_at, updated_at)
 VALUES (
     gen_random_uuid(), 'chat-system', '聊天助手角色设定',

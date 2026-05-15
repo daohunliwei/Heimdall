@@ -19,6 +19,7 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
     private readonly IRefreshOrchestrationService _refreshService;
     private readonly WikiTaskService _wikiTaskService;
     private readonly ITaskQueueService _taskQueueService;
+    private readonly CostEstimationService _costEstimation;
     private readonly ILogger<WikiTaskSubmissionService> _logger;
 
     /// <summary>
@@ -31,6 +32,7 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
         IRefreshOrchestrationService refreshService,
         WikiTaskService wikiTaskService,
         ITaskQueueService taskQueueService,
+        CostEstimationService costEstimation,
         ILogger<WikiTaskSubmissionService> logger)
     {
         _repoRepo = repoRepo;
@@ -39,6 +41,7 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
         _refreshService = refreshService;
         _wikiTaskService = wikiTaskService;
         _taskQueueService = taskQueueService;
+        _costEstimation = costEstimation;
         _logger = logger;
     }
 
@@ -71,6 +74,9 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
             var task = await CreateOrReuseTaskAsync(request, repo, branch, language, generationProfile);
             await QueuePendingTaskAsync(task, repo, request, branch, language, generationProfile, cancellationToken);
 
+            var costEstimate = BuildCostEstimate(request);
+            var qualityWarning = BuildQualityWarning(request);
+
             return new WikiTaskSubmissionResult
             {
                 TaskId = task.Id,
@@ -81,7 +87,9 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
                 ChangeStatus = refreshResult.ChangeStatus,
                 Message = task.Status == "running"
                     ? "已有相同刷新任务正在执行"
-                    : "刷新任务已进入统一队列"
+                    : "刷新任务已进入统一队列",
+                CostEstimate = costEstimate,
+                QualityWarning = qualityWarning
             };
         }
 
@@ -96,7 +104,9 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
             WikiVersionId = effectiveWikiVersionId,
             ResultType = refreshResult.ResultType,
             ChangeStatus = refreshResult.ChangeStatus,
-            Message = refreshResult.Message
+            Message = refreshResult.Message,
+            CostEstimate = BuildCostEstimate(request),
+            QualityWarning = BuildQualityWarning(request)
         };
     }
 
@@ -223,5 +233,40 @@ public sealed class WikiTaskSubmissionService : IWikiTaskSubmissionService
     private static string ResolveGenerationProfile(string? generationProfile)
     {
         return string.IsNullOrWhiteSpace(generationProfile) ? "comprehensive" : generationProfile;
+    }
+
+    /// <summary>
+    /// 构建成本估算（V6 新增）。
+    /// </summary>
+    private WikiTaskCostEstimate BuildCostEstimate(WikiTaskSubmissionRequest request)
+    {
+        var estimate = _costEstimation.Estimate(
+            sourceFileCount: 100,
+            estimatedPageCount: request.Comprehensive ? 12 : 6,
+            provider: request.Provider,
+            model: request.Model ?? request.CustomModel);
+
+        return new WikiTaskCostEstimate
+        {
+            EstimatedInputTokens = estimate.EstimatedInputTokens,
+            EstimatedOutputTokens = estimate.EstimatedOutputTokens,
+            EstimatedCallCount = estimate.EstimatedCallCount,
+            EstimatedCostUsd = estimate.EstimatedCostUsd,
+            Provider = estimate.Provider,
+            Model = estimate.Model
+        };
+    }
+
+    /// <summary>
+    /// 构建小模型质量警告（V6 新增）。
+    /// </summary>
+    private static string? BuildQualityWarning(WikiTaskSubmissionRequest request)
+    {
+        var model = request.Model ?? request.CustomModel;
+        if (Models.ModelTierConfig.IsSmallModel(model))
+        {
+            return $"当前模型参数较低（{model}），可能产生不准确的代码引用和示例代码。建议使用 30B+ 模型或 DeepSeek-V3 API 以获得更好的代码分析质量。";
+        }
+        return null;
     }
 }

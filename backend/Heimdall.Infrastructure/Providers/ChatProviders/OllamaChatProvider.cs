@@ -34,7 +34,7 @@ public sealed class OllamaChatProvider : IChatProvider
 
     public async Task<string> GenerateAsync(ProviderChatRequest request, CancellationToken cancellationToken)
     {
-        var baseUrl = (_configuration["OLLAMA_HOST"] ?? "http://127.0.0.1:11434").TrimEnd('/');
+        var baseUrl = (_configuration["HEIMDALL_OLLAMA_CHAT_HOST"] ?? _configuration["OLLAMA_HOST"] ?? "http://127.0.0.1:11434").TrimEnd('/');
         var endpoint = $"{baseUrl}/api/chat";
         var timeout = _configService.GetOllamaRequestTimeout();
 

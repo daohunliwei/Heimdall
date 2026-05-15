@@ -192,9 +192,16 @@ builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptManagementService
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IPromptMergeService, Heimdall.Core.Services.Prompt.PromptMergeService>();
 builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptSeedData>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeStructureIndexService>();
-builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeSummaryService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeIndexService>();
+builder.Services.AddSingleton<Heimdall.Infrastructure.Search.Bm25SearchService>();
+builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IHybridSearchService, Heimdall.Core.Services.Search.HybridSearchService>();
+builder.Services.AddScoped<Heimdall.Core.Interfaces.Repositories.ICodeIndexRepository, Heimdall.Repository.Repositories.CodeIndexRepository>();
 
 // Core Task Services (Singleton - 无状态或使用 IServiceScopeFactory)
+builder.Services.AddSingleton<Heimdall.Core.Services.Tasks.AgentOrchestratorService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Tasks.CostEstimationService>();
+builder.Services.Configure<Heimdall.Core.Models.ModelTierConfig>(
+    builder.Configuration.GetSection("ModelTier"));
 builder.Services.AddSingleton<TaskProgressService>();
 builder.Services.AddSingleton<TaskQueueService>();
 builder.Services.AddSingleton<ITaskQueueService>(sp => sp.GetRequiredService<TaskQueueService>());
