@@ -96,7 +96,7 @@ public sealed class PromptSeedData
                 Priority = 10,
                 ApplicableProviders = null,
                 TemplateContent = WikiPageTemplate,
-                Variables = new[] { "page_title", "page_description", "source_files", "file_contents", "language", "repo_owner", "repo_name", "related_pages", "prerequisite_pages" },
+                Variables = new[] { "page_title", "page_description", "retrieved_code_snippets", "language", "repo_owner", "repo_name", "related_pages", "prerequisite_pages" },
                 IsSystem = true,
             },
             // Wiki 页面 — Markdown 样式规范
@@ -160,45 +160,7 @@ public sealed class PromptSeedData
                 IsSystem = true,
             },
 
-            // ═══════════════════════════════════════════════════════
-            // 代码摘要 — 三级（文件 / 模块 / 系统）
-            // ═══════════════════════════════════════════════════════
-            new PromptTemplate
-            {
-                Slug = "code-summary-file",
-                Name = "代码文件摘要",
-                Category = "code_summary",
-                SubCategory = "file",
-                Priority = 10,
-                ApplicableProviders = null,
-                TemplateContent = CodeSummaryFileTemplate,
-                Variables = new[] { "file_path", "language", "content" },
-                IsSystem = true,
-            },
-            new PromptTemplate
-            {
-                Slug = "code-summary-module",
-                Name = "代码模块摘要",
-                Category = "code_summary",
-                SubCategory = "module",
-                Priority = 10,
-                ApplicableProviders = null,
-                TemplateContent = CodeSummaryModuleTemplate,
-                Variables = new[] { "module_name", "key_files", "file_summaries", "language" },
-                IsSystem = true,
-            },
-            new PromptTemplate
-            {
-                Slug = "code-summary-system",
-                Name = "系统架构概览",
-                Category = "code_summary",
-                SubCategory = "system",
-                Priority = 10,
-                ApplicableProviders = null,
-                TemplateContent = CodeSummarySystemTemplate,
-                Variables = new[] { "project_type", "tech_stack", "total_files", "module_count", "entry_points", "module_descriptions", "language" },
-                IsSystem = true,
-            },
+            // 代码摘要模板已移除（V6：不再使用三级 LLM 摘要）
 
             // ═══════════════════════════════════════════════════════
             // 聊天 System Prompt（ChatController SSE 端点）
@@ -338,7 +300,7 @@ public sealed class PromptSeedData
 
         以下是为本页面分配的源文件内容，请基于这些文件撰写准确的文档，不要凭空编造：
 
-        {{file_contents}}
+        {{retrieved_code_snippets}}
 
         ## 相关页面上下文
 
@@ -385,12 +347,13 @@ public sealed class PromptSeedData
         - 使用 `> **深入阅读**：` 格式添加扩展阅读链接
         - 表格上方必须有表格标题（用粗体文本标注）
 
-        ## 技术准确性要求
+        ## 技术准确性要求（重要）
 
-        - **所有内容必须基于提供的源文件**，不要虚构不存在的 API、类名或逻辑
-        - 代码示例优先从源文件中提取关键片段
-        - 若信息不足以完整描述某个方面，请注明"基于现有代码分析，此部分..."
+        - **严格基于上述提供的源代码片段撰写文档。不得编造任何不存在的类名、方法名、API 名称或代码逻辑。**
+        - 代码示例必须从上述提供的源代码片段中提取，不得自行编造示例代码
+        - 如果提供的代码片段不足以完整描述某个方面，请明确注明"未在代码中找到对应实现"
         - 源文件引用格式：`Sources: [filename.ext:start_line-end_line]()`
+        - **禁止**使用任何形式的"示例代码"、"示例实现"等虚构内容——所有代码引用必须来自真实源文件
         """;
 
     private const string WikiPageMarkdownRulesTemplate = """
@@ -505,48 +468,6 @@ public sealed class PromptSeedData
         内容语言：{{language}}
 
         直接输出训练营文档（Markdown 格式），不要包含前言。
-        """;
-
-    private const string CodeSummaryFileTemplate = """
-        你是一位代码分析专家。请为以下文件提供 2-4 句话的简明摘要。
-
-        文件路径：{{file_path}}
-        语言提示：{{language}}
-
-        ```
-        {{content}}
-        ```
-
-        请用 {{language}} 输出摘要（2-4 句话），直接以文字开头，不要任何前缀。
-        """;
-
-    private const string CodeSummaryModuleTemplate = """
-        你是一位软件架构师。基于以下文件摘要，为 "{{module_name}}" 模块提供一段 4-6 句话的描述，概括该模块的职责和核心功能。
-
-        关键文件：{{key_files}}
-
-        以下是模块内各文件的摘要：
-        {{file_summaries}}
-
-        请用 {{language}} 输出模块描述（4-6 句话），直接以文字开头。
-        """;
-
-    private const string CodeSummarySystemTemplate = """
-        你是一位资深软件架构师。基于以下对 {{project_type}} 仓库（技术栈：{{tech_stack}}）的分析，提供一份系统架构概览。
-
-        文件总数：{{total_files}}，模块数：{{module_count}}
-        入口点：{{entry_points}}
-
-        各模块描述：
-        {{module_descriptions}}
-
-        请覆盖以下内容：
-        1. 整体架构模式（MVC、微服务、单体等）
-        2. 核心组件及其交互方式
-        3. 关键数据流
-        4. 从代码结构可见的设计决策
-
-        请用 {{language}} 输出，直接以内容开头。
         """;
 
     private const string ChatSystemTemplate = """

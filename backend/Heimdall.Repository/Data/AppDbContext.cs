@@ -27,6 +27,8 @@ public class AppDbContext : DbContext
     public DbSet<RepositoryPromptOverride> RepositoryPromptOverrides => Set<RepositoryPromptOverride>();
     public DbSet<PromptTemplateHistory> PromptTemplateHistories => Set<PromptTemplateHistory>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+    public DbSet<CodeIndexEntry> CodeIndexEntries => Set<CodeIndexEntry>();
+    public DbSet<CodeIndexChunk> CodeIndexChunks => Set<CodeIndexChunk>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,5 +48,7 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new RepositoryPromptOverrideConfiguration());
         modelBuilder.ApplyConfiguration(new PromptTemplateHistoryConfiguration());
         modelBuilder.ApplyConfiguration(new SystemSettingConfiguration());
+        modelBuilder.ApplyConfiguration(new CodeIndexEntryConfiguration());
+        modelBuilder.ApplyConfiguration(new CodeIndexChunkConfiguration());
     }
 }
