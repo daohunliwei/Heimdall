@@ -62,15 +62,14 @@ public class DualVectorSearchService : IDualVectorSearchService
     public async Task<CombinedSearchResult> SearchCombinedAsync(
         float[] queryEmbedding, Guid repositoryVersionId, Guid? wikiVersionId = null, int topK = 10, CancellationToken cancellationToken = default)
     {
-        var codeTask = SearchCodeAsync(queryEmbedding, repositoryVersionId, topK, cancellationToken);
-        var wikiTask = wikiVersionId.HasValue
-            ? SearchWikiAsync(queryEmbedding, wikiVersionId.Value, topK, cancellationToken)
-            : Task.FromResult(new List<(WikiEmbeddingChunk, float)>());
-
-        await Task.WhenAll(codeTask, wikiTask);
-
-        var codeResults = await codeTask;
-        var wikiResults = await wikiTask;
+        // 注意：代码向量仓储与 Wiki 向量仓储默认共享同一个 Scoped DbContext。
+        // 若在同一请求中并行触发两个 EF Core 查询，会触发
+        // “A second operation was started on this context instance...” 异常。
+        // 因此这里改为串行执行，优先保证 Ask/RAG 场景在 API 请求链路内稳定可用。
+        var codeResults = await SearchCodeAsync(queryEmbedding, repositoryVersionId, topK, cancellationToken);
+        var wikiResults = wikiVersionId.HasValue
+            ? await SearchWikiAsync(queryEmbedding, wikiVersionId.Value, topK, cancellationToken)
+            : [];
 
         return new CombinedSearchResult
         {

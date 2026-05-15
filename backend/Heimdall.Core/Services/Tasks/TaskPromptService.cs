@@ -100,11 +100,12 @@ Examples of good file selection:
 {{GetWikiStructureFormatInstructions(isComprehensiveView)}}
 
 IMPORTANT FORMATTING INSTRUCTIONS:
-- Return ONLY the valid XML structure specified above
-- DO NOT wrap the XML in markdown code blocks (no ``` or ```xml)
-- DO NOT include any explanation text before or after the XML
-- Ensure the XML is properly formatted and valid
-- Start directly with <wiki_structure> and end with </wiki_structure>
+- Return ONLY the valid JSON object specified above
+- DO NOT wrap the JSON in markdown code blocks
+- DO NOT include any explanation text before or after the JSON
+- Start directly with { and end with }
+- All arrays must contain only string IDs or objects matching the schema
+- `parentId` MUST reference another page id or be null; do not use section id in `parentId`
 
 CRITICAL REQUIREMENTS:
 1. Create {{(isComprehensiveView ? "8-12" : "4-6")}} pages that provide DEEP TECHNICAL INSIGHT into this repository
@@ -117,9 +118,12 @@ CRITICAL REQUIREMENTS:
    - System integration points and data flows
    - Performance considerations and optimizations
    - Extensibility mechanisms and design decisions
-7. Return ONLY valid XML with the structure specified above, with no markdown code block delimiters
+7. Return ONLY valid JSON with the structure specified above, with no markdown code block delimiters
+8. `sections.pages` should contain page ids already defined in `pages`
+9. Prefer `pageType=overview` for repository-level entry pages, `section` for topic landing pages, `article` for deep technical pages
+10. Provide at least 1-3 `relatedPages` for each page whenever there is a meaningful cross-reference
 
-QUALITY CHECKLIST before generating XML:
+QUALITY CHECKLIST before generating JSON:
 - Does each page have a clear, non-overlapping technical focus?
 - Are the relevant_files directly related to the page's core functionality?
 - Will this page structure enable deep technical documentation rather than superficial overviews?
@@ -162,41 +166,48 @@ The following are the ACTUAL source file contents from the repository. You MUST 
 
 CRITICAL: This page should provide UNIQUE, NON-OVERLAPPING content focused specifically on "{{page.Title}}". Analyze the REAL source code provided above and generate content based on what you ACTUALLY SEE in the files.
 
-CRITICAL STARTING INSTRUCTION:
-The very first thing on the page MUST be a `<details>` block listing ALL the `[RELEVANT_SOURCE_FILES]` you used.
-Format it exactly like this:
-<details>
-<summary>Relevant source files</summary>
+Return ONLY one valid JSON object with the following schema:
+{
+  "id": "{{page.Id}}",
+  "title": "{{page.Title}}",
+  "description": "页面描述，可比原始描述更具体",
+  "navTitle": "用于导航的短标题",
+  "pageType": "overview|section|article|appendix",
+  "importance": "high|medium|low",
+  "parentId": "父页面 id 或 null",
+  "filePaths": ["必须是与页面直接相关的仓库文件路径"],
+  "relatedPages": ["page-id"],
+  "prerequisitePages": ["page-id"],
+  "frontMatter": {
+    "summary": "一段可用于 Frontmatter 的摘要",
+    "description": "一段可用于 Frontmatter 的描述",
+    "tags": ["标签1", "标签2"],
+    "sourceFiles": ["与页面强相关的文件路径"]
+  },
+  "outline": [
+    { "level": 2, "title": "章节标题", "anchor": "chapter-anchor" }
+  ],
+  "sourceCoverage": {
+    "primaryFiles": ["核心文件路径"],
+    "evidence": [
+      {
+        "filePath": "文件路径",
+        "reason": "为什么该文件支撑当前页面",
+        "symbols": ["类名", "方法名"]
+      }
+    ]
+  },
+  "content": "仅包含 Markdown 正文，不要包含 Frontmatter，不要包含 <details>，正文内部必须包含 H2/H3 分节、表格或列表，并在合适位置使用 Mermaid。"
+}
 
-The following files were used as context for generating this wiki page:
-
-{{fileLinks}}
-</details>
-
-Immediately after the `<details>` block, the main title should be: `# {{page.Title}}`.
-
-Based ONLY on the actual source file contents provided above:
-
-1. **Introduction:** Start with a concise introduction (1-2 paragraphs) explaining the SPECIFIC purpose and implementation of "{{page.Title}}" based on the REAL CODE you see. Focus on what makes this component unique in this codebase.
-
-2. **Detailed Sections:** Break down "{{page.Title}}" into logical sections using H2 (##) and H3 (###) headings. For each section:
-   - Provide analysis grounded in the ACTUAL source code provided above
-   - Reference specific functions, classes, patterns you SEE in the files
-   - Focus on HOW things work, with concrete evidence from the code
-
-3. **Mermaid Diagrams:** Create diagrams that reflect the REAL architecture you observe in the provided source files.
-
-4. **Tables:** Summarize key components you ACTUALLY found in the source files.
-
-5. **Code Snippets:** Quote directly from the provided source files to illustrate key points.
-
-6. **Source Citations:** For EVERY claim, cite the specific file and explain what you see there.
-
-7. **Technical Accuracy:** ALL information MUST be derived from the source file contents provided above. If the files don't contain enough information to cover something, say so honestly.
-
-8. **Clarity and Conciseness:** Use clear, professional, and concise technical language suitable for other developers.
-
-IMPORTANT: Generate the content in {{languageDisplayName}} language.
+Markdown 正文写作要求：
+1. 正文不要包含最外层 Frontmatter，也不要包含 `# {{page.Title}}` 顶级标题。
+2. 必须使用 `##` / `###` 组织结构，聚焦实现细节而非泛泛介绍。
+3. 必须引用真实代码证据，明确指出文件、类、方法或配置。
+4. 至少提供一个表格、一个列表；当适合时提供 Mermaid 图。
+5. 不要输出 HTML 页面，不要输出 XML，不要输出额外解释文本。
+6. 如果信息不足，需在 Markdown 中明确说明“当前源文件未提供足够证据”。
+7. 所有内容必须使用 {{languageDisplayName}}。
 """;
     }
 
@@ -472,61 +483,59 @@ Create a structured wiki with the following main sections:
 - Deployment/Infrastructure
 - Extensibility and Customization
 
-Return your analysis in the following XML format:
+Return your analysis in the following JSON format:
 
-XML 必须严格合法，所有开始标签都要使用同名结束标签闭合。
-特别注意：`<parent_section>` 必须以 `</parent_section>` 结束，不能写成 `</section>`。
-
-<wiki_structure>
-  <title>[Overall title for the wiki]</title>
-  <description>[Brief description of the repository]</description>
-  <sections>
-    <section id="section-1">
-      <title>[Section title]</title>
-      <pages>
-        <page_ref>page-1</page_ref>
-      </pages>
-      <subsections>
-        <section_ref>section-2</section_ref>
-      </subsections>
-    </section>
-  </sections>
-  <pages>
-    <page id="page-1">
-      <title>[Page title]</title>
-      <description>[Brief description of what this page will cover]</description>
-      <importance>high|medium|low</importance>
-      <relevant_files>
-        <file_path>[Path to a relevant file]</file_path>
-      </relevant_files>
-      <related_pages>
-        <related>page-2</related>
-      </related_pages>
-      <parent_section>section-1</parent_section>
-    </page>
-  </pages>
-</wiki_structure>
+{
+  "id": "wiki",
+  "title": "[Overall title for the wiki]",
+  "description": "[Brief description of the repository]",
+  "rootSections": ["section-1"],
+  "sections": [
+    {
+      "id": "section-1",
+      "title": "[Section title]",
+      "pages": ["page-1"],
+      "subsections": ["section-2"]
+    }
+  ],
+  "pages": [
+    {
+      "id": "page-1",
+      "title": "[Page title]",
+      "description": "[Brief description of what this page will cover]",
+      "navTitle": "[Short nav title]",
+      "pageType": "overview|section|article|appendix",
+      "importance": "high|medium|low",
+      "filePaths": ["[Path to a relevant file]"],
+      "relatedPages": ["page-2"],
+      "prerequisitePages": ["page-0"],
+      "parentId": null
+    }
+  ]
+}
 """
             : """
-Return your analysis in the following XML format:
+Return your analysis in the following JSON format:
 
-<wiki_structure>
-  <title>[Overall title for the wiki]</title>
-  <description>[Brief description of the repository]</description>
-  <pages>
-    <page id="page-1">
-      <title>[Page title]</title>
-      <description>[Brief description of what this page will cover]</description>
-      <importance>high|medium|low</importance>
-      <relevant_files>
-        <file_path>[Path to a relevant file]</file_path>
-      </relevant_files>
-      <related_pages>
-        <related>page-2</related>
-      </related_pages>
-    </page>
-  </pages>
-</wiki_structure>
+{
+  "id": "wiki",
+  "title": "[Overall title for the wiki]",
+  "description": "[Brief description of the repository]",
+  "pages": [
+    {
+      "id": "page-1",
+      "title": "[Page title]",
+      "description": "[Brief description of what this page will cover]",
+      "navTitle": "[Short nav title]",
+      "pageType": "overview|section|article|appendix",
+      "importance": "high|medium|low",
+      "filePaths": ["[Path to a relevant file]"],
+      "relatedPages": ["page-2"],
+      "prerequisitePages": ["page-0"],
+      "parentId": null
+    }
+  ]
+}
 """;
     }
 

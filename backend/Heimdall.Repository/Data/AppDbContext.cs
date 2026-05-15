@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Core.Entities.Repository> Repositories => Set<Core.Entities.Repository>();
     public DbSet<TaskRecord> Tasks => Set<TaskRecord>();
+    public DbSet<TaskArtifact> TaskArtifacts => Set<TaskArtifact>();
     public DbSet<TaskLlmCallLog> TaskLlmCallLogs => Set<TaskLlmCallLog>();
     public DbSet<Wiki> Wikis => Set<Wiki>();
     public DbSet<WikiPage> WikiPages => Set<WikiPage>();
@@ -31,6 +32,7 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new UserConfiguration());
         modelBuilder.ApplyConfiguration(new RepositoryConfiguration());
         modelBuilder.ApplyConfiguration(new TaskRecordConfiguration());
+        modelBuilder.ApplyConfiguration(new TaskArtifactConfiguration());
         modelBuilder.ApplyConfiguration(new TaskLlmCallLogConfiguration());
         modelBuilder.ApplyConfiguration(new WikiConfiguration());
         modelBuilder.ApplyConfiguration(new WikiPageConfiguration());

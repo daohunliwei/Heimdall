@@ -42,14 +42,92 @@ public sealed class TaskStatusResponse
     [JsonPropertyName("id")] public string Id { get; init; } = string.Empty;
     [JsonPropertyName("task_type")] public string TaskType { get; init; } = string.Empty;
     [JsonPropertyName("status")] public string Status { get; init; } = string.Empty;
+    [JsonPropertyName("current_stage")] public string CurrentStage { get; init; } = string.Empty;
+    [JsonPropertyName("current_stage_status")] public string CurrentStageStatus { get; init; } = string.Empty;
+    [JsonPropertyName("last_successful_stage")] public string? LastSuccessfulStage { get; init; }
+    [JsonPropertyName("last_artifact_id")] public string? LastArtifactId { get; init; }
+    [JsonPropertyName("attempt_count")] public int AttemptCount { get; init; }
     [JsonPropertyName("progress_percent")] public int ProgressPercent { get; init; }
     [JsonPropertyName("progress_message")] public string? ProgressMessage { get; init; }
     [JsonPropertyName("total_prompt_tokens")] public int TotalPromptTokens { get; init; }
     [JsonPropertyName("total_completion_tokens")] public int TotalCompletionTokens { get; init; }
     [JsonPropertyName("error_message")] public string? ErrorMessage { get; init; }
+    /// <summary>
+    /// 实际执行所绑定的 RepositoryVersion 标识。
+    /// 用于让前端或运维侧确认任务最终落在了哪个仓库快照上。
+    /// </summary>
+    [JsonPropertyName("resolved_repository_version_id")] public string? ResolvedRepositoryVersionId { get; init; }
+
+    /// <summary>
+    /// 任务最终生成的 WikiVersion 标识。
+    /// 任务完成后可据此直接加载对应版本的页面内容。
+    /// </summary>
+    [JsonPropertyName("result_wiki_version_id")] public string? ResultWikiVersionId { get; init; }
+
     [JsonPropertyName("created_at")] public DateTime CreatedAt { get; init; }
     [JsonPropertyName("started_at")] public DateTime? StartedAt { get; init; }
     [JsonPropertyName("completed_at")] public DateTime? CompletedAt { get; init; }
+}
+
+/// <summary>
+/// 任务工件响应。
+/// </summary>
+public sealed class TaskArtifactResponse
+{
+    /// <summary>
+    /// 工件标识。
+    /// </summary>
+    [JsonPropertyName("id")] public string Id { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 工件类型。
+    /// </summary>
+    [JsonPropertyName("artifact_type")] public string ArtifactType { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 工件键。
+    /// </summary>
+    [JsonPropertyName("artifact_key")] public string ArtifactKey { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 阶段名称。
+    /// </summary>
+    [JsonPropertyName("stage_name")] public string StageName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 工件状态。
+    /// </summary>
+    [JsonPropertyName("status")] public string Status { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 顺序号。
+    /// </summary>
+    [JsonPropertyName("sequence")] public int Sequence { get; init; }
+
+    /// <summary>
+    /// 工件摘要。
+    /// </summary>
+    [JsonPropertyName("summary")] public string? Summary { get; init; }
+
+    /// <summary>
+    /// 工件完整载荷。
+    /// </summary>
+    [JsonPropertyName("payload_json")] public string PayloadJson { get; init; } = "{}";
+
+    /// <summary>
+    /// 错误信息。
+    /// </summary>
+    [JsonPropertyName("error_message")] public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// 创建时间。
+    /// </summary>
+    [JsonPropertyName("created_at")] public DateTime CreatedAt { get; init; }
+
+    /// <summary>
+    /// 更新时间。
+    /// </summary>
+    [JsonPropertyName("updated_at")] public DateTime UpdatedAt { get; init; }
 }
 
 public sealed class TaskListResponse

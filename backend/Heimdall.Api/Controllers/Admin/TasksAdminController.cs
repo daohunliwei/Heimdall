@@ -50,7 +50,7 @@ public class TasksAdminController : ControllerBase
         if (task is null) return NotFound();
 
         // 重置状态并重新入队
-        await _taskRepo.UpdateStatusAsync(id, "pending", progressPercent: 0, errorMessage: null);
-        return Ok(new { status = "pending" });
+        await _taskQueue.RequeueWikiTaskAsync(id, HttpContext.RequestAborted);
+        return Ok(new { status = "pending", message = "任务已重新排队，将按已落库工件恢复执行" });
     }
 }
