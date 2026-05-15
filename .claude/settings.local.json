@@ -20,7 +20,10 @@
       "Bash(Start-Sleep -Seconds 5)",
       "Bash(Get-Content \"C:\\\\Users\\\\daodao\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--OpenSource-AI-Heimdall\\\\a8423518-0bee-40fa-b04a-f91c829c05c7\\\\tasks\\\\bfrdh8fpi.output\" -Tail 30)",
       "Bash(PGPASSWORD=aaaaaa psql *)",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Embedding dimension: {len\\(d.get\\(\\\\\"embedding\\\\\",[]\\)\\)}'\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Embedding dimension: {len\\(d.get\\(\\\\\"embedding\\\\\",[]\\)\\)}'\\)\")",
+      "Bash(openspec new *)",
+      "Bash(openspec status *)",
+      "Bash(openspec instructions *)"
     ]
   }
 }

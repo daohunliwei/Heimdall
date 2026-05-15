@@ -122,6 +122,11 @@ namespace Heimdall.Repository.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(true);
 
+                    b.Property<bool>("IsSystem")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Layer")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -143,6 +148,11 @@ namespace Heimdall.Repository.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("TemplateContent")
                         .IsRequired()
                         .HasColumnType("text");
@@ -153,12 +163,50 @@ namespace Heimdall.Repository.Migrations
                     b.PrimitiveCollection<string[]>("Variables")
                         .HasColumnType("text[]");
 
+                    b.Property<int>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.HasKey("Id");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
 
                     b.HasIndex("Name", "ScopeType", "ScopeValue")
                         .IsUnique();
 
                     b.ToTable("prompt_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Heimdall.Core.Entities.PromptTemplateHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ChangedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PromptTemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TemplateContent")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PromptTemplateId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("prompt_template_history", (string)null);
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.Repository", b =>
@@ -254,6 +302,9 @@ namespace Heimdall.Repository.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("IsEnabled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -262,11 +313,23 @@ namespace Heimdall.Repository.Migrations
                     b.Property<string>("OverrideContent")
                         .HasColumnType("text");
 
+                    b.Property<int>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<Guid>("PromptTemplateId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("RepositoryId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Strategy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("override");
 
                     b.HasKey("Id");
 
@@ -750,50 +813,6 @@ namespace Heimdall.Repository.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("Heimdall.Core.Entities.Wiki", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Language")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)")
-                        .HasDefaultValue("zh");
-
-                    b.Property<string>("SourceBranch")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasDefaultValue("main");
-
-                    b.Property<Guid>("SourceRepositoryId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SourceRepositoryId", "SourceBranch", "Language")
-                        .IsUnique();
-
-                    b.ToTable("wikis", (string)null);
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.WikiEmbeddingChunk", b =>
                 {
                     b.Property<Guid>("Id")
@@ -940,10 +959,7 @@ namespace Heimdall.Repository.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("WikiId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("WikiVersionId")
+                    b.Property<Guid>("WikiVersionId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
@@ -951,8 +967,6 @@ namespace Heimdall.Repository.Migrations
                     b.HasIndex("ParentPageId");
 
                     b.HasIndex("TaskId");
-
-                    b.HasIndex("WikiId");
 
                     b.HasIndex("WikiVersionId");
 
@@ -1167,6 +1181,17 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("RepositoryVersion");
                 });
 
+            modelBuilder.Entity("Heimdall.Core.Entities.PromptTemplateHistory", b =>
+                {
+                    b.HasOne("Heimdall.Core.Entities.PromptTemplate", "PromptTemplate")
+                        .WithMany("Versions")
+                        .HasForeignKey("PromptTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PromptTemplate");
+                });
+
             modelBuilder.Entity("Heimdall.Core.Entities.RepositoryPromptOverride", b =>
                 {
                     b.HasOne("Heimdall.Core.Entities.PromptTemplate", "PromptTemplate")
@@ -1253,17 +1278,6 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Heimdall.Core.Entities.Wiki", b =>
-                {
-                    b.HasOne("Heimdall.Core.Entities.Repository", "SourceRepository")
-                        .WithMany("Wikis")
-                        .HasForeignKey("SourceRepositoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("SourceRepository");
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.WikiEmbeddingChunk", b =>
                 {
                     b.HasOne("Heimdall.Core.Entities.WikiPage", "WikiPage")
@@ -1293,22 +1307,15 @@ namespace Heimdall.Repository.Migrations
                         .WithMany("WikiPages")
                         .HasForeignKey("TaskId");
 
-                    b.HasOne("Heimdall.Core.Entities.Wiki", "Wiki")
-                        .WithMany("Pages")
-                        .HasForeignKey("WikiId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("Heimdall.Core.Entities.WikiVersion", "WikiVersion")
                         .WithMany("WikiPages")
                         .HasForeignKey("WikiVersionId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("ParentPage");
 
                     b.Navigation("Task");
-
-                    b.Navigation("Wiki");
 
                     b.Navigation("WikiVersion");
                 });
@@ -1373,6 +1380,8 @@ namespace Heimdall.Repository.Migrations
             modelBuilder.Entity("Heimdall.Core.Entities.PromptTemplate", b =>
                 {
                     b.Navigation("RepositoryOverrides");
+
+                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.Repository", b =>
@@ -1382,8 +1391,6 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("Tasks");
 
                     b.Navigation("WikiSpaces");
-
-                    b.Navigation("Wikis");
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.RepositoryVersion", b =>
@@ -1403,11 +1410,6 @@ namespace Heimdall.Repository.Migrations
             modelBuilder.Entity("Heimdall.Core.Entities.User", b =>
                 {
                     b.Navigation("Tasks");
-                });
-
-            modelBuilder.Entity("Heimdall.Core.Entities.Wiki", b =>
-                {
-                    b.Navigation("Pages");
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.WikiPage", b =>

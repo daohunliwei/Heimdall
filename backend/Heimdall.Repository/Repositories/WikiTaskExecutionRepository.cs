@@ -29,7 +29,11 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
     /// <summary>
     /// 在同一事务中持久化 Wiki 主数据、版本、页面、关系与渲染快照。
     /// </summary>
-    public async Task<(Guid WikiId, Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
+    /// <summary>
+    /// 在同一事务中持久化 Wiki 版本、页面、关系与渲染快照。
+    /// V4：已移除旧 Wiki 实体依赖，Wiki 数据直接归属 WikiVersion。
+    /// </summary>
+    public async Task<(Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
         TaskRecord task,
         WikiStructureDto structure,
         string structureJson,
@@ -46,31 +50,7 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
         var repository = await _context.Repositories.FirstOrDefaultAsync(r => r.Id == repositoryId, cancellationToken)
             ?? throw new InvalidOperationException($"仓库不存在：{repositoryId}");
 
-        var wiki = await _context.Wikis
-            .FirstOrDefaultAsync(w => w.SourceRepositoryId == repositoryId
-                && w.SourceBranch == branch
-                && w.Language == language, cancellationToken);
-        if (wiki is null)
-        {
-            wiki = new Wiki
-            {
-                SourceRepositoryId = repositoryId,
-                SourceBranch = branch,
-                Language = language,
-                Title = structure.Title,
-                Description = structure.Description
-            };
-            _context.Wikis.Add(wiki);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-        else
-        {
-            wiki.Title = structure.Title;
-            wiki.Description = structure.Description;
-            wiki.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
+        // V4：旧 Wiki 实体已移除，Wiki 空间和版本直接创建，不依赖 Wiki 主记录
         RepositoryVersion? repositoryVersion = null;
         if (task.ResolvedRepositoryVersionId.HasValue)
         {
@@ -169,9 +149,9 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
         var persistedPages = new List<WikiPage>();
         foreach (var pageWithIndex in structure.Pages.Select((page, index) => new { page, index }))
         {
+            // V4：WikiPage 直接归属 WikiVersion，不再通过 Wiki 关联
             persistedPages.Add(new WikiPage
             {
-                WikiId = wiki.Id,
                 WikiVersionId = wikiVersion.Id,
                 TaskId = task.Id,
                 PageOrder = pageWithIndex.index,
@@ -262,7 +242,6 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
             0,
             JsonSerializer.Serialize(new
             {
-                wiki_id = wiki.Id,
                 wiki_version_id = wikiVersion.Id,
                 title = structure.Title,
                 description = structure.Description,
@@ -285,7 +264,7 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return (wiki.Id, repositoryVersion.Id, wikiVersion.Id, persistedPages);
+        return (repositoryVersion.Id, wikiVersion.Id, persistedPages);
     }
 
     /// <summary>

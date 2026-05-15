@@ -20,8 +20,9 @@ public class Repository
     public bool IsArchived { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>关联的任务记录</summary>
     public ICollection<TaskRecord> Tasks { get; set; } = new List<TaskRecord>();
-    public ICollection<Wiki> Wikis { get; set; } = new List<Wiki>();
+    /// <summary>仓库快照版本列表</summary>
     public ICollection<RepositoryVersion> RepositoryVersions { get; set; } = new List<RepositoryVersion>();
     public ICollection<WikiSpace> WikiSpaces { get; set; } = new List<WikiSpace>();
 }

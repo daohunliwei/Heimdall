@@ -314,6 +314,17 @@ public class WikiQualityReportDto
     /// 收敛阶段发现的问题列表。
     /// </summary>
     public List<string> Issues { get; set; } = new();
+
+    /// <summary>
+    /// V4 每页质量评分（0-100），由收敛阶段计算。
+    /// Key 为页面 ID，Value 为评分。
+    /// </summary>
+    public Dictionary<string, int> PageQualityScores { get; set; } = new();
+
+    /// <summary>
+    /// V4 需要重新生成的弱页面 ID 列表（评分低于阈值）。
+    /// </summary>
+    public List<string> WeakPageIds { get; set; } = new();
 }
 
 /// <summary>
