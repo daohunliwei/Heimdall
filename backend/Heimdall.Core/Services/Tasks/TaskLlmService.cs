@@ -21,10 +21,16 @@ public sealed class TaskLlmService
         CancellationToken ct, string? systemPrompt = null)
     {
         var stopwatch = Stopwatch.StartNew();
+        // 规范化 provider：空值时回退到环境配置
+        var effectiveProvider = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
+        var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
+            : !string.IsNullOrWhiteSpace(customModel) ? customModel
+            : null;
+
         var request = new ChatCompletionRequest
         {
-            Provider = provider,
-            Model = model ?? customModel ?? string.Empty,
+            Provider = effectiveProvider,
+            Model = effectiveModel ?? string.Empty,
             CustomModel = customModel,
             Messages = [new ChatMessage { Role = "user", Content = prompt }]
         };
