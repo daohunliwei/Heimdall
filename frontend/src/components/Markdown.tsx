@@ -20,7 +20,8 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       return <div>{children}</div>;
     },
     p({ children, ...props }: { children?: React.ReactNode }) {
-      return <p className="mb-3 text-sm leading-relaxed text-[var(--foreground)]" {...props}>{children}</p>;
+      // V4 修复：段落可能存在块级子元素（代码块/div 等），使用 div 避免 hydration 错误
+      return <div className="mb-3 text-sm leading-relaxed text-[var(--foreground)]" {...props}>{children}</div>;
     },
     h1({ children, ...props }: { children?: React.ReactNode }) {
       return <h1 className="text-xl font-bold mt-8 mb-4 text-[var(--foreground)]" {...props}>{children}</h1>;
@@ -77,8 +78,9 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       );
     },
     table({ children, ...props }: { children?: React.ReactNode }) {
+      // V4 修复：表格外不应包裹在 p 标签中，独立 div 渲染避免 hydration 错误
       return (
-        <div className="overflow-x-auto my-6 rounded-lg border border-[var(--border-color)]">
+        <div className="overflow-x-auto my-6 rounded-lg border border-[var(--border-color)] table-wrapper">
           <table className="min-w-full text-sm border-collapse" {...props}>{children}</table>
         </div>
       );
