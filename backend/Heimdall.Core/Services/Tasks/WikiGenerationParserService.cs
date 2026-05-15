@@ -127,10 +127,20 @@ public sealed class WikiGenerationParserService
     private static string? TryExtractJsonBlock(string response)
     {
         var normalized = WikiMarkdownNormalizer.Normalize(response);
+
+        // 尝试 ```json ... ``` 围栏代码块
         var fencedMatch = Regex.Match(normalized, "```json\\s*(?<json>[\\s\\S]*?)```", RegexOptions.IgnoreCase);
         if (fencedMatch.Success)
         {
-            return fencedMatch.Groups["json"].Value.Trim();
+            return TryRepairJson(fencedMatch.Groups["json"].Value.Trim());
+        }
+
+        // 移除残留的 "json" 前缀（模型可能输出 "json\n{...}"）
+        if (normalized.StartsWith("json", StringComparison.OrdinalIgnoreCase))
+        {
+            var trimmed = normalized[4..].TrimStart();
+            if (trimmed.StartsWith('{'))
+                normalized = trimmed;
         }
 
         var firstBrace = normalized.IndexOf('{');
@@ -140,7 +150,139 @@ public sealed class WikiGenerationParserService
             return null;
         }
 
-        return normalized[firstBrace..(lastBrace + 1)].Trim();
+        return TryRepairJson(normalized[firstBrace..(lastBrace + 1)].Trim());
+    }
+
+    /// <summary>
+    /// 尝试修复常见的小模型 JSON 语法错误（如 bracket 类型错误）。
+    /// </summary>
+    private static string? TryRepairJson(string json)
+    {
+        // 先尝试直接解析
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return json;
+        }
+        catch { }
+
+        // 修复 1: 闭合 bracket 类型错误（} 应为 ]）
+        var repaired = FixBracketTypeErrors(json);
+        if (repaired is not null)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(repaired);
+                return repaired;
+            }
+            catch { }
+        }
+
+        // 修复 2: 截断结尾（移除末尾不完整内容）
+        repaired = FixTruncatedEnd(json);
+        if (repaired is not null)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(repaired);
+                return repaired;
+            }
+            catch { }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 修复数组闭合使用了 } 而非 ] 的错误。
+    /// 检测嵌套的数组/对象闭合错误，将错误的 } 替换为 ]。
+    /// </summary>
+    private static string? FixBracketTypeErrors(string json)
+    {
+        var chars = json.ToCharArray();
+        var stack = new Stack<(int pos, char expected)>();
+        var fixedCount = 0;
+
+        for (var i = 0; i < chars.Length; i++)
+        {
+            var c = chars[i];
+            // 跳过字符串内容
+            if (c == '"' && (i == 0 || chars[i - 1] != '\\'))
+            {
+                // 简单跳过字符串（不处理转义引号的复杂情况）
+                continue;
+            }
+
+            switch (c)
+            {
+                case '{':
+                    stack.Push((i, '}'));
+                    break;
+                case '[':
+                    stack.Push((i, ']'));
+                    break;
+                case '}' when stack.Count > 0:
+                    var (pos, expected) = stack.Pop();
+                    if (expected == ']')
+                    {
+                        // 错误: 数组用了 } 闭合，应改为 ]
+                        chars[i] = ']';
+                        fixedCount++;
+                    }
+                    break;
+                case ']' when stack.Count > 0:
+                    var (pos2, expected2) = stack.Pop();
+                    if (expected2 == '}')
+                    {
+                        // 错误: 对象用了 ] 闭合，应改为 }
+                        chars[i] = '}';
+                        fixedCount++;
+                    }
+                    break;
+                case '}' or ']':
+                    // 没有对应开括号，忽略
+                    break;
+            }
+        }
+
+        return fixedCount > 0 ? new string(chars) : null;
+    }
+
+    /// <summary>
+    /// 修复被截断的 JSON 结尾。
+    /// </summary>
+    private static string? FixTruncatedEnd(string json)
+    {
+        // 尝试在最后一个完整对象/数组后补全
+        var trimmed = json.TrimEnd();
+        if (trimmed.EndsWith(','))
+        {
+            // 移除尾部逗号
+            return trimmed.TrimEnd(',') + "\n}";
+        }
+        // 如果最后是 } 后缺少整体闭合
+        if (trimmed.EndsWith('}'))
+        {
+            // 检查是否需要补 ]
+            var openArrays = 0;
+            var openObjects = 0;
+            for (var i = 0; i < trimmed.Length; i++)
+            {
+                if (trimmed[i] == '[') openArrays++;
+                else if (trimmed[i] == ']') openArrays--;
+                else if (trimmed[i] == '{') openObjects++;
+                else if (trimmed[i] == '}') openObjects--;
+            }
+            if (openArrays > 0)
+            {
+                return trimmed + new string(']', openArrays) + new string('}', Math.Max(0, openObjects));
+            }
+            if (openObjects > 1) // 需要额外闭合根对象
+            {
+                return trimmed + new string('}', openObjects);
+            }
+        }
+        return null;
     }
 
     /// <summary>
