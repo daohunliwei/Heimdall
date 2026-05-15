@@ -39,6 +39,9 @@ public sealed class GoogleChatProvider : IChatProvider
         }
 
         var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{request.Model}:generateContent?key={Uri.EscapeDataString(apiKey)}";
+        var promptText = !string.IsNullOrWhiteSpace(request.SystemPrompt)
+            ? $"{request.SystemPrompt}\n\n{request.Prompt}"
+            : request.Prompt;
         var payload = new
         {
             contents = new[]
@@ -48,7 +51,7 @@ public sealed class GoogleChatProvider : IChatProvider
                     role = "user",
                     parts = new[]
                     {
-                        new { text = request.Prompt }
+                        new { text = promptText }
                     }
                 }
             },

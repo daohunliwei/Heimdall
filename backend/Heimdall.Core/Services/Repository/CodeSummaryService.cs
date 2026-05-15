@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Models;
 using Heimdall.Core.Services.Tasks;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,18 @@ public sealed class CodeSummaryService
 {
     private const int FileBatchSize = 10;
     private readonly TaskLlmService _llmService;
+    private readonly IPromptMergeService _promptMergeService;
     private readonly ILogger<CodeSummaryService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public CodeSummaryService(TaskLlmService llmService, ILogger<CodeSummaryService> logger)
+    public CodeSummaryService(
+        TaskLlmService llmService,
+        IPromptMergeService promptMergeService,
+        ILogger<CodeSummaryService> logger)
     {
         _llmService = llmService;
+        _promptMergeService = promptMergeService;
         _logger = logger;
     }
 
@@ -38,6 +44,8 @@ public sealed class CodeSummaryService
             .Where(e => e.FileType is "source" or "config")
             .OrderByDescending(e => e.ImportanceScore)
             .ToList();
+
+        _logger.LogInformation("代码摘要-开始处理: {FileCount} 个源文件", sourceFiles.Count);
 
         var results = new List<FileSummary>();
 
@@ -113,7 +121,19 @@ public sealed class CodeSummaryService
         string language,
         CancellationToken ct)
     {
-        var prompt = BuildSystemSummaryPrompt(input, language);
+        var prompt = await _promptMergeService.BuildPromptAsync(
+            "code_summary", provider ?? "ollama", "text",
+            new Dictionary<string, string>
+            {
+                ["project_type"] = input.ProjectType ?? "",
+                ["tech_stack"] = input.TechStack ?? "",
+                ["total_files"] = input.TotalFileCount.ToString(),
+                ["module_count"] = input.ModuleNames.Count.ToString(),
+                ["entry_points"] = string.Join(", ", input.EntryPointFiles.Take(5)),
+                ["module_descriptions"] = string.Join("\n", input.ModuleDescriptions.Select(kv => $"- **{kv.Key}**: {kv.Value}")),
+                ["language"] = language
+            },
+            subCategory: "system");
         var response = await _llmService.GenerateTextAsync(
             provider ?? "ollama", model ?? "gemma4:e2b", null,
             prompt, ct);
@@ -147,26 +167,28 @@ public sealed class CodeSummaryService
             var fullPath = Path.Combine(repoPath, entry.FilePath);
             if (!File.Exists(fullPath)) return null;
 
+            _logger.LogDebug("代码摘要-读取文件: {FilePath}", entry.FilePath);
             var content = await File.ReadAllTextAsync(fullPath, ct);
             // 限制文件内容不超过 3000 字符
             if (content.Length > 3000)
                 content = content[..3000] + "\n// ... (truncated)";
 
-            var prompt = $"""
-You are a code analyst. Provide a 1-3 sentence summary of this file.
-File: {entry.FilePath}
-Language hint: {language}
+            _logger.LogDebug("代码摘要-构建提示词: {FilePath}", entry.FilePath);
+            var prompt = await _promptMergeService.BuildPromptAsync(
+                "code_summary", provider ?? "ollama", "text",
+                new Dictionary<string, string>
+                {
+                    ["file_path"] = entry.FilePath,
+                    ["language"] = language,
+                    ["content"] = content
+                },
+                subCategory: "file");
 
-<code>
-{content}
-</code>
-
-Summary (1-3 sentences, in {language}):
-""";
-
+            _logger.LogInformation("代码摘要-LLM调用: {FilePath} PromptLen={PromptLen}", entry.FilePath, prompt?.Length ?? 0);
             var response = await _llmService.GenerateTextAsync(
                 provider ?? "ollama", model ?? "gemma4:e2b", null,
                 prompt, ct);
+            _logger.LogInformation("代码摘要-LLM完成: {FilePath} ResponseLen={ResponseLen}", entry.FilePath, response?.Length ?? 0);
 
             if (string.IsNullOrWhiteSpace(response)) return null;
 
@@ -199,18 +221,16 @@ Summary (1-3 sentences, in {language}):
             context.AppendLine($"- {fs.FilePath}: {fs.Summary}");
         }
 
-        var prompt = $"""
-You are a software architect. Based on the following file summaries for the "{moduleName}" module,
-provide a 3-5 sentence description of this module's responsibilities.
-
-Key files: {string.Join(", ", keyFiles)}
-
-<file_summaries>
-{context}
-</file_summaries>
-
-Module description (3-5 sentences, in {language}):
-""";
+        var prompt = await _promptMergeService.BuildPromptAsync(
+            "code_summary", provider ?? "ollama", "text",
+            new Dictionary<string, string>
+            {
+                ["module_name"] = moduleName,
+                ["key_files"] = string.Join(", ", keyFiles),
+                ["file_summaries"] = context.ToString(),
+                ["language"] = language
+            },
+            subCategory: "module");
 
         var response = await _llmService.GenerateTextAsync(
             provider ?? "ollama", model ?? "gemma4:e2b", null,
@@ -227,35 +247,8 @@ Module description (3-5 sentences, in {language}):
         };
     }
 
-    private static string BuildSystemSummaryPrompt(SystemSummaryInput input, string language)
-    {
-        var moduleContext = new StringBuilder();
-        foreach (var (name, desc) in input.ModuleDescriptions)
-        {
-            moduleContext.AppendLine($"- **{name}**: {desc}");
-        }
-
-        return $"""
-You are a senior software architect. Based on the following analysis of a {input.ProjectType} repository
-({input.TechStack}), provide a comprehensive architecture overview.
-
-Total files: {input.TotalFileCount}, Modules: {input.ModuleNames.Count}
-
-Entry points: {string.Join(", ", input.EntryPointFiles.Take(5))}
-
-<module_descriptions>
-{moduleContext}
-</module_descriptions>
-
-Provide a system architecture overview covering:
-1. Overall architecture pattern (MVC, microservices, monolith, etc.)
-2. Core components and their interactions
-3. Key data flows
-4. Design decisions evident from the code structure
-
-Respond in {language}.
-""";
-    }
+    // BuildSystemSummaryPrompt 已迁移至 IPromptMergeService (V5)
+    // 提示词内容见 PromptSeedData.cs — code-summary-system 模板
 }
 
 public class SystemSummaryInput

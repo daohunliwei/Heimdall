@@ -29,6 +29,7 @@ public sealed class WikiTaskService
     private readonly CodeSummaryService _codeSummaryService;
     private readonly RepositoryAccessService _repoAccess;
     private readonly IHostApplicationLifetime _appLifetime;
+    private readonly IStructuredLogger _structuredLogger;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -42,6 +43,7 @@ public sealed class WikiTaskService
         CodeSummaryService codeSummaryService,
         RepositoryAccessService repoAccess,
         IHostApplicationLifetime appLifetime,
+        IStructuredLogger structuredLogger,
         ILogger<WikiTaskService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -54,6 +56,7 @@ public sealed class WikiTaskService
         _codeSummaryService = codeSummaryService;
         _repoAccess = repoAccess;
         _appLifetime = appLifetime;
+        _structuredLogger = structuredLogger;
         _logger = logger;
     }
 
@@ -195,6 +198,7 @@ public sealed class WikiTaskService
                 markStageAsSuccessful: true);
 
             _logger.LogInformation("仓库准备完成 TaskId={TaskId} Files={Count} Path={Path}", task.Id, fileCount, repoPath);
+            _structuredLogger.LogTaskProgress(task.Id, "仓库准备", null, null, $"共 {fileCount} 个文件");
 
             var langDisplay = language == "zh" ? "中文" : "English";
 
@@ -355,6 +359,9 @@ public sealed class WikiTaskService
                     $"结构规划完成，共 {wikiStructure.Pages.Count} 个页面",
                     execToken);
 
+                _structuredLogger.LogTaskProgress(task.Id, "结构规划完成", null, wikiStructure.Pages.Count,
+                    $"共 {wikiStructure.Pages.Count} 个页面，{wikiStructure.Sections?.Count ?? 0} 个章节");
+
                 await MarkTaskStageAsync(
                     taskRepo,
                     executingTask,
@@ -430,6 +437,8 @@ public sealed class WikiTaskService
                         var pageResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, pagePrompt, execToken);
                         await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
                             pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false);
+                        _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
+                            $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms");
 
                         var pageDraft = _wikiParser.ParsePageDraft(page, pageResponse);
                         ApplyGeneratedPageDraft(page, pageDraft);
@@ -442,6 +451,8 @@ public sealed class WikiTaskService
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "页面生成失败 Page={Title} TaskId={TaskId}", page.Title, task.Id);
+                        _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
+                            $"失败: {page.Title} | {effectiveProvider}/{model ?? customModel}");
                         ApplyGeneratedPageDraft(page, BuildFailedPageDraft(page, ex.Message));
                         await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
                             pagePrompt, page.Content, (int)pageSw.ElapsedMilliseconds, true, ex.Message);
@@ -700,6 +711,8 @@ public sealed class WikiTaskService
 
             _logger.LogInformation("Wiki 生成完成 TaskId={TaskId} Pages={Count} Elapsed={Ms}ms",
                 task.Id, totalPages, totalStopwatch.ElapsedMilliseconds);
+            _structuredLogger.LogTaskSummary(task.Id, totalPages,
+                totalStopwatch.Elapsed.TotalSeconds, 0, 0, 0);
         }
         catch (OperationCanceledException)
         {

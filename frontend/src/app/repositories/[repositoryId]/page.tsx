@@ -389,22 +389,43 @@ export default function RepositoryWikiPage() {
     requestedWikiVersionId?: string,
     requestedRepositoryVersionId?: string,
   ) => {
+    // 按时间倒序排列（最新在前）
+    const sorted = [...versionList].sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
     if (requestedWikiVersionId) {
-      const exactWikiVersion = versionList.find((version) => version.wiki_version_id === requestedWikiVersionId);
+      const exactWikiVersion = sorted.find((version) => version.wiki_version_id === requestedWikiVersionId);
       if (exactWikiVersion) {
         return exactWikiVersion;
       }
     }
 
     if (requestedRepositoryVersionId) {
-      const exactRepositoryVersion = versionList.find((version) => version.repository_version_id === requestedRepositoryVersionId);
+      const exactRepositoryVersion = sorted.find((version) => version.repository_version_id === requestedRepositoryVersionId);
       if (exactRepositoryVersion) {
         return exactRepositoryVersion;
       }
     }
 
-    return versionList.find((version) => version.status === 'published') ?? versionList[0];
-  }, []);
+    // 从 localStorage 读取上次选择的版本
+    try {
+      const lastKey = `heimdall:lastWikiVersion:${repositoryId}`;
+      const lastWikiVersionId = localStorage.getItem(lastKey);
+      if (lastWikiVersionId) {
+        const lastVersion = sorted.find((v) => v.wiki_version_id === lastWikiVersionId);
+        if (lastVersion) {
+          return lastVersion;
+        }
+      }
+    } catch {
+      // localStorage 不可用时忽略
+    }
+
+    // 优先选择已完成的版本，否则选最新
+    return sorted.find((version) =>
+      version.status === 'published' || version.status === 'completed' || version.status === 'ready'
+    ) ?? sorted[0];
+  }, [repositoryId]);
 
   /**
    * 加载指定 Wiki 版本的页面内容，并作为正文主数据源。
@@ -720,6 +741,13 @@ export default function RepositoryWikiPage() {
     setError(null);
     setErrorDetails(null);
 
+    // 记住用户选择的版本
+    try {
+      localStorage.setItem(`heimdall:lastWikiVersion:${repositoryId}`, wikiVersionId);
+    } catch {
+      // localStorage 不可用时忽略
+    }
+
     try {
       const currentVersion = wikiVersions.find((version) => version.wiki_version_id === wikiVersionId);
       if (!currentVersion) {
@@ -741,7 +769,7 @@ export default function RepositoryWikiPage() {
       setIsLoading(false);
       setLoadingMessage(undefined);
     }
-  }, [loadVersionCatalog, loadWikiVersionContent, selectPreferredWikiVersion, wikiVersions]);
+  }, [loadVersionCatalog, loadWikiVersionContent, repositoryId, selectPreferredWikiVersion, wikiVersions]);
 
   /**
    * 处理刷新面板提交。
