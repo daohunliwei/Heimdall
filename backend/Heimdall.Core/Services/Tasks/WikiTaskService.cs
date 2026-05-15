@@ -1,9 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
-using System.Xml;
-using System.Xml.Linq;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
@@ -19,9 +16,14 @@ namespace Heimdall.Core.Services.Tasks;
 
 public sealed class WikiTaskService
 {
+    private const int PageBatchSize = 5;
+    private static readonly System.Text.Json.JsonSerializerOptions ArtifactJsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web);
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TaskLlmService _taskLlm;
     private readonly TaskPromptService _taskPrompt;
+    private readonly WikiGenerationParserService _wikiParser;
+    private readonly WikiGlobalConvergenceService _wikiConvergence;
+    private readonly WikiRenderPostProcessor _wikiRenderPostProcessor;
     private readonly RepositoryAccessService _repoAccess;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<WikiTaskService> _logger;
@@ -30,6 +32,9 @@ public sealed class WikiTaskService
         IServiceScopeFactory scopeFactory,
         TaskLlmService taskLlm,
         TaskPromptService taskPrompt,
+        WikiGenerationParserService wikiParser,
+        WikiGlobalConvergenceService wikiConvergence,
+        WikiRenderPostProcessor wikiRenderPostProcessor,
         RepositoryAccessService repoAccess,
         IHostApplicationLifetime appLifetime,
         ILogger<WikiTaskService> logger)
@@ -37,6 +42,9 @@ public sealed class WikiTaskService
         _scopeFactory = scopeFactory;
         _taskLlm = taskLlm;
         _taskPrompt = taskPrompt;
+        _wikiParser = wikiParser;
+        _wikiConvergence = wikiConvergence;
+        _wikiRenderPostProcessor = wikiRenderPostProcessor;
         _repoAccess = repoAccess;
         _appLifetime = appLifetime;
         _logger = logger;
@@ -143,281 +151,644 @@ public sealed class WikiTaskService
 
         try
         {
-            // 更新任务状态为 running
-            await UpdateTaskAsync(task.Id, t =>
-            {
-                t.Status = "running";
-                t.StartedAt = DateTime.UtcNow;
-                t.ProgressPercent = 5;
-                t.ProgressMessage = "正在克隆仓库...";
-            });
-
-            // 1. 准备仓库
             using var execScope = _scopeFactory.CreateScope();
             var repoAccess = execScope.ServiceProvider.GetRequiredService<RepositoryAccessService>();
+            var taskRepo = execScope.ServiceProvider.GetRequiredService<ITaskRepository>();
+            var artifactRepo = execScope.ServiceProvider.GetRequiredService<ITaskArtifactRepository>();
+            var executionRepo = execScope.ServiceProvider.GetRequiredService<IWikiTaskExecutionRepository>();
+            var codeEmbedService = execScope.ServiceProvider.GetRequiredService<ICodeEmbeddingService>();
+            var wikiEmbedService = execScope.ServiceProvider.GetRequiredService<IWikiEmbeddingService>();
+            var executingTask = await taskRepo.GetByIdAsync(task.Id)
+                ?? throw new InvalidOperationException($"任务不存在：{task.Id}");
+            var effectiveProvider = string.IsNullOrWhiteSpace(provider) ? "ollama" : provider;
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "repository_preparation",
+                "running",
+                5,
+                "正在准备仓库...",
+                execToken,
+                incrementAttempt: true,
+                clearError: true);
+
             var repoPath = await repoAccess.PrepareRepositoryAsync(repoUrl, repoType, token, execToken);
             var localStructure = repoAccess.GetLocalStructure(repoPath);
             var fileCount = localStructure.FileTree.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
 
-            await UpdateTaskAsync(task.Id, t =>
-            {
-                t.ProgressPercent = 15;
-                t.ProgressMessage = $"仓库准备完成，共 {fileCount} 个文件";
-            });
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "repository_preparation",
+                "completed",
+                15,
+                $"仓库准备完成，共 {fileCount} 个文件",
+                execToken,
+                markStageAsSuccessful: true);
 
             _logger.LogInformation("仓库准备完成 TaskId={TaskId} Files={Count} Path={Path}", task.Id, fileCount, repoPath);
 
-            // 2. 生成 Wiki 结构
             var langDisplay = language == "zh" ? "中文" : "English";
             var (execOwner, execRepo) = repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
-            var structurePrompt = _taskPrompt.BuildWikiStructurePrompt(
-                execOwner, execRepo, localStructure.FileTree, localStructure.Readme, langDisplay, comprehensive,
-                generationProfile);
-
-            await UpdateTaskAsync(task.Id, t =>
+            var structureRecovery = await TryLoadPlanningArtifactAsync(artifactRepo, executingTask.Id, execToken);
+            string structureRawResponse;
+            string structureJson;
+            WikiStructureDto wikiStructure;
+            if (structureRecovery.HasValue)
             {
-                t.ProgressPercent = 20;
-                t.ProgressMessage = "正在生成 Wiki 结构...";
-            });
+                structureRawResponse = structureRecovery.Value.StructureResponse;
+                wikiStructure = structureRecovery.Value.Structure;
+                structureJson = _wikiParser.SerializeStructure(wikiStructure);
 
-            var structureSw = Stopwatch.StartNew();
-            var structureResponse = await _taskLlm.GenerateTextAsync(provider, model, customModel, structurePrompt, execToken);
-
-            // 记录 LLM 调用日志
-            await LogLlmCallAsync(task.Id, 0, "structure_generation", provider, model ?? customModel,
-                structurePrompt, structureResponse, (int)structureSw.ElapsedMilliseconds, false);
-
-            var wikiStructure = ParseWikiStructure(structureResponse, comprehensive);
-
-            await UpdateTaskAsync(task.Id, t =>
+                await MarkTaskStageAsync(
+                    taskRepo,
+                    executingTask,
+                    "structure_planning",
+                    "completed",
+                    35,
+                    $"已从工件恢复结构规划，共 {wikiStructure.Pages.Count} 个页面",
+                    execToken,
+                    markStageAsSuccessful: true);
+            }
+            else
             {
-                t.ProgressPercent = 35;
-                t.ProgressMessage = $"Wiki 结构生成完成，共 {wikiStructure.Pages.Count} 个页面";
-            });
+                var structurePrompt = _taskPrompt.BuildWikiStructurePrompt(
+                    execOwner, execRepo, localStructure.FileTree, localStructure.Readme, langDisplay, comprehensive,
+                    generationProfile);
 
-            // 3. 先创建 Wiki 记录（确保页面保存时有有效的 WikiId）
-            Guid wikiId;
-            using (var wikiScope = _scopeFactory.CreateScope())
-            {
-                var wikiRepository = wikiScope.ServiceProvider.GetRequiredService<IWikiRepository>();
-                var pageRepository = wikiScope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
-                var repoConfigRepo = wikiScope.ServiceProvider.GetRequiredService<IRepositoryConfigRepository>();
+                await MarkTaskStageAsync(
+                    taskRepo,
+                    executingTask,
+                    "structure_planning",
+                    "running",
+                    20,
+                    "正在生成 Wiki 结构...",
+                    execToken);
 
-                var repoEntity = await repoConfigRepo.GetByOwnerRepoTypeAsync(execOwner, execRepo, repoType);
-                if (repoEntity is null)
-                {
-                    repoEntity = new Core.Entities.Repository
-                    {
-                        Owner = execOwner,
-                        RepoName = execRepo,
-                        RepoType = repoType,
-                        RepoUrl = repoUrl
-                    };
-                    await repoConfigRepo.AddAsync(repoEntity);
-                }
+                var structureSw = Stopwatch.StartNew();
+                structureRawResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
+                await LogLlmCallAsync(task.Id, 0, "structure_generation", effectiveProvider, model ?? customModel,
+                    structurePrompt, structureRawResponse, (int)structureSw.ElapsedMilliseconds, false);
 
-                var existingWiki = await wikiRepository.GetByRepoBranchLanguageAsync(repoEntity.Id, branch, language);
-                if (existingWiki is not null)
-                {
-                    await pageRepository.DeleteByWikiIdAsync(existingWiki.Id);
-                    await wikiRepository.DeleteAsync(existingWiki.Id);
-                    // 创建新 Wiki 记录，避免 AsNoTracking+Include(Pages) 导致的并发冲突
-                    var newWiki = new Wiki
+                wikiStructure = _wikiParser.ParseStructure(structureRawResponse, comprehensive);
+                structureJson = _wikiParser.SerializeStructure(wikiStructure);
+                await UpsertTaskArtifactAsync(
+                    artifactRepo,
+                    taskRepo,
+                    executingTask,
+                    "planning_artifact",
+                    "plan",
+                    "structure_planning",
+                    0,
+                    System.Text.Json.JsonSerializer.Serialize(new
                     {
-                        SourceRepositoryId = repoEntity.Id,
-                        SourceBranch = branch,
-                        Language = language,
-                        Title = wikiStructure.Title,
-                        Description = wikiStructure.Description
-                    };
-                    await wikiRepository.AddAsync(newWiki);
-                    wikiId = newWiki.Id;
-                }
-                else
-                {
-                    var wiki = new Wiki
-                    {
-                        SourceRepositoryId = repoEntity.Id,
-                        SourceBranch = branch,
-                        Language = language,
-                        Title = wikiStructure.Title,
-                        Description = wikiStructure.Description
-                    };
-                    await wikiRepository.AddAsync(wiki);
-                    wikiId = wiki.Id;
-                }
+                        request_id = requestId,
+                        repository_path = repoPath,
+                        structure_raw_response = structureRawResponse,
+                        structure_format = "json-dto",
+                        structure_json = structureJson,
+                        structure = wikiStructure
+                    }, ArtifactJsonOptions),
+                    $"结构规划完成，共 {wikiStructure.Pages.Count} 个页面",
+                    execToken);
+
+                await MarkTaskStageAsync(
+                    taskRepo,
+                    executingTask,
+                    "structure_planning",
+                    "completed",
+                    35,
+                    $"Wiki 结构生成完成，共 {wikiStructure.Pages.Count} 个页面",
+                    execToken,
+                    markStageAsSuccessful: true);
             }
 
-            _logger.LogInformation("Wiki 记录已创建 WikiId={WikiId}", wikiId);
-
-            // 4. 逐页生成内容（含实际文件内容 + RAG 检索）
+            var completedBatchKeys = await RestoreCompletedPageBatchesAsync(artifactRepo, executingTask.Id, wikiStructure, execToken);
             var totalPages = wikiStructure.Pages.Count;
+            var totalBatchCount = Math.Max(1, (int)Math.Ceiling(totalPages / (double)PageBatchSize));
 
-            // 4a. 后台启动双向量嵌入流水线（写入 code_embedding_chunks + wiki_embedding_chunks）
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var embedScope = _scopeFactory.CreateScope();
-
-                    // V2: 写入 code_embedding_chunks
-                    var repoAccess2 = embedScope.ServiceProvider.GetRequiredService<RepositoryAccessService>();
-                    var codeEmbedService = embedScope.ServiceProvider.GetRequiredService<ICodeEmbeddingService>();
-                    var versionRepo = embedScope.ServiceProvider.GetRequiredService<IRepositoryVersionRepository>();
-
-                    var repoVersion = await versionRepo.GetLatestByRepoBranchAsync(task.RepositoryId!.Value, branch);
-                    if (repoVersion is not null)
-                    {
-                        var documents = await repoAccess2.ReadRepositoryDocumentsAsync(
-                            repoPath, new(), new(), new(), new(), CancellationToken.None);
-                        var codeChunkCount = await codeEmbedService.EmbedRepositoryAsync(repoVersion.Id, documents, CancellationToken.None);
-                        _logger.LogInformation("代码嵌入完成 TaskId={TaskId} VersionId={VersionId} Chunks={Count}",
-                            task.Id, repoVersion.Id, codeChunkCount);
-                    }
-
-                    _logger.LogInformation("嵌入流水线完成 TaskId={TaskId}", task.Id);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "嵌入流水线失败（非致命）TaskId={TaskId}", task.Id);
-                }
-            });
-
-            var pageIdMapping = new Dictionary<string, Guid>(); // string_id → DB GUID
-
-            for (var i = 0; i < totalPages; i++)
+            for (var batchIndex = 0; batchIndex < totalBatchCount; batchIndex++)
             {
                 execToken.ThrowIfCancellationRequested();
-                var page = wikiStructure.Pages[i];
-                var percent = 35 + (int)(55.0 * (i + 1) / totalPages);
 
-                await UpdateTaskAsync(task.Id, t =>
+                var batchKey = BuildBatchArtifactKey(batchIndex);
+                var batchPages = wikiStructure.Pages
+                    .Skip(batchIndex * PageBatchSize)
+                    .Take(PageBatchSize)
+                    .ToList();
+
+                var percent = 35 + (int)(40.0 * (batchIndex + 1) / totalBatchCount);
+                if (completedBatchKeys.Contains(batchKey))
                 {
-                    t.ProgressPercent = percent;
-                    t.ProgressMessage = $"正在生成页面 {i + 1}/{totalPages}: {page.Title}";
-                });
+                    await MarkTaskStageAsync(
+                        taskRepo,
+                        executingTask,
+                        "page_generation",
+                        "running",
+                        percent,
+                        $"已从工件恢复页面批次 {batchIndex + 1}/{totalBatchCount}",
+                        execToken);
+                    continue;
+                }
 
-                // 读取页面关联的实际文件内容
-                var fileContents = ReadPageFiles(repoPath, page.FilePaths);
+                await MarkTaskStageAsync(
+                    taskRepo,
+                    executingTask,
+                    "page_generation",
+                    "running",
+                    percent,
+                    $"正在生成页面批次 {batchIndex + 1}/{totalBatchCount}",
+                    execToken);
 
-                var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
-                    page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl,
-                    langDisplay, fileContents);
-
-                var pageSw = Stopwatch.StartNew();
-                try
+                foreach (var page in batchPages)
                 {
-                    var pageContent = await _taskLlm.GenerateTextAsync(provider, model, customModel, pagePrompt, execToken);
+                    execToken.ThrowIfCancellationRequested();
 
-                    await LogLlmCallAsync(task.Id, i + 1, "page_generation", provider, model ?? customModel,
-                        pagePrompt, pageContent, (int)pageSw.ElapsedMilliseconds, false);
+                    var fileContents = ReadPageFiles(repoPath, page.FilePaths);
+                    var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
+                        page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay, fileContents);
 
-                    page.Content = WikiMarkdownNormalizer.Normalize(pageContent);
-
-                    // 逐页落库，记录 string_id → GUID 映射
-                    var pageGuid = await SaveWikiPageAsync(task.Id, wikiId, i, page);
-                    if (pageGuid.HasValue)
+                    var pageSw = Stopwatch.StartNew();
+                    var stepOrder = wikiStructure.Pages.FindIndex(p => p.Id == page.Id) + 1;
+                    try
                     {
-                        pageIdMapping[page.Id] = pageGuid.Value;
+                        var pageResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, pagePrompt, execToken);
+                        await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
+                            pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false);
+
+                        var pageDraft = _wikiParser.ParsePageDraft(page, pageResponse);
+                        ApplyGeneratedPageDraft(page, pageDraft);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "页面生成失败 Page={Title} TaskId={TaskId}", page.Title, task.Id);
+                        ApplyGeneratedPageDraft(page, BuildFailedPageDraft(page, ex.Message));
+                        await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
+                            pagePrompt, page.Content, (int)pageSw.ElapsedMilliseconds, true, ex.Message);
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "页面生成失败 Page={Title}", page.Title);
-                    page.Content = $"# {page.Title}\n\n> 生成失败：{ex.Message}\n\n{page.Description}";
-                    await LogLlmCallAsync(task.Id, i + 1, "page_generation", provider, model ?? customModel,
-                        pagePrompt, page.Content, (int)pageSw.ElapsedMilliseconds, true, ex.Message);
-                }
-            }
 
-            // 4. 保存完整 Wiki 到数据库
-            await SaveWikiAsync(task, wikiStructure, repoUrl, repoType, language);
-
-            // V2: 创建版本记录（RepositoryVersion + WikiVersion）并回写任务
-            await EnsureV2VersionRecordsAsync(task, wikiId, execOwner, execRepo, repoType, language, branch, generationProfile, structureResponse);
-
-            // 保存页面关系（wiki_page_relations）
-            if (task.ResultWikiVersionId.HasValue)
-            {
-                await SaveWikiPageRelationsAsync(task.ResultWikiVersionId.Value, wikiStructure, pageIdMapping);
-            }
-
-            // 5a. 后台启动 Wiki 内容嵌入（写入 wiki_embedding_chunks）
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var embedScope = _scopeFactory.CreateScope();
-                    var wikiEmbedService = embedScope.ServiceProvider.GetRequiredService<IWikiEmbeddingService>();
-                    var wikiVersionRepo = embedScope.ServiceProvider.GetRequiredService<IWikiVersionRepository>();
-                    var pageRepo2 = embedScope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
-
-                    if (task.ResultWikiVersionId.HasValue)
+                await UpsertTaskArtifactAsync(
+                    artifactRepo,
+                    taskRepo,
+                    executingTask,
+                    "page_batch_artifact",
+                    batchKey,
+                    "page_generation",
+                    batchIndex,
+                    System.Text.Json.JsonSerializer.Serialize(new
                     {
-                        var wikiVersion = await wikiVersionRepo.GetByIdAsync(task.ResultWikiVersionId.Value);
-                        if (wikiVersion is not null)
-                        {
-                            var allPages = await pageRepo2.GetByWikiIdAsync(wikiId);
-                            var versionPages = allPages.Where(p => p.WikiVersionId == wikiVersion.Id).ToList();
-                            var wikiChunkCount = await wikiEmbedService.EmbedWikiPagesAsync(wikiVersion.Id, versionPages, CancellationToken.None);
-                            _logger.LogInformation("Wiki 嵌入完成 TaskId={TaskId} VersionId={VersionId} Chunks={Count}",
-                                task.Id, wikiVersion.Id, wikiChunkCount);
-                        }
-                    }
-                }
-                catch (Exception ex)
+                        batch_index = batchIndex,
+                        page_count = batchPages.Count,
+                        pages = batchPages
+                    }, ArtifactJsonOptions),
+                    $"页面批次 {batchIndex + 1}/{totalBatchCount} 已生成",
+                    execToken);
+            }
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "page_generation",
+                "completed",
+                76,
+                $"页面生成完成，共 {totalPages} 个页面",
+                execToken,
+                markStageAsSuccessful: true);
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "quality_assurance",
+                "running",
+                78,
+                "正在执行全局收敛...",
+                execToken);
+
+            var convergenceResult = _wikiConvergence.Converge(wikiStructure);
+            wikiStructure = convergenceResult.Structure;
+            await UpsertTaskArtifactAsync(
+                artifactRepo,
+                taskRepo,
+                executingTask,
+                "quality_report_artifact",
+                "quality-report",
+                "quality_assurance",
+                0,
+                System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    _logger.LogWarning(ex, "Wiki 嵌入流水线失败（非致命）TaskId={TaskId}", task.Id);
-                }
-            });
+                    generated_at = DateTime.UtcNow,
+                    report = convergenceResult.QualityReport
+                }, ArtifactJsonOptions),
+                $"质量报告已生成，兜底页面 {convergenceResult.QualityReport.FallbackPageCount} 个",
+                execToken);
 
-            // 5. 标记完成
-            await UpdateTaskAsync(task.Id, t =>
-            {
-                t.Status = "completed";
-                t.ProgressPercent = 100;
-                t.ProgressMessage = $"Wiki 生成完成，共 {totalPages} 个页面";
-                t.CompletedAt = DateTime.UtcNow;
-            });
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "quality_assurance",
+                "completed",
+                80,
+                "全局收敛已完成",
+                execToken,
+                markStageAsSuccessful: true);
 
-            // 保存生成结果 JSON
-            await SaveResultJsonAsync(task.Id, wikiStructure);
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "render_post_processing",
+                "running",
+                82,
+                "正在执行渲染后处理...",
+                execToken);
+
+            var renderResult = _wikiRenderPostProcessor.PostProcess(wikiStructure);
+            wikiStructure = renderResult.Structure;
+            structureJson = _wikiParser.SerializeStructure(wikiStructure);
+
+            await UpsertTaskArtifactAsync(
+                artifactRepo,
+                taskRepo,
+                executingTask,
+                "render_postprocess_artifact",
+                "render-postprocess",
+                "render_post_processing",
+                0,
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    rendered_page_count = renderResult.RenderedPageCount,
+                    frontmatter_page_count = renderResult.FrontMatterPageCount,
+                    outline_heading_count = renderResult.OutlineHeadingCount
+                }, ArtifactJsonOptions),
+                $"渲染后处理完成，共 {renderResult.RenderedPageCount} 个页面",
+                execToken);
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "render_post_processing",
+                "completed",
+                83,
+                "渲染后处理完成",
+                execToken,
+                markStageAsSuccessful: true);
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "persistence",
+                "running",
+                84,
+                "正在写入 Wiki 主数据、页面与版本...",
+                execToken);
+
+            var persistenceResult = await PersistWikiProjectionAsync(
+                executionRepo,
+                executingTask,
+                wikiStructure,
+                structureJson,
+                language,
+                branch,
+                generationProfile,
+                execToken);
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "persistence",
+                "completed",
+                89,
+                $"主数据落库完成，WikiVersion={persistenceResult.WikiVersionId}",
+                execToken,
+                markStageAsSuccessful: true);
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "code_embedding",
+                "running",
+                90,
+                "正在写入代码向量...",
+                execToken);
+
+            var documents = await repoAccess.ReadRepositoryDocumentsAsync(repoPath, new(), new(), new(), new(), execToken);
+            var codeChunkCount = await codeEmbedService.EmbedRepositoryAsync(persistenceResult.RepositoryVersionId, documents, execToken);
+            await UpsertTaskArtifactAsync(
+                artifactRepo,
+                taskRepo,
+                executingTask,
+                "code_embedding_artifact",
+                "code-embedding",
+                "code_embedding",
+                0,
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    repository_version_id = persistenceResult.RepositoryVersionId,
+                    document_count = documents.Count,
+                    chunk_count = codeChunkCount
+                }, ArtifactJsonOptions),
+                $"代码向量写入完成，共 {codeChunkCount} 个分块",
+                execToken);
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "code_embedding",
+                "completed",
+                94,
+                $"代码向量写入完成，共 {codeChunkCount} 个分块",
+                execToken,
+                markStageAsSuccessful: true);
+
+            await MarkTaskStageAsync(
+                taskRepo,
+                executingTask,
+                "wiki_embedding",
+                "running",
+                95,
+                "正在写入 Wiki 向量...",
+                execToken);
+
+            var wikiChunkCount = await wikiEmbedService.EmbedWikiPagesAsync(persistenceResult.WikiVersionId, persistenceResult.Pages, execToken);
+            await UpsertTaskArtifactAsync(
+                artifactRepo,
+                taskRepo,
+                executingTask,
+                "wiki_embedding_artifact",
+                "wiki-embedding",
+                "wiki_embedding",
+                0,
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    wiki_version_id = persistenceResult.WikiVersionId,
+                    page_count = persistenceResult.Pages.Count,
+                    chunk_count = wikiChunkCount
+                }, ArtifactJsonOptions),
+                $"Wiki 向量写入完成，共 {wikiChunkCount} 个分块",
+                execToken);
+
+            executingTask.Status = "completed";
+            executingTask.CurrentStage = "completed";
+            executingTask.CurrentStageStatus = "completed";
+            executingTask.LastSuccessfulStage = "wiki_embedding";
+            executingTask.ProgressPercent = 100;
+            executingTask.ProgressMessage = $"Wiki 生成完成，共 {totalPages} 个页面";
+            executingTask.CompletedAt = DateTime.UtcNow;
+            executingTask.ResultJson = BuildResultSummaryJson(
+                wikiStructure,
+                persistenceResult.RepositoryVersionId,
+                persistenceResult.WikiVersionId,
+                codeChunkCount,
+                wikiChunkCount);
+            await taskRepo.UpdateAsync(executingTask);
 
             _logger.LogInformation("Wiki 生成完成 TaskId={TaskId} Pages={Count} Elapsed={Ms}ms",
                 task.Id, totalPages, totalStopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
-            await UpdateTaskAsync(task.Id, t =>
-            {
-                t.Status = "cancelled";
-                t.ErrorMessage = "任务已取消";
-                t.CompletedAt = DateTime.UtcNow;
-            });
+            await MarkTerminalStateAsync(task.Id, "cancelled", "任务已取消", "cancelled");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Wiki 生成失败 TaskId={TaskId}", task.Id);
-            await UpdateTaskAsync(task.Id, t =>
-            {
-                t.Status = "failed";
-                t.ErrorMessage = ex.Message;
-                t.CompletedAt = DateTime.UtcNow;
-            });
+            await MarkTerminalStateAsync(task.Id, "failed", ex.Message, "failed");
         }
     }
 
-    private async Task UpdateTaskAsync(Guid taskId, Action<TaskRecord> update)
+    /// <summary>
+    /// 持久化任务阶段状态。
+    /// 该方法统一维护整体状态、阶段状态、尝试次数与最近成功阶段。
+    /// </summary>
+    private static async Task MarkTaskStageAsync(
+        ITaskRepository taskRepo,
+        TaskRecord task,
+        string stageName,
+        string stageStatus,
+        int progressPercent,
+        string progressMessage,
+        CancellationToken cancellationToken,
+        bool incrementAttempt = false,
+        bool clearError = false,
+        bool markStageAsSuccessful = false)
+    {
+        task.Status = stageStatus == "completed" && stageName == "completed" ? "completed" : "running";
+        task.CurrentStage = stageName;
+        task.CurrentStageStatus = stageStatus;
+        task.ProgressPercent = progressPercent;
+        task.ProgressMessage = progressMessage;
+        task.UpdatedAt = DateTime.UtcNow;
+
+        if (task.StartedAt is null)
+            task.StartedAt = DateTime.UtcNow;
+
+        if (incrementAttempt)
+            task.AttemptCount++;
+
+        if (clearError)
+            task.ErrorMessage = null;
+
+        if (markStageAsSuccessful)
+            task.LastSuccessfulStage = stageName;
+
+        await taskRepo.UpdateAsync(task);
+    }
+
+    /// <summary>
+    /// 终结任务状态。
+    /// 该方法用于失败或取消场景，确保整体状态、阶段状态与完成时间保持一致。
+    /// </summary>
+    private async Task MarkTerminalStateAsync(Guid taskId, string status, string errorMessage, string stageStatus)
     {
         using var scope = _scopeFactory.CreateScope();
         var taskRepo = scope.ServiceProvider.GetRequiredService<ITaskRepository>();
-        var existing = await taskRepo.GetByIdAsync(taskId);
-        if (existing is not null)
+        var task = await taskRepo.GetByIdAsync(taskId);
+        if (task is null)
+            return;
+
+        task.Status = status;
+        task.CurrentStageStatus = stageStatus;
+        task.ProgressMessage = status == "cancelled" ? "任务已取消" : $"任务失败：{errorMessage}";
+        task.ErrorMessage = errorMessage;
+        task.CompletedAt = DateTime.UtcNow;
+        task.UpdatedAt = DateTime.UtcNow;
+        await taskRepo.UpdateAsync(task);
+    }
+
+    /// <summary>
+    /// 尝试读取结构规划工件。
+    /// 读取成功后即可跳过结构规划阶段并从该恢复点继续执行。
+    /// </summary>
+    private static async Task<(string StructureResponse, WikiStructureDto Structure)?> TryLoadPlanningArtifactAsync(
+        ITaskArtifactRepository artifactRepo,
+        Guid taskId,
+        CancellationToken cancellationToken)
+    {
+        var artifact = await artifactRepo.GetByTypeAndKeyAsync(taskId, "planning_artifact", "plan");
+
+        if (artifact is null || artifact.Status != "completed")
+            return null;
+
+        using var document = System.Text.Json.JsonDocument.Parse(artifact.PayloadJson);
+        if (!document.RootElement.TryGetProperty("structure", out var structureElement))
+            return null;
+
+        var structure = System.Text.Json.JsonSerializer.Deserialize<WikiStructureDto>(
+            structureElement.GetRawText(),
+            ArtifactJsonOptions);
+        if (structure is null)
+            return null;
+
+        var structureResponse = document.RootElement.TryGetProperty("structure_raw_response", out var rawResponseElement)
+            ? rawResponseElement.GetString() ?? string.Empty
+            : document.RootElement.TryGetProperty("structure_response", out var responseElement)
+                ? responseElement.GetString() ?? string.Empty
+            : string.Empty;
+
+        return (structureResponse, structure);
+    }
+
+    /// <summary>
+    /// 从已完成的页面批次工件恢复页面内容。
+    /// 返回值为已恢复的批次键集合，调用方可据此跳过重复生成。
+    /// </summary>
+    private static async Task<HashSet<string>> RestoreCompletedPageBatchesAsync(
+        ITaskArtifactRepository artifactRepo,
+        Guid taskId,
+        WikiStructureDto wikiStructure,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var artifacts = (await artifactRepo.GetByTypeAsync(taskId, "page_batch_artifact"))
+            .Where(a => a.Status == "completed")
+            .OrderBy(a => a.Sequence)
+            .ToList();
+
+        var pageLookup = wikiStructure.Pages.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+        var restored = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var artifact in artifacts)
         {
-            update(existing);
-            await taskRepo.UpdateStatusAsync(existing.Id, existing.Status,
-                existing.ProgressPercent, existing.ProgressMessage, existing.ErrorMessage);
+            using var document = System.Text.Json.JsonDocument.Parse(artifact.PayloadJson);
+            if (!document.RootElement.TryGetProperty("pages", out var pagesElement))
+                continue;
+
+            var pages = System.Text.Json.JsonSerializer.Deserialize<List<WikiPageDto>>(
+                pagesElement.GetRawText(),
+                ArtifactJsonOptions);
+            if (pages is null || pages.Count == 0)
+                continue;
+
+            foreach (var page in pages)
+            {
+                if (!pageLookup.TryGetValue(page.Id, out var target))
+                    continue;
+
+                ApplyGeneratedPageDraft(target, page);
+            }
+
+            restored.Add(artifact.ArtifactKey);
         }
+
+        return restored;
+    }
+
+    /// <summary>
+    /// 将工件结果幂等写入数据库，并同步回写任务恢复锚点。
+    /// </summary>
+    private static async Task<TaskArtifact> UpsertTaskArtifactAsync(
+        ITaskArtifactRepository artifactRepo,
+        ITaskRepository taskRepo,
+        TaskRecord task,
+        string artifactType,
+        string artifactKey,
+        string stageName,
+        int sequence,
+        string payloadJson,
+        string summary,
+        CancellationToken cancellationToken,
+        string status = "completed",
+        string? errorMessage = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var artifact = await artifactRepo.UpsertAsync(new TaskArtifact
+        {
+            TaskId = task.Id,
+            ArtifactType = artifactType,
+            ArtifactKey = artifactKey,
+            StageName = stageName,
+            Status = status,
+            Sequence = sequence,
+            ContentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payloadJson))).ToLowerInvariant(),
+            Summary = summary,
+            PayloadJson = payloadJson,
+            ErrorMessage = errorMessage
+        });
+
+        task.LastArtifactId = artifact.Id;
+        task.LastSuccessfulStage = status == "completed" ? stageName : task.LastSuccessfulStage;
+        task.UpdatedAt = DateTime.UtcNow;
+        await taskRepo.UpdateAsync(task);
+        return artifact;
+    }
+
+    /// <summary>
+    /// 持久化 Wiki 主数据、版本数据、页面数据、关系数据与渲染快照。
+    /// 该方法在同一数据库事务中完成主链路落库，确保完成态与真实结果一致。
+    /// </summary>
+    private static async Task<(Guid WikiId, Guid RepositoryVersionId, Guid WikiVersionId, List<WikiPage> Pages)> PersistWikiProjectionAsync(
+        IWikiTaskExecutionRepository executionRepository,
+        TaskRecord task,
+        WikiStructureDto structure,
+        string structureJson,
+        string language,
+        string branch,
+        string generationProfile,
+        CancellationToken cancellationToken)
+    {
+        return await executionRepository.PersistWikiProjectionAsync(
+            task,
+            structure,
+            structureJson,
+            language,
+            branch,
+            generationProfile,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// 生成页面批次工件键。
+    /// </summary>
+    private static string BuildBatchArtifactKey(int batchIndex) => $"batch-{batchIndex:D4}";
+
+    /// <summary>
+    /// 生成任务结果摘要 JSON。
+    /// </summary>
+    private static string BuildResultSummaryJson(
+        WikiStructureDto structure,
+        Guid repositoryVersionId,
+        Guid wikiVersionId,
+        int? codeChunkCount,
+        int? wikiChunkCount)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            structure.Title,
+            structure.Description,
+            page_count = structure.Pages.Count,
+            repository_version_id = repositoryVersionId,
+            wiki_version_id = wikiVersionId,
+            code_chunk_count = codeChunkCount,
+            wiki_chunk_count = wikiChunkCount,
+            pages = structure.Pages.Select(p => new
+            {
+                p.Id,
+                p.Title,
+                p.Importance,
+                content_length = p.Content.Length
+            })
+        }, ArtifactJsonOptions);
     }
 
     private async Task LogLlmCallAsync(Guid taskId, int stepOrder, string callType,
@@ -454,450 +825,65 @@ public sealed class WikiTaskService
         await taskRepo.IncrementTokensAsync(taskId, promptTokens, completionTokens);
     }
 
-    private async Task<Guid?> SaveWikiPageAsync(Guid taskId, Guid wikiId, int pageOrder, WikiPageDto dto)
+    /// <summary>
+    /// 将单页草案结果合并回结构规划中的页面对象。
+    /// </summary>
+    private static void ApplyGeneratedPageDraft(WikiPageDto target, WikiPageDto draft)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var pageRepo = scope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
+        target.Title = draft.Title;
+        target.Description = draft.Description;
+        target.Content = draft.Content;
+        target.NavTitle = draft.NavTitle;
+        target.PageType = draft.PageType;
+        target.FilePaths = draft.FilePaths;
+        target.Importance = draft.Importance;
+        target.RelatedPages = draft.RelatedPages;
+        target.PrerequisitePages = draft.PrerequisitePages;
+        target.ParentId = draft.ParentId;
+        target.IsSection = draft.IsSection;
+        target.Children = draft.Children;
+        target.FrontMatter = draft.FrontMatter;
+        target.Outline = draft.Outline;
+        target.SourceCoverage = draft.SourceCoverage;
+        target.Warnings = draft.Warnings;
+        target.IsFallbackDraft = draft.IsFallbackDraft;
+    }
 
-        var page = new WikiPage
+    /// <summary>
+    /// 构建生成失败时的页面兜底草案。
+    /// </summary>
+    private static WikiPageDto BuildFailedPageDraft(WikiPageDto page, string errorMessage)
+    {
+        return new WikiPageDto
         {
-            WikiId = wikiId,
-            TaskId = taskId,
-            PageOrder = pageOrder,
-            Title = dto.Title,
-            ContentMarkdown = dto.Content,
-            Importance = dto.Importance,
-            FilePaths = dto.FilePaths?.ToArray()
+            Id = page.Id,
+            Title = page.Title,
+            Description = page.Description,
+            Content = $"## 生成异常\n\n> 页面生成失败：{errorMessage}\n\n## 页面说明\n\n{page.Description}",
+            NavTitle = string.IsNullOrWhiteSpace(page.NavTitle) ? page.Title : page.NavTitle,
+            PageType = string.IsNullOrWhiteSpace(page.PageType) ? "article" : page.PageType,
+            FilePaths = page.FilePaths,
+            Importance = page.Importance,
+            RelatedPages = page.RelatedPages,
+            PrerequisitePages = page.PrerequisitePages,
+            ParentId = page.ParentId,
+            IsSection = page.IsSection,
+            Children = page.Children,
+            FrontMatter = new WikiPageFrontMatterDto
+            {
+                Summary = page.Description,
+                Description = page.Description,
+                SourceFiles = page.FilePaths
+            },
+            Outline = new(),
+            SourceCoverage = new WikiPageSourceCoverageDto
+            {
+                PrimaryFiles = page.FilePaths
+            },
+            Warnings = new() { $"页面生成失败：{errorMessage}" },
+            IsFallbackDraft = true
         };
-        var saved = await pageRepo.AddAsync(page);
-        return saved.Id;
     }
-
-    private async Task SaveWikiAsync(TaskRecord task, WikiStructureDto structure,
-        string repoUrl, string repoType, string language)
-    {
-        // Wiki 和页面已在 ExecuteAsync 中创建/落库，此处仅做最终校验
-        using var scope = _scopeFactory.CreateScope();
-        var wikiRepo = scope.ServiceProvider.GetRequiredService<IWikiRepository>();
-        var repoConfigRepo = scope.ServiceProvider.GetRequiredService<IRepositoryConfigRepository>();
-
-        var (repoOwner, repoName) = _repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
-        var repo = await repoConfigRepo.GetByOwnerRepoTypeAsync(repoOwner, repoName, repoType);
-        if (repo is null)
-        {
-            _logger.LogWarning("SaveWikiAsync: 仓库记录不存在 Owner={Owner} Repo={Repo}", repoOwner, repoName);
-            return;
-        }
-
-        var wiki = await wikiRepo.GetByRepoBranchLanguageAsync(repo.Id, task.TargetBranch ?? "main", language);
-        if (wiki is not null)
-        {
-            wiki.Title = structure.Title;
-            wiki.Description = structure.Description;
-            wiki.UpdatedAt = DateTime.UtcNow;
-            await wikiRepo.UpdateAsync(wiki);
-        }
-
-        _logger.LogInformation("Wiki 已更新 WikiId={WikiId}", wiki?.Id);
-    }
-
-    private async Task SaveResultJsonAsync(Guid taskId, WikiStructureDto structure)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var taskRepo = scope.ServiceProvider.GetRequiredService<ITaskRepository>();
-        var task = await taskRepo.GetByIdAsync(taskId);
-        if (task is not null)
-        {
-            task.ResultJson = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                structure.Title,
-                structure.Description,
-                PageCount = structure.Pages.Count,
-                Pages = structure.Pages.Select(p => new { p.Id, p.Title, p.Importance, ContentLength = p.Content.Length })
-            });
-            await taskRepo.UpdateStatusAsync(task.Id, task.Status, task.ProgressPercent, task.ProgressMessage, task.ErrorMessage);
-        }
-    }
-
-    /// <summary>
-    /// V2: 确保版本记录存在（RepositoryVersion + WikiSpace + WikiVersion），并回写任务关联。
-    /// </summary>
-    private async Task EnsureV2VersionRecordsAsync(TaskRecord task, Guid wikiId,
-        string execOwner, string execRepo, string repoType, string language,
-        string branch = "main", string generationProfile = "comprehensive",
-        string? structureJson = null)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var repoConfigRepo = scope.ServiceProvider.GetRequiredService<IRepositoryConfigRepository>();
-            var versionRepo = scope.ServiceProvider.GetRequiredService<IRepositoryVersionRepository>();
-            var spaceRepo = scope.ServiceProvider.GetRequiredService<IWikiSpaceRepository>();
-            var wikiVersionRepo = scope.ServiceProvider.GetRequiredService<IWikiVersionRepository>();
-            var pageRepo = scope.ServiceProvider.GetRequiredService<IWikiPageRepository>();
-
-            // 1. 查找仓库记录
-            var repo = await repoConfigRepo.GetByOwnerRepoTypeAsync(execOwner, execRepo, repoType);
-            if (repo is null) return;
-
-            // 2. 确保 RepositoryVersion 存在
-            var repoVersion = await versionRepo.GetLatestByRepoBranchAsync(repo.Id, branch);
-            if (repoVersion is null)
-            {
-                repoVersion = new RepositoryVersion
-                {
-                    RepositoryId = repo.Id,
-                    BranchName = branch,
-                    CommitSha = "unknown",
-                    CommitTime = DateTime.UtcNow,
-                    CommitAuthor = "system",
-                    CommitMessage = $"由任务 {task.Id} 触发生成",
-                    SourceStatus = "active",
-                    IsLatestOnBranch = true,
-                    VersionSourceConfidence = "unknown"
-                };
-                repoVersion = await versionRepo.AddAsync(repoVersion);
-            }
-
-            // 3. 确保 WikiSpace 存在
-            var wikiSpace = await spaceRepo.GetByRepoLangViewAsync(repo.Id, language, "default");
-            if (wikiSpace is null)
-            {
-                wikiSpace = new WikiSpace
-                {
-                    RepositoryId = repo.Id,
-                    Language = language,
-                    ViewType = "default",
-                    Title = $"{repo.DisplayName} Wiki",
-                    Description = $"为 {repo.DisplayName} 生成的 Wiki"
-                };
-                wikiSpace = await spaceRepo.AddAsync(wikiSpace);
-            }
-
-            // 4. 创建 WikiVersion
-            var versionNo = await wikiVersionRepo.CountBySpaceIdAsync(wikiSpace.Id) + 1;
-            var wikiVersion = new WikiVersion
-            {
-                WikiSpaceId = wikiSpace.Id,
-                RepositoryVersionId = repoVersion.Id,
-                VersionNo = versionNo,
-                GenerationMode = task.ForceRefresh ? "rebuild" : "latest",
-                GenerationProfile = generationProfile,
-                Status = "ready",
-                PageCount = 0,
-                TocDepth = 1,
-                SummaryMarkdown = $"由任务 {task.Id} 生成",
-                StructureJson = structureJson,
-                CreatedByTaskId = task.Id,
-                CompletedAt = DateTime.UtcNow
-            };
-            wikiVersion = await wikiVersionRepo.AddAsync(wikiVersion);
-
-            // 5. 更新 WikiPages 关联到 WikiVersion
-            var pages = await pageRepo.GetByWikiIdAsync(wikiId);
-            var pageCount = 0;
-            foreach (var page in pages.Where(p => p.WikiVersionId == null))
-            {
-                page.WikiVersionId = wikiVersion.Id;
-                await pageRepo.UpdateAsync(page);
-                pageCount++;
-            }
-
-            // 更新页数
-            wikiVersion.PageCount = pageCount;
-            await wikiVersionRepo.UpdateAsync(wikiVersion);
-
-            // 6. 设置发布态
-            if (wikiSpace.PublishedWikiVersionId == null)
-            {
-                wikiSpace.PublishedWikiVersionId = wikiVersion.Id;
-                wikiVersion.Status = "published";
-                await spaceRepo.UpdateAsync(wikiSpace);
-                await wikiVersionRepo.UpdateAsync(wikiVersion);
-            }
-
-            // 7. 回写 TaskRecord 的版本关联
-            task.ResolvedRepositoryVersionId = repoVersion.Id;
-            task.ResultWikiVersionId = wikiVersion.Id;
-
-            using var taskScope = _scopeFactory.CreateScope();
-            var taskRepo = taskScope.ServiceProvider.GetRequiredService<ITaskRepository>();
-            var t = await taskRepo.GetByIdAsync(task.Id);
-            if (t is not null)
-            {
-                t.ResolvedRepositoryVersionId = repoVersion.Id;
-                t.ResultWikiVersionId = wikiVersion.Id;
-                await taskRepo.UpdateStatusAsync(t.Id, t.Status, t.ProgressPercent, t.ProgressMessage, t.ErrorMessage);
-            }
-
-            _logger.LogInformation("V2 版本记录已创建 RepoVersionId={RvId} WikiVersionId={WvId} Pages={Count}",
-                repoVersion.Id, wikiVersion.Id, pageCount);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "V2 版本记录创建失败（非致命）TaskId={TaskId}", task.Id);
-        }
-    }
-
-    private async Task SaveWikiPageRelationsAsync(Guid wikiVersionId, WikiStructureDto structure,
-        Dictionary<string, Guid> pageIdMapping)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var relationRepo = scope.ServiceProvider.GetRequiredService<IWikiPageRelationRepository>();
-
-            await relationRepo.DeleteByVersionIdAsync(wikiVersionId);
-
-            var newRelations = new List<WikiPageRelation>();
-
-            foreach (var page in structure.Pages)
-            {
-                if (!pageIdMapping.TryGetValue(page.Id, out var sourceGuid)) continue;
-
-                // 关联页面关系
-                if (page.RelatedPages is not null)
-                {
-                    foreach (var relatedId in page.RelatedPages)
-                    {
-                        if (!pageIdMapping.TryGetValue(relatedId, out var targetGuid)) continue;
-
-                        newRelations.Add(new WikiPageRelation
-                        {
-                            WikiVersionId = wikiVersionId,
-                            SourcePageId = sourceGuid,
-                            TargetPageId = targetGuid,
-                            RelationType = "related_to",
-                            MetadataJson = System.Text.Json.JsonSerializer.Serialize(new
-                            {
-                                source_page_ref = page.Id,
-                                target_page_ref = relatedId
-                            })
-                        });
-                    }
-                }
-
-                // 父页面关系
-                if (!string.IsNullOrWhiteSpace(page.ParentId) && pageIdMapping.TryGetValue(page.ParentId, out var parentGuid))
-                {
-                    newRelations.Add(new WikiPageRelation
-                    {
-                        WikiVersionId = wikiVersionId,
-                        SourcePageId = sourceGuid,
-                        TargetPageId = parentGuid,
-                        RelationType = "parent",
-                        MetadataJson = System.Text.Json.JsonSerializer.Serialize(new
-                        {
-                            source_page_ref = page.Id,
-                            parent_page_ref = page.ParentId
-                        })
-                    });
-                }
-            }
-
-            if (newRelations.Count > 0)
-            {
-                await relationRepo.AddRangeAsync(newRelations);
-            }
-
-            _logger.LogInformation("页面关系已保存 VersionId={VersionId} Relations={Count}", wikiVersionId, newRelations.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "保存页面关系失败（非致命）VersionId={VersionId}", wikiVersionId);
-        }
-    }
-
-    // ============ XML 解析（从原始 WikiTaskService 恢复） ============
-
-    private WikiStructureDto ParseWikiStructure(string response, bool comprehensive)
-    {
-        try
-        {
-            var cleaned = WikiMarkdownNormalizer.Normalize(response);
-            var match = Regex.Match(cleaned, "<wiki_structure>[\\s\\S]*?</wiki_structure>", RegexOptions.IgnoreCase);
-            if (!match.Success)
-            {
-                _logger.LogWarning("LLM 未返回有效 Wiki XML，使用兜底结构");
-                return BuildFallbackStructure(response);
-            }
-
-            var xml = SanitizeXml(match.Value);
-            XDocument doc;
-            try
-            {
-                doc = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
-            }
-            catch (XmlException)
-            {
-                xml = RepairXmlIssues(xml);
-                doc = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
-            }
-
-            var root = doc.Root!;
-            var sections = root.Element("sections")?.Elements("section").Select(s => new WikiSectionDto
-            {
-                Id = s.Attribute("id")?.Value ?? "",
-                Title = s.Element("title")?.Value.Trim() ?? "",
-                Pages = s.Element("pages")?.Elements("page_ref").Select(p => p.Value.Trim()).Where(p => !string.IsNullOrWhiteSpace(p)).ToList() ?? new(),
-                Subsections = s.Element("subsections")?.Elements("section_ref").Select(r => r.Value.Trim()).Where(r => !string.IsNullOrWhiteSpace(r)).ToList()
-            }).Where(s => !string.IsNullOrWhiteSpace(s.Id)).ToList() ?? new();
-
-            var pages = root.Element("pages")?.Elements("page").Select(p => new WikiPageDto
-            {
-                Id = p.Attribute("id")?.Value ?? "",
-                Title = p.Element("title")?.Value.Trim() ?? "",
-                Description = p.Element("description")?.Value.Trim() ?? "",
-                Importance = NormalizeImportance(p.Element("importance")?.Value),
-                FilePaths = p.Element("relevant_files")?.Elements("file_path").Select(f => f.Value.Trim()).Where(f => !string.IsNullOrWhiteSpace(f)).ToList() ?? new(),
-                RelatedPages = p.Element("related_pages")?.Elements("related").Select(r => r.Value.Trim()).Where(r => !string.IsNullOrWhiteSpace(r)).ToList() ?? new(),
-                ParentId = p.Element("parent_section")?.Value.Trim()
-            }).Where(p => !string.IsNullOrWhiteSpace(p.Id) && !string.IsNullOrWhiteSpace(p.Title)).ToList() ?? new();
-
-            // 确保有 section
-            if (sections.Count == 0 && pages.Count > 0)
-            {
-                sections = new List<WikiSectionDto>
-                {
-                    new() { Id = "default-section", Title = "Pages", Pages = pages.Select(p => p.Id).ToList() }
-                };
-            }
-
-            return new WikiStructureDto
-            {
-                Id = "wiki",
-                Title = root.Element("title")?.Value.Trim() ?? "Repository Wiki",
-                Description = root.Element("description")?.Value.Trim() ?? "",
-                Pages = pages,
-                Sections = sections,
-                RootSections = sections.Select(s => s.Id).ToList()
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "XML 解析失败，尝试 Regex 兜底提取");
-            var regexStructure = ParseWikiStructureWithRegex(response, comprehensive);
-            if (regexStructure.Pages.Count > 0)
-                return regexStructure;
-
-            _logger.LogWarning("Regex 提取也失败，使用硬编码兜底");
-            return BuildFallbackStructure(response);
-        }
-    }
-
-    private static string SanitizeXml(string xml) =>
-        Regex.Replace(xml, "&(?![a-zA-Z]+;|#\\d+;|#x[0-9a-fA-F]+;)", "&amp;");
-
-    /// <summary>
-    /// Regex 兜底：当 XML 解析失败时，用正则直接提取 page/section 结构，
-    /// 比硬编码单页兜底更可靠，能恢复 LLM 生成的大部分页面结构。
-    /// </summary>
-    private static WikiStructureDto ParseWikiStructureWithRegex(string response, bool comprehensive)
-    {
-        try
-        {
-            var cleaned = WikiMarkdownNormalizer.Normalize(response);
-            var blockMatch = Regex.Match(cleaned, "<wiki_structure>(.*?)</wiki_structure>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-            if (!blockMatch.Success) return new WikiStructureDto { Pages = new() };
-
-            var block = blockMatch.Groups[1].Value;
-
-            var titleMatch = Regex.Match(block, "<title>\\s*(.*?)\\s*</title>", RegexOptions.Singleline);
-            var descMatch = Regex.Match(block, "<description>\\s*(.*?)\\s*</description>", RegexOptions.Singleline);
-
-            // 提取 <page> 元素
-            var pages = new List<WikiPageDto>();
-            foreach (Match pm in Regex.Matches(block, @"<page\s[^>]*id\s*=\s*""([^""]+)""[^>]*>(.*?)</page>", RegexOptions.Singleline | RegexOptions.IgnoreCase))
-            {
-                var id = pm.Groups[1].Value;
-                var inner = pm.Groups[2].Value;
-                var page = new WikiPageDto
-                {
-                    Id = id,
-                    Title = Regex.Match(inner, @"<title>\s*(.*?)\s*</title>", RegexOptions.Singleline).Groups[1].Value.Trim(),
-                    Description = Regex.Match(inner, @"<description>\s*(.*?)\s*</description>", RegexOptions.Singleline).Groups[1].Value.Trim(),
-                    Importance = NormalizeImportance(Regex.Match(inner, @"<importance>\s*(.*?)\s*</importance>", RegexOptions.Singleline).Groups[1].Value),
-                    FilePaths = Regex.Matches(inner, @"<file_path>\s*(.*?)\s*</file_path>", RegexOptions.Singleline)
-                        .Select(fm => fm.Groups[1].Value.Trim()).Where(f => !string.IsNullOrWhiteSpace(f)).ToList(),
-                    RelatedPages = Regex.Matches(inner, @"<related>\s*(.*?)\s*</related>", RegexOptions.Singleline)
-                        .Select(rm => rm.Groups[1].Value.Trim()).Where(r => !string.IsNullOrWhiteSpace(r)).ToList(),
-                    ParentId = Regex.Match(inner, @"<parent_section>\s*(.*?)\s*</parent_section>", RegexOptions.Singleline).Groups[1].Value.Trim()
-                };
-                if (!string.IsNullOrWhiteSpace(page.Id) && !string.IsNullOrWhiteSpace(page.Title))
-                    pages.Add(page);
-            }
-
-            // 提取 <section> 元素
-            var sections = new List<WikiSectionDto>();
-            foreach (Match sm in Regex.Matches(block, @"<section\s[^>]*id\s*=\s*""([^""]+)""[^>]*>(.*?)</section>", RegexOptions.Singleline | RegexOptions.IgnoreCase))
-            {
-                var secId = sm.Groups[1].Value;
-                var secInner = sm.Groups[2].Value;
-                var section = new WikiSectionDto
-                {
-                    Id = secId,
-                    Title = Regex.Match(secInner, @"<title>\s*(.*?)\s*</title>", RegexOptions.Singleline).Groups[1].Value.Trim(),
-                    Pages = Regex.Matches(secInner, @"<page_ref>\s*(.*?)\s*</(?:page_ref|[^>]+)>", RegexOptions.Singleline)
-                        .Select(m => m.Groups[1].Value.Trim()).Where(p => !string.IsNullOrWhiteSpace(p)).ToList(),
-                    Subsections = Regex.Matches(secInner, @"<section_ref>\s*(.*?)\s*</(?:section_ref|[^>]+)>", RegexOptions.Singleline)
-                        .Select(m => m.Groups[1].Value.Trim()).Where(r => !string.IsNullOrWhiteSpace(r)).ToList()
-                };
-                if (!string.IsNullOrWhiteSpace(section.Id))
-                    sections.Add(section);
-            }
-
-            if (pages.Count == 0) return new WikiStructureDto { Pages = new() };
-
-            if (sections.Count == 0)
-            {
-                sections = new List<WikiSectionDto>
-                {
-                    new() { Id = "default-section", Title = "Pages", Pages = pages.Select(p => p.Id).ToList() }
-                };
-            }
-
-            return new WikiStructureDto
-            {
-                Id = "wiki",
-                Title = titleMatch.Success ? titleMatch.Groups[1].Value.Trim() : "Repository Wiki",
-                Description = descMatch.Success ? descMatch.Groups[1].Value.Trim() : "",
-                Pages = pages,
-                Sections = sections,
-                RootSections = sections.Select(s => s.Id).ToList()
-            };
-        }
-        catch
-        {
-            return new WikiStructureDto { Pages = new() };
-        }
-    }
-
-    private static string RepairXmlIssues(string xml)
-    {
-        // 修复常见的 LLM 输出 XML 错误
-        xml = Regex.Replace(xml,
-            "(<parent_section>\\s*[^<]*?)</section>(\\s*</page>)",
-            "$1</parent_section>$2", RegexOptions.IgnoreCase);
-        xml = Regex.Replace(xml,
-            "(<parent_section>\\s*[^<]*?)</section>(\\s*</related_pages>)",
-            "$1</parent_section>$2", RegexOptions.IgnoreCase);
-        // <page_ref>page-6</page-6> → <page_ref>page-6</page_ref>
-        xml = Regex.Replace(xml,
-            @"(<page_ref>[^<]+)</[^>]+>",
-            "$1</page_ref>", RegexOptions.IgnoreCase);
-        // <section_ref>section-1</section-1> → <section_ref>section-1</section_ref>
-        xml = Regex.Replace(xml,
-            @"(<section_ref>[^<]+)</[^>]+>",
-            "$1</section_ref>", RegexOptions.IgnoreCase);
-        // <related>page-2</page-2> → <related>page-2</related>
-        xml = Regex.Replace(xml,
-            @"(<related>[^<]+)</[^>]+>",
-            "$1</related>", RegexOptions.IgnoreCase);
-        return xml;
-    }
-
-    private static string NormalizeImportance(string? value) =>
-        value?.Trim().ToLowerInvariant() switch { "high" => "high", "low" => "low", _ => "medium" };
 
     /// <summary>
     /// 从已克隆的仓库中读取页面关联的源文件内容，限制每个文件最大 12KB。
@@ -929,24 +915,5 @@ public sealed class WikiTaskService
         }
 
         return parts.Count == 0 ? "（无法读取关联源文件）" : string.Join("\n\n", parts);
-    }
-
-    private WikiStructureDto BuildFallbackStructure(string response)
-    {
-        return new WikiStructureDto
-        {
-            Id = "wiki",
-            Title = "Repository Wiki",
-            Description = $"LLM 返回内容未能解析为有效的 Wiki 结构。原始响应：{response}",
-            Pages = new List<WikiPageDto>
-            {
-                new() { Id = "overview", Title = "仓库概览", Description = response.Length > 500 ? response[..500] : response, Importance = "high" }
-            },
-            Sections = new List<WikiSectionDto>
-            {
-                new() { Id = "default-section", Title = "仓库概览", Pages = new List<string> { "overview" } }
-            },
-            RootSections = new List<string> { "default-section" }
-        };
     }
 }

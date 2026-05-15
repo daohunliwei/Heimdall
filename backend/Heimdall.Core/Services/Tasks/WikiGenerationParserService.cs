@@ -1,0 +1,669 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
+using Heimdall.Core.Models;
+using Microsoft.Extensions.Logging;
+
+namespace Heimdall.Core.Services.Tasks;
+
+/// <summary>
+/// Wiki 生成解析服务。
+/// 该服务负责把模型输出解析为结构规划 DTO 与页面草案 DTO，
+/// 并在 JSON 严格结构化输出失败时兼容旧版 XML 结果，保证 V3 阶段 2 可以平滑灰度。
+/// </summary>
+public sealed class WikiGenerationParserService
+{
+    /// <summary>
+    /// 结构化 JSON 反序列化配置。
+    /// </summary>
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true
+    };
+
+    private readonly ILogger<WikiGenerationParserService> _logger;
+
+    /// <summary>
+    /// 初始化 Wiki 生成解析服务。
+    /// </summary>
+    public WikiGenerationParserService(ILogger<WikiGenerationParserService> logger)
+    {
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// 解析结构规划结果。
+    /// 优先尝试 JSON DTO，失败后回退到旧版 XML 兼容逻辑。
+    /// </summary>
+    public WikiStructureDto ParseStructure(string response, bool comprehensive)
+    {
+        if (TryParseStructureJson(response, out var structure))
+        {
+            return NormalizeStructure(structure!, comprehensive);
+        }
+
+        _logger.LogWarning("结构规划 JSON 解析失败，回退到 XML 兼容解析");
+        return ParseStructureFromXml(response, comprehensive);
+    }
+
+    /// <summary>
+    /// 解析页面草案结果。
+    /// 优先尝试严格结构化 JSON 页面 DTO，失败时回退为 Markdown 兜底草案。
+    /// </summary>
+    public WikiPageDto ParsePageDraft(WikiPageDto requestedPage, string response)
+    {
+        if (TryParsePageDraftJson(response, out var draft))
+        {
+            return NormalizePageDraft(requestedPage, draft!);
+        }
+
+        _logger.LogWarning("页面草案 JSON 解析失败，使用 Markdown 兜底草案 PageId={PageId}", requestedPage.Id);
+        return BuildFallbackPageDraft(requestedPage, response);
+    }
+
+    /// <summary>
+    /// 将结构 DTO 序列化为稳定 JSON。
+    /// </summary>
+    public string SerializeStructure(WikiStructureDto structure)
+    {
+        return JsonSerializer.Serialize(NormalizeStructure(structure, comprehensive: true), JsonOptions);
+    }
+
+    /// <summary>
+    /// 尝试将模型输出解析为结构规划 JSON。
+    /// </summary>
+    private bool TryParseStructureJson(string response, out WikiStructureDto? structure)
+    {
+        structure = null;
+        var jsonBlock = TryExtractJsonBlock(response);
+        if (string.IsNullOrWhiteSpace(jsonBlock))
+        {
+            return false;
+        }
+
+        try
+        {
+            structure = JsonSerializer.Deserialize<WikiStructureDto>(jsonBlock, JsonOptions);
+            return structure is not null;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "结构规划 JSON 反序列化失败");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 尝试将模型输出解析为页面草案 JSON。
+    /// </summary>
+    private bool TryParsePageDraftJson(string response, out WikiPageDto? page)
+    {
+        page = null;
+        var jsonBlock = TryExtractJsonBlock(response);
+        if (string.IsNullOrWhiteSpace(jsonBlock))
+        {
+            return false;
+        }
+
+        try
+        {
+            page = JsonSerializer.Deserialize<WikiPageDto>(jsonBlock, JsonOptions);
+            return page is not null;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "页面草案 JSON 反序列化失败");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 提取模型输出中的 JSON 块。
+    /// 支持 ```json 代码块与纯文本混排两类场景。
+    /// </summary>
+    private static string? TryExtractJsonBlock(string response)
+    {
+        var normalized = WikiMarkdownNormalizer.Normalize(response);
+        var fencedMatch = Regex.Match(normalized, "```json\\s*(?<json>[\\s\\S]*?)```", RegexOptions.IgnoreCase);
+        if (fencedMatch.Success)
+        {
+            return fencedMatch.Groups["json"].Value.Trim();
+        }
+
+        var firstBrace = normalized.IndexOf('{');
+        var lastBrace = normalized.LastIndexOf('}');
+        if (firstBrace < 0 || lastBrace <= firstBrace)
+        {
+            return null;
+        }
+
+        return normalized[firstBrace..(lastBrace + 1)].Trim();
+    }
+
+    /// <summary>
+    /// 规范化结构 DTO，确保页面标识、目录分组与引用关系满足持久化要求。
+    /// </summary>
+    private WikiStructureDto NormalizeStructure(WikiStructureDto structure, bool comprehensive)
+    {
+        structure.Id = string.IsNullOrWhiteSpace(structure.Id) ? "wiki" : structure.Id.Trim();
+        structure.Title = string.IsNullOrWhiteSpace(structure.Title) ? "Repository Wiki" : structure.Title.Trim();
+        structure.Description = structure.Description?.Trim() ?? string.Empty;
+        structure.Pages ??= new();
+        structure.Sections ??= new();
+        structure.RootSections ??= new();
+
+        var existingIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < structure.Pages.Count; index++)
+        {
+            var page = structure.Pages[index] ?? new WikiPageDto();
+            page.Id = NormalizeIdentifier(page.Id, "page", index + 1, existingIds);
+            page.Title = string.IsNullOrWhiteSpace(page.Title) ? $"页面 {index + 1}" : page.Title.Trim();
+            page.NavTitle = string.IsNullOrWhiteSpace(page.NavTitle) ? page.Title : page.NavTitle.Trim();
+            page.Description = page.Description?.Trim() ?? string.Empty;
+            page.PageType = NormalizePageType(page.PageType, page.IsSection);
+            page.Importance = NormalizeImportance(page.Importance);
+            page.FilePaths = NormalizeDistinctList(page.FilePaths);
+            page.RelatedPages = NormalizeDistinctList(page.RelatedPages);
+            page.PrerequisitePages = NormalizeDistinctList(page.PrerequisitePages);
+            page.Children = page.Children is null ? null : NormalizeDistinctList(page.Children);
+            page.ParentId = NormalizeOptionalValue(page.ParentId);
+            page.FrontMatter ??= new();
+            page.Outline ??= new();
+            page.SourceCoverage ??= new();
+            page.SourceCoverage.PrimaryFiles = NormalizeDistinctList(page.SourceCoverage.PrimaryFiles);
+            page.SourceCoverage.Evidence ??= new();
+            foreach (var evidence in page.SourceCoverage.Evidence)
+            {
+                evidence.FilePath = NormalizeOptionalValue(evidence.FilePath) ?? string.Empty;
+                evidence.Reason = evidence.Reason?.Trim() ?? string.Empty;
+                evidence.Symbols = NormalizeDistinctList(evidence.Symbols);
+            }
+
+            structure.Pages[index] = page;
+        }
+
+        if (structure.Pages.Count == 0)
+        {
+            return BuildFallbackStructure("未解析到有效页面结构");
+        }
+
+        var pageIdSet = structure.Pages.Select(page => page.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in structure.Pages)
+        {
+            page.RelatedPages = page.RelatedPages
+                .Where(related => !string.Equals(related, page.Id, StringComparison.OrdinalIgnoreCase) && pageIdSet.Contains(related))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            page.PrerequisitePages = page.PrerequisitePages
+                .Where(prerequisite => !string.Equals(prerequisite, page.Id, StringComparison.OrdinalIgnoreCase) && pageIdSet.Contains(prerequisite))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (!string.IsNullOrWhiteSpace(page.ParentId) && !pageIdSet.Contains(page.ParentId))
+            {
+                page.ParentId = null;
+            }
+        }
+
+        if (structure.Sections.Count == 0)
+        {
+            structure.Sections = new List<WikiSectionDto>
+            {
+                new()
+                {
+                    Id = "root",
+                    Title = comprehensive ? "核心结构" : "页面目录",
+                    Pages = structure.Pages.Select(page => page.Id).ToList(),
+                    Subsections = new()
+                }
+            };
+        }
+
+        var sectionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < structure.Sections.Count; index++)
+        {
+            var section = structure.Sections[index] ?? new WikiSectionDto();
+            section.Id = NormalizeIdentifier(section.Id, "section", index + 1, sectionIds);
+            section.Title = string.IsNullOrWhiteSpace(section.Title) ? $"分组 {index + 1}" : section.Title.Trim();
+            section.Pages = section.Pages.Where(pageIdSet.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            section.Subsections = section.Subsections?.Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new();
+            structure.Sections[index] = section;
+        }
+
+        structure.RootSections = structure.RootSections
+            .Where(rootSectionId => structure.Sections.Any(section => string.Equals(section.Id, rootSectionId, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (structure.RootSections.Count == 0)
+        {
+            structure.RootSections = structure.Sections.Select(section => section.Id).ToList();
+        }
+
+        return structure;
+    }
+
+    /// <summary>
+    /// 规范化页面草案对象，并继承结构规划阶段的稳定字段。
+    /// </summary>
+    private static WikiPageDto NormalizePageDraft(WikiPageDto requestedPage, WikiPageDto draft)
+    {
+        draft.Id = requestedPage.Id;
+        draft.Title = string.IsNullOrWhiteSpace(draft.Title) ? requestedPage.Title : draft.Title.Trim();
+        draft.NavTitle = string.IsNullOrWhiteSpace(draft.NavTitle) ? draft.Title : draft.NavTitle.Trim();
+        draft.Description = string.IsNullOrWhiteSpace(draft.Description) ? requestedPage.Description : draft.Description.Trim();
+        draft.Content = WikiMarkdownNormalizer.Normalize(draft.Content);
+        draft.Importance = NormalizeImportance(string.IsNullOrWhiteSpace(draft.Importance) ? requestedPage.Importance : draft.Importance);
+        draft.PageType = NormalizePageType(string.IsNullOrWhiteSpace(draft.PageType) ? requestedPage.PageType : draft.PageType, requestedPage.IsSection ?? draft.IsSection);
+        draft.FilePaths = MergeDistinctLists(requestedPage.FilePaths, draft.FilePaths);
+        draft.RelatedPages = MergeDistinctLists(requestedPage.RelatedPages, draft.RelatedPages)
+            .Where(pageId => !string.Equals(pageId, draft.Id, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        draft.PrerequisitePages = NormalizeDistinctList(draft.PrerequisitePages)
+            .Where(pageId => !string.Equals(pageId, draft.Id, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        draft.ParentId = NormalizeOptionalValue(draft.ParentId) ?? requestedPage.ParentId;
+        draft.IsSection ??= requestedPage.IsSection;
+        draft.Children = draft.Children is null ? requestedPage.Children : NormalizeDistinctList(draft.Children);
+        draft.FrontMatter ??= new();
+        draft.FrontMatter.Description = string.IsNullOrWhiteSpace(draft.FrontMatter.Description)
+            ? draft.Description
+            : draft.FrontMatter.Description.Trim();
+        draft.FrontMatter.Summary = string.IsNullOrWhiteSpace(draft.FrontMatter.Summary)
+            ? draft.Description
+            : draft.FrontMatter.Summary.Trim();
+        draft.FrontMatter.Tags = NormalizeDistinctList(draft.FrontMatter.Tags);
+        draft.FrontMatter.SourceFiles = MergeDistinctLists(draft.FilePaths, draft.FrontMatter.SourceFiles);
+        draft.Outline ??= new();
+        draft.SourceCoverage ??= new();
+        draft.SourceCoverage.PrimaryFiles = MergeDistinctLists(draft.FilePaths, draft.SourceCoverage.PrimaryFiles);
+        draft.SourceCoverage.Evidence ??= new();
+        draft.Warnings ??= new();
+        draft.IsFallbackDraft = false;
+
+        if (string.IsNullOrWhiteSpace(draft.Content))
+        {
+            draft.Content = $"## 概览\n\n{draft.Description}";
+            draft.Warnings.Add("页面正文为空，已根据页面描述生成最小草案。");
+        }
+
+        return draft;
+    }
+
+    /// <summary>
+    /// 构建页面兜底草案。
+    /// </summary>
+    private static WikiPageDto BuildFallbackPageDraft(WikiPageDto requestedPage, string response)
+    {
+        var normalizedResponse = WikiMarkdownNormalizer.Normalize(response);
+        var content = string.IsNullOrWhiteSpace(normalizedResponse)
+            ? $"## 页面说明\n\n{requestedPage.Description}"
+            : normalizedResponse;
+
+        return new WikiPageDto
+        {
+            Id = requestedPage.Id,
+            Title = requestedPage.Title,
+            NavTitle = string.IsNullOrWhiteSpace(requestedPage.NavTitle) ? requestedPage.Title : requestedPage.NavTitle,
+            Description = requestedPage.Description,
+            Content = content,
+            PageType = NormalizePageType(requestedPage.PageType, requestedPage.IsSection),
+            FilePaths = NormalizeDistinctList(requestedPage.FilePaths),
+            Importance = NormalizeImportance(requestedPage.Importance),
+            RelatedPages = NormalizeDistinctList(requestedPage.RelatedPages),
+            PrerequisitePages = NormalizeDistinctList(requestedPage.PrerequisitePages),
+            ParentId = requestedPage.ParentId,
+            IsSection = requestedPage.IsSection,
+            Children = requestedPage.Children is null ? null : NormalizeDistinctList(requestedPage.Children),
+            FrontMatter = new WikiPageFrontMatterDto
+            {
+                Summary = requestedPage.Description,
+                Description = requestedPage.Description,
+                SourceFiles = NormalizeDistinctList(requestedPage.FilePaths)
+            },
+            SourceCoverage = new WikiPageSourceCoverageDto
+            {
+                PrimaryFiles = NormalizeDistinctList(requestedPage.FilePaths),
+                Evidence = requestedPage.FilePaths
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Select(filePath => new WikiPageSourceEvidenceDto
+                    {
+                        FilePath = filePath,
+                        Reason = "该文件由结构规划阶段关联到当前页面。",
+                        Symbols = new()
+                    })
+                    .ToList()
+            },
+            Outline = new(),
+            Warnings = new() { "页面草案使用了后端兜底逻辑，请关注模型输出质量。" },
+            IsFallbackDraft = true
+        };
+    }
+
+    /// <summary>
+    /// 基于旧版 XML 响应解析结构结果。
+    /// </summary>
+    private WikiStructureDto ParseStructureFromXml(string response, bool comprehensive)
+    {
+        try
+        {
+            var cleaned = WikiMarkdownNormalizer.Normalize(response);
+            var match = Regex.Match(cleaned, "<wiki_structure>[\\s\\S]*?</wiki_structure>", RegexOptions.IgnoreCase);
+            if (!match.Success)
+            {
+                _logger.LogWarning("LLM 未返回有效 Wiki XML，使用兜底结构");
+                return BuildFallbackStructure(response);
+            }
+
+            var xml = SanitizeXml(match.Value);
+            XDocument document;
+            try
+            {
+                document = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
+            }
+            catch (XmlException)
+            {
+                xml = RepairXmlIssues(xml);
+                document = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
+            }
+
+            var root = document.Root!;
+            var sections = root.Element("sections")?.Elements("section").Select(section => new WikiSectionDto
+            {
+                Id = section.Attribute("id")?.Value ?? string.Empty,
+                Title = section.Element("title")?.Value.Trim() ?? string.Empty,
+                Pages = section.Element("pages")?.Elements("page_ref")
+                    .Select(page => page.Value.Trim())
+                    .Where(page => !string.IsNullOrWhiteSpace(page))
+                    .ToList() ?? new(),
+                Subsections = section.Element("subsections")?.Elements("section_ref")
+                    .Select(reference => reference.Value.Trim())
+                    .Where(reference => !string.IsNullOrWhiteSpace(reference))
+                    .ToList() ?? new()
+            }).Where(section => !string.IsNullOrWhiteSpace(section.Id)).ToList() ?? new();
+
+            var pages = root.Element("pages")?.Elements("page").Select(page => new WikiPageDto
+            {
+                Id = page.Attribute("id")?.Value ?? string.Empty,
+                Title = page.Element("title")?.Value.Trim() ?? string.Empty,
+                NavTitle = page.Element("title")?.Value.Trim() ?? string.Empty,
+                Description = page.Element("description")?.Value.Trim() ?? string.Empty,
+                Importance = NormalizeImportance(page.Element("importance")?.Value),
+                FilePaths = page.Element("relevant_files")?.Elements("file_path")
+                    .Select(file => file.Value.Trim())
+                    .Where(file => !string.IsNullOrWhiteSpace(file))
+                    .ToList() ?? new(),
+                RelatedPages = page.Element("related_pages")?.Elements("related")
+                    .Select(related => related.Value.Trim())
+                    .Where(related => !string.IsNullOrWhiteSpace(related))
+                    .ToList() ?? new(),
+                ParentId = NormalizeOptionalValue(page.Element("parent_section")?.Value),
+                PageType = "article",
+                FrontMatter = new(),
+                Outline = new(),
+                SourceCoverage = new()
+            }).Where(page => !string.IsNullOrWhiteSpace(page.Id) && !string.IsNullOrWhiteSpace(page.Title)).ToList() ?? new();
+
+            var structure = new WikiStructureDto
+            {
+                Id = "wiki",
+                Title = root.Element("title")?.Value.Trim() ?? "Repository Wiki",
+                Description = root.Element("description")?.Value.Trim() ?? string.Empty,
+                Pages = pages,
+                Sections = sections,
+                RootSections = sections.Select(section => section.Id).ToList()
+            };
+
+            return NormalizeStructure(structure, comprehensive);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "XML 解析失败，尝试正则兜底提取");
+            var regexStructure = ParseStructureWithRegex(response, comprehensive);
+            if (regexStructure.Pages.Count > 0)
+            {
+                return regexStructure;
+            }
+
+            _logger.LogWarning("Regex 提取也失败，使用硬编码兜底");
+            return BuildFallbackStructure(response);
+        }
+    }
+
+    /// <summary>
+    /// 当 XML 解析失败时，使用正则尽量恢复结构对象。
+    /// </summary>
+    private WikiStructureDto ParseStructureWithRegex(string response, bool comprehensive)
+    {
+        try
+        {
+            var cleaned = WikiMarkdownNormalizer.Normalize(response);
+            var blockMatch = Regex.Match(cleaned, "<wiki_structure>(.*?)</wiki_structure>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            if (!blockMatch.Success)
+            {
+                return new WikiStructureDto { Pages = new() };
+            }
+
+            var block = blockMatch.Groups[1].Value;
+            var titleMatch = Regex.Match(block, "<title>\\s*(.*?)\\s*</title>", RegexOptions.Singleline);
+            var descriptionMatch = Regex.Match(block, "<description>\\s*(.*?)\\s*</description>", RegexOptions.Singleline);
+
+            var pages = new List<WikiPageDto>();
+            foreach (Match pageMatch in Regex.Matches(block, @"<page\s[^>]*id\s*=\s*""([^""]+)""[^>]*>(.*?)</page>", RegexOptions.Singleline | RegexOptions.IgnoreCase))
+            {
+                var inner = pageMatch.Groups[2].Value;
+                var draft = new WikiPageDto
+                {
+                    Id = pageMatch.Groups[1].Value,
+                    Title = Regex.Match(inner, @"<title>\s*(.*?)\s*</title>", RegexOptions.Singleline).Groups[1].Value.Trim(),
+                    NavTitle = Regex.Match(inner, @"<title>\s*(.*?)\s*</title>", RegexOptions.Singleline).Groups[1].Value.Trim(),
+                    Description = Regex.Match(inner, @"<description>\s*(.*?)\s*</description>", RegexOptions.Singleline).Groups[1].Value.Trim(),
+                    Importance = NormalizeImportance(Regex.Match(inner, @"<importance>\s*(.*?)\s*</importance>", RegexOptions.Singleline).Groups[1].Value),
+                    FilePaths = Regex.Matches(inner, @"<file_path>\s*(.*?)\s*</file_path>", RegexOptions.Singleline)
+                        .Select(match => match.Groups[1].Value.Trim())
+                        .Where(file => !string.IsNullOrWhiteSpace(file))
+                        .ToList(),
+                    RelatedPages = Regex.Matches(inner, @"<related>\s*(.*?)\s*</related>", RegexOptions.Singleline)
+                        .Select(match => match.Groups[1].Value.Trim())
+                        .Where(file => !string.IsNullOrWhiteSpace(file))
+                        .ToList(),
+                    ParentId = NormalizeOptionalValue(Regex.Match(inner, @"<parent_section>\s*(.*?)\s*</parent_section>", RegexOptions.Singleline).Groups[1].Value.Trim()),
+                    FrontMatter = new(),
+                    Outline = new(),
+                    SourceCoverage = new()
+                };
+
+                if (!string.IsNullOrWhiteSpace(draft.Id) && !string.IsNullOrWhiteSpace(draft.Title))
+                {
+                    pages.Add(draft);
+                }
+            }
+
+            var sections = new List<WikiSectionDto>();
+            foreach (Match sectionMatch in Regex.Matches(block, @"<section\s[^>]*id\s*=\s*""([^""]+)""[^>]*>(.*?)</section>", RegexOptions.Singleline | RegexOptions.IgnoreCase))
+            {
+                var inner = sectionMatch.Groups[2].Value;
+                sections.Add(new WikiSectionDto
+                {
+                    Id = sectionMatch.Groups[1].Value,
+                    Title = Regex.Match(inner, @"<title>\s*(.*?)\s*</title>", RegexOptions.Singleline).Groups[1].Value.Trim(),
+                    Pages = Regex.Matches(inner, @"<page_ref>\s*(.*?)\s*</(?:page_ref|[^>]+)>", RegexOptions.Singleline)
+                        .Select(match => match.Groups[1].Value.Trim())
+                        .Where(pageId => !string.IsNullOrWhiteSpace(pageId))
+                        .ToList(),
+                    Subsections = Regex.Matches(inner, @"<section_ref>\s*(.*?)\s*</(?:section_ref|[^>]+)>", RegexOptions.Singleline)
+                        .Select(match => match.Groups[1].Value.Trim())
+                        .Where(sectionId => !string.IsNullOrWhiteSpace(sectionId))
+                        .ToList()
+                });
+            }
+
+            if (pages.Count == 0)
+            {
+                return new WikiStructureDto { Pages = new() };
+            }
+
+            var structure = new WikiStructureDto
+            {
+                Id = "wiki",
+                Title = titleMatch.Success ? titleMatch.Groups[1].Value.Trim() : "Repository Wiki",
+                Description = descriptionMatch.Success ? descriptionMatch.Groups[1].Value.Trim() : string.Empty,
+                Pages = pages,
+                Sections = sections,
+                RootSections = sections.Select(section => section.Id).ToList()
+            };
+
+            return NormalizeStructure(structure, comprehensive);
+        }
+        catch
+        {
+            return new WikiStructureDto { Pages = new() };
+        }
+    }
+
+    /// <summary>
+    /// 清洗 XML 中常见的非法实体写法。
+    /// </summary>
+    private static string SanitizeXml(string xml)
+    {
+        return Regex.Replace(xml, "&(?![a-zA-Z]+;|#\\d+;|#x[0-9a-fA-F]+;)", "&amp;");
+    }
+
+    /// <summary>
+    /// 修复已知的 XML 结束标签错误。
+    /// </summary>
+    private static string RepairXmlIssues(string xml)
+    {
+        xml = Regex.Replace(xml,
+            "(<parent_section>\\s*[^<]*?)</section>(\\s*</page>)",
+            "$1</parent_section>$2", RegexOptions.IgnoreCase);
+        xml = Regex.Replace(xml,
+            "(<parent_section>\\s*[^<]*?)</section>(\\s*</related_pages>)",
+            "$1</parent_section>$2", RegexOptions.IgnoreCase);
+        xml = Regex.Replace(xml, @"(<page_ref>[^<]+)</[^>]+>", "$1</page_ref>", RegexOptions.IgnoreCase);
+        xml = Regex.Replace(xml, @"(<section_ref>[^<]+)</[^>]+>", "$1</section_ref>", RegexOptions.IgnoreCase);
+        xml = Regex.Replace(xml, @"(<related>[^<]+)</[^>]+>", "$1</related>", RegexOptions.IgnoreCase);
+        return xml;
+    }
+
+    /// <summary>
+    /// 构建结构规划兜底结果。
+    /// </summary>
+    private static WikiStructureDto BuildFallbackStructure(string response)
+    {
+        return new WikiStructureDto
+        {
+            Id = "wiki",
+            Title = "Repository Wiki",
+            Description = $"结构规划输出未能解析为有效结果。原始响应：{response}",
+            Pages = new List<WikiPageDto>
+            {
+                new()
+                {
+                    Id = "overview",
+                    Title = "仓库概览",
+                    NavTitle = "仓库概览",
+                    Description = response.Length > 500 ? response[..500] : response,
+                    Importance = "high",
+                    PageType = "overview",
+                    FrontMatter = new(),
+                    Outline = new(),
+                    SourceCoverage = new()
+                }
+            },
+            Sections = new List<WikiSectionDto>
+            {
+                new()
+                {
+                    Id = "root",
+                    Title = "仓库概览",
+                    Pages = new() { "overview" },
+                    Subsections = new()
+                }
+            },
+            RootSections = new() { "root" }
+        };
+    }
+
+    /// <summary>
+    /// 规范化页面与分组标识。
+    /// </summary>
+    private static string NormalizeIdentifier(string? rawId, string prefix, int index, ISet<string> existingIds)
+    {
+        var candidate = Regex.Replace(rawId?.Trim() ?? string.Empty, "[^a-zA-Z0-9\\-_]+", "-").Trim('-');
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            candidate = $"{prefix}-{index:D2}";
+        }
+
+        var normalized = candidate;
+        var suffix = 2;
+        while (!existingIds.Add(normalized))
+        {
+            normalized = $"{candidate}-{suffix++}";
+        }
+
+        return normalized.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// 规范化重要性字段。
+    /// </summary>
+    private static string NormalizeImportance(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "high" => "high",
+            "low" => "low",
+            _ => "medium"
+        };
+    }
+
+    /// <summary>
+    /// 规范化页面类型字段。
+    /// </summary>
+    private static string NormalizePageType(string? value, bool? isSection)
+    {
+        var normalized = value?.Trim().ToLowerInvariant();
+        if (normalized is "overview" or "section" or "article" or "appendix")
+        {
+            return normalized;
+        }
+
+        return isSection == true ? "section" : "article";
+    }
+
+    /// <summary>
+    /// 规范化可空文本。
+    /// </summary>
+    private static string? NormalizeOptionalValue(string? value)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    /// <summary>
+    /// 规范化去重字符串集合。
+    /// </summary>
+    private static List<string> NormalizeDistinctList(IEnumerable<string>? values)
+    {
+        return values?
+            .Select(item => item?.Trim())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Cast<string>()
+            .ToList() ?? new();
+    }
+
+    /// <summary>
+    /// 合并两个去重字符串集合。
+    /// </summary>
+    private static List<string> MergeDistinctLists(IEnumerable<string>? primary, IEnumerable<string>? secondary)
+    {
+        return NormalizeDistinctList((primary ?? Enumerable.Empty<string>()).Concat(secondary ?? Enumerable.Empty<string>()));
+    }
+}

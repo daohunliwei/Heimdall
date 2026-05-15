@@ -13,26 +13,23 @@ public class WikiVersionController : ControllerBase
     private readonly IWikiSpaceRepository _spaceRepo;
     private readonly IWikiVersionRepository _versionRepo;
     private readonly IWikiPageRepository _pageRepo;
-    private readonly IWikiRepository _wikiRepo;
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly IRefreshOrchestrationService _refreshService;
+    private readonly IWikiTaskSubmissionService _wikiTaskSubmissionService;
     private readonly ILogger<WikiVersionController> _logger;
 
     public WikiVersionController(
         IWikiSpaceRepository spaceRepo,
         IWikiVersionRepository versionRepo,
         IWikiPageRepository pageRepo,
-        IWikiRepository wikiRepo,
         IRepositoryConfigRepository repoRepo,
-        IRefreshOrchestrationService refreshService,
+        IWikiTaskSubmissionService wikiTaskSubmissionService,
         ILogger<WikiVersionController> logger)
     {
         _spaceRepo = spaceRepo;
         _versionRepo = versionRepo;
         _pageRepo = pageRepo;
-        _wikiRepo = wikiRepo;
         _repoRepo = repoRepo;
-        _refreshService = refreshService;
+        _wikiTaskSubmissionService = wikiTaskSubmissionService;
         _logger = logger;
     }
 
@@ -83,8 +80,7 @@ public class WikiVersionController : ControllerBase
         if (space is null || space.Id != version.WikiSpaceId)
             return NotFound(new { error = "版本不属于该仓库" });
 
-        var pages = await _pageRepo.GetByWikiIdAsync(version.WikiSpaceId);
-        var versionPages = pages.Where(p => p.WikiVersionId == wikiVersionId).Select(p => new
+        var versionPages = (await _pageRepo.GetByWikiVersionIdAsync(wikiVersionId)).Select(p => new
         {
             id = p.Id.ToString(),
             title = p.Title,
@@ -127,7 +123,7 @@ public class WikiVersionController : ControllerBase
 
         try
         {
-            var refreshRequest = new RefreshRequest
+            var result = await _wikiTaskSubmissionService.SubmitRefreshAsync(new WikiTaskSubmissionRequest
             {
                 RepositoryId = repositoryId,
                 Branch = branch,
@@ -135,20 +131,20 @@ public class WikiVersionController : ControllerBase
                 ForceRefresh = request.ForceRefresh,
                 Provider = request.Provider,
                 Model = request.Model,
-                Language = request.Language ?? "zh",
-                GenerationProfile = request.GenerationProfile ?? "comprehensive"
-            };
-            var result = await _refreshService.RefreshAsync(refreshRequest);
+                Language = request.Language,
+                GenerationProfile = request.GenerationProfile
+            }, HttpContext.RequestAborted);
+
             return Ok(new
             {
-                result.RepositoryVersionId,
-                result.WikiVersionId,
-                result.ResultType,
-                result.ChangeStatus,
-                result.TaskId,
-                message = result.ResultType switch
+                task_id = result.TaskId?.ToString(),
+                repository_version_id = result.RepositoryVersionId?.ToString(),
+                wiki_version_id = result.WikiVersionId?.ToString(),
+                result_type = result.ResultType,
+                change_status = result.ChangeStatus,
+                status = result.TaskStatus,
+                message = result.Message ?? result.ResultType switch
                 {
-                    "no_change" => "仓库无新提交，无需刷新",
                     "queued" => "刷新任务已排队",
                     "reused" => "复用已有版本",
                     _ => "刷新完成"
@@ -259,14 +255,7 @@ public class WikiVersionController : ControllerBase
         var version = await _versionRepo.GetByIdAsync(effectiveVersionId.Value);
         if (version is null) return NotFound(new { error = "版本不存在" });
 
-        // 通过 Wiki (V1) → WikiPage 路径获取页面，按 WikiVersionId 筛选
-        var wiki = await _wikiRepo.GetByRepoBranchLanguageAsync(repositoryId, repo.DefaultBranch ?? "main", language);
-        List<WikiPage> pages = [];
-        if (wiki is not null)
-        {
-            var allPages = await _pageRepo.GetByWikiIdAsync(wiki.Id);
-            pages = allPages.Where(p => p.WikiVersionId == effectiveVersionId.Value).ToList();
-        }
+        var pages = await _pageRepo.GetByWikiVersionIdAsync(effectiveVersionId.Value);
 
         return Ok(pages.Select(p => new
         {

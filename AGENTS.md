@@ -35,7 +35,7 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 - `frontend/src/app`：Next.js 页面与 API 代理路由
 - `frontend/src/components`：前端组件
 - `frontend/src/contexts`：Auth/Language 上下文
-- `frontend/src/hooks`：自定义 Hook（useTaskStream、useProcessedProjects）
+- `frontend/src/hooks`：自定义 Hook（useTaskStream、useProcessedProjects、useArtifactVersionContext）
 - `frontend/src/messages`：中文界面文案
 - `doc/architecture`：架构升级方案与审计清单
 
@@ -72,8 +72,10 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 优先修改：
 
 - `frontend/src/app/page.tsx`
-- `frontend/src/app/[owner]/[repo]/page.tsx`
+- `frontend/src/app/repositories/[repositoryId]/page.tsx`
 - `frontend/src/components/*`
+- `frontend/src/components/RefreshPanel.tsx`
+- `frontend/src/components/VersionSwitcher.tsx`
 
 ### 修改缓存与项目列表
 
@@ -89,12 +91,17 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 优先修改：
 
 - `backend/Heimdall.Api/Controllers/ChatController.cs`
+- `backend/Heimdall.Api/Controllers/TasksController.cs`
+- `backend/Heimdall.Core/Services/Tasks/AskTaskService.cs`
+- `backend/Heimdall.Core/Services/Tasks/SlidesTaskService.cs`
+- `backend/Heimdall.Core/Services/Tasks/WorkshopTaskService.cs`
 - `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs`
+- `backend/Heimdall.Core/Services/Tasks/VersionedKnowledgeService.cs`
 - `backend/Heimdall.Core/Services/Prompt/PromptTemplateService.cs`
 - `backend/Heimdall.Infrastructure/Providers/`
 - `frontend/src/components/Ask.tsx`
-- `frontend/src/app/[owner]/[repo]/slides/page.tsx`
-- `frontend/src/app/[owner]/[repo]/workshop/page.tsx`
+- `frontend/src/app/repositories/[repositoryId]/slides/page.tsx`
+- `frontend/src/app/repositories/[repositoryId]/workshop/page.tsx`
 
 ### 修改数据库
 
@@ -178,14 +185,14 @@ dotnet ef database update \
 
 ### 联调重点
 
-- 首页能否进入仓库页面
-- 项目列表能否加载与删除缓存
-- Wiki 缓存能否读取、保存、清理
-- `POST /tasks/wiki` 是否立即返回 task_id
-- 后台异步 Wiki 生成是否逐页落库
-- 问答流式输出是否正常
-- 演示文稿与训练营页面是否能正常生成内容
-- 管理后台仪表盘数据是否正确
+- 首页输入仓库 URL → 调用 `POST /api/repositories/import` → 跳转 `/repositories/{repositoryId}`
+- 仓库页能否加载 Wiki 版本列表、页面树与页面内容
+- `POST /api/repositories/{repositoryId}/wiki/refresh` 是否立即返回 task_id
+- 后台异步 Wiki 生成是否按 8 阶段逐阶段推进并落库
+- 版本切换器能否切换到指定 Wiki 版本并正确加载页面
+- 问答（Ask）是否继承当前版本上下文并基于双向量检索生成回答
+- Slides / Workshop 页面是否透传 `repositoryVersionId` + `wikiVersionId`
+- 管理后台仪表盘、用户管理、任务监控、Prompt 模板是否正常
 
 ## 禁止事项
 

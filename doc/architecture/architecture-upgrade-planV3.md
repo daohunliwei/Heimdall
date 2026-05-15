@@ -477,6 +477,30 @@ V3 文档本身的验证分两层：
 - 失败后是否可从结构工件或批次工件恢复
 - 复杂 Wiki 是否能在不依赖原始 HTML 的前提下稳定生成
 
+### 11.3 当前代码核验结论（2026-05-14）
+
+基于 `.trae/specs/implement-architecture-upgrade-v3/tasks.md`、`.trae/specs/implement-architecture-upgrade-v3/checklist.md`、当前仓库代码与本次实际构建结果，可以形成以下实施对齐结论：
+
+- 已确认落地的能力：
+  - `TaskQueueService` 已真正承担 Wiki 任务执行职责，`ExecuteAsync` 会消费队列并调用 `WikiTaskService.ExecuteAsync`
+  - `TasksController` 已不再直接通过控制器内 `Task.Run` 启动 Wiki 主任务，Wiki 刷新正式入口已统一为 `/api/repositories/{repositoryId}/wiki/refresh`
+  - `TaskRecord` 已补齐 `CurrentStage`、`CurrentStageStatus`、`LastSuccessfulStage`、`LastArtifactId`、`AttemptCount` 等阶段状态字段，并已通过 `20260514155446_V3Phase1TaskArtifacts` 迁移落库
+  - `task_artifacts` 已实际用于写入 `planning_artifact`、`page_batch_artifact`、`quality_report_artifact`、`relation_artifact`、`render_artifact`、`code_embedding_artifact`、`wiki_embedding_artifact`
+  - `WikiTaskExecutionRepository` 已在单一事务中完成 Wiki 主数据、`RepositoryVersion`、`WikiVersion`、`WikiPage`、`WikiPageRelation` 与关键工件写入，并同步回写 `TaskRecord.ResultWikiVersionId` 与 `ResolvedRepositoryVersionId`
+  - 代码向量与 Wiki 向量写入已从主链路中的“火忘式后台动作”改为显式可观测阶段
+  - 结构规划与页面草案已切换为“JSON DTO 优先，XML 仅兼容回退”；页面正文与渲染输出已转为 Markdown、Frontmatter 与结构元数据优先
+  - `AskTaskService`、`SlidesTaskService`、`WorkshopTaskService` 已统一通过 `VersionedKnowledgeService` 继承 `RepositoryVersion` / `WikiVersion`
+  - 本次会话已实际验证 `dotnet build backend/Heimdall.Api/Heimdall.Api.csproj` 与 `frontend` 下 `npm run build` 均通过
+  - 本次会话已实际完成 PostgreSQL 迁移、目标仓库导入、Wiki 刷新任务执行、工件查询、页面读取、Ask、Slides、Workshop 与前端页面访问验证
+
+- 当前仍需后续优化但不阻塞验收的点：
+  - `Ask` 的生成内容质量仍有提升空间，当前能够稳定返回版本绑定结果，但个别回答仍偏结构化模板风格
+  - `Slides` 规划输出仍偏 XML 风格文本，但最终 `slides[]` 与 `html` 页面已能正常生成与渲染
+
+- 与 Agent Framework 相关的边界：
+  - 本轮仍未把 `Microsoft Agent Framework` 接入主链路
+  - 其前置条件与局部试点边界已在第 9 节明确，可作为后续阶段输入
+
 ## 12. 结论
 
 V3 的本质不是再追加一轮“大重构设想”，而是把 Heimdall 从“V1 缓存模型 + V2 表结构”的混合态，升级为“版本主导、任务可恢复、Markdown 优先、结构与渲染解耦”的稳定系统。

@@ -16,8 +16,10 @@ Heimdall.Repository (数据层)  →  EF Core、PostgreSQL/pgvector、仓储实�
 Heimdall.Infrastructure (工具层) →  Provider 适配、仓库源、配置、文本工具
 ```
 
-详细架构文档：[`doc/architecture/architecture-upgrade-plan.md`](doc/architecture/architecture-upgrade-plan.md)
-审计对比清单：[`doc/architecture/audit-checklist.md`](doc/architecture/audit-checklist.md)
+详细架构文档：
+- [`doc/architecture/backend-architecture.md`](doc/architecture/backend-architecture.md) — 后端架构设计
+- [`doc/architecture/frontend-architecture.md`](doc/architecture/frontend-architecture.md) — 前端架构设计
+- [`doc/architecture/architecture-upgrade-planV3.md`](doc/architecture/architecture-upgrade-planV3.md) — V3 升级方案
 
 ## 目录说明
 
@@ -174,16 +176,45 @@ docker compose up -d
 
 ## API 端点
 
+### 仓库与版本
+
 | 端点 | 说明 |
 |------|------|
-| `POST /tasks/wiki` | 提交 Wiki 生成任务（异步，立即返回 task_id） |
+| `POST /api/repositories/import` | 导入仓库（URL → repositoryId） |
+| `GET /api/repositories` | 列出所有仓库 |
+| `GET /api/repositories/{id}` | 仓库详情 |
+| `GET /api/repositories/{id}/versions` | 代码版本列表 |
+| `GET /api/repositories/{id}/versions/latest` | 最新代码版本 |
+
+### Wiki
+
+| 端点 | 说明 |
+|------|------|
+| `GET /api/repositories/{id}/wiki/versions` | Wiki 版本列表 |
+| `GET /api/repositories/{id}/wiki/pages?wikiVersionId=` | 版本页面内容 |
+| `POST /api/repositories/{id}/wiki/refresh` | 提交 Wiki 刷新任务（异步，返回 task_id） |
+| `POST /api/repositories/{id}/wiki/versions/{wvId}/publish` | 发布指定版本 |
+| `POST /api/repositories/{id}/wiki/compare` | 比较两个 Wiki 版本 |
+
+### 任务
+
+| 端点 | 说明 |
+|------|------|
+| `POST /tasks/ask` | AI 问答（支持 DeepResearch） |
+| `POST /tasks/slides` | 生成演示幻灯片 |
+| `POST /tasks/workshop` | 生成工作坊材料 |
 | `GET /tasks/{id}/status` | 查询任务状态 |
 | `GET /tasks/{id}/stream` | SSE 订阅任务进度 |
 | `GET /tasks/{id}/token-summary` | Token 消耗汇总 |
+
+### 其他
+
+| 端点 | 说明 |
+|------|------|
 | `POST /chat/completions/stream` | 流式聊天 |
 | `GET /models/config` | Provider/Model 配置 |
 | `POST /auth/login` | 用户登录 |
-| `GET /admin/dashboard` | 管理仪表盘 |
+| `GET /admin/dashboard` | 管理仪表盘（需 Admin） |
 
 ## 验证
 

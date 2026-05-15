@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { FaArrowLeft, FaSync, FaDownload } from 'react-icons/fa';
 import ThemeToggle from '@/components/theme-toggle';
 import Markdown from '@/components/Markdown';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useArtifactVersionContext } from '@/hooks/useArtifactVersionContext';
 import { buildTaskRequestBody } from '@/utils/taskRequest';
 
 interface WorkshopTaskResponse {
@@ -23,6 +24,18 @@ export default function WorkshopPage() {
   const customModelParam = searchParams.get('custom_model') || '';
   const language = searchParams.get('language') || 'zh';
   const { messages } = useLanguage();
+  const {
+    versionContext,
+    wikiVersion,
+    repositoryVersion,
+    isValidating,
+    isReady: isVersionContextReady,
+    validationMessage,
+  } = useArtifactVersionContext({
+    repositoryId,
+    language,
+    searchParams,
+  });
 
   const [repo, setRepo] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -35,14 +48,22 @@ export default function WorkshopPage() {
   const [exportError, setExportError] = useState<string | null>(null);
 
   const generateWorkshopContent = useCallback(async () => {
-    if (isLoading) return;
+    if (isLoading || isValidating) return;
+    if (!isVersionContextReady || !versionContext.repositoryVersionId || !versionContext.wikiVersionId) {
+      setError(validationMessage || '当前页面缺少有效的版本上下文，请返回仓库页重新进入 Workshop 页面。');
+      return;
+    }
     setIsLoading(true); setError(null); setWorkshopContent('');
     setLoadingMessage(messages.loading?.generatingWorkshop || '正在调用后端生成训练营内容...');
     try {
       const requestBody = buildTaskRequestBody({
         token: null, provider: providerParam, model: modelParam,
         isCustomModel: isCustomModelParam, customModel: customModelParam, language,
-      }, { comprehensive: true });
+      }, {
+        comprehensive: true,
+        repository_version_id: versionContext.repositoryVersionId,
+        wiki_version_id: versionContext.wikiVersionId,
+      });
 
       const bodyWithRepoId = { ...requestBody, repository_id: repositoryId };
       const response = await fetch('/api/tasks/workshop', {
@@ -58,7 +79,21 @@ export default function WorkshopPage() {
       console.error('Error generating workshop content:', err);
       setError(err instanceof Error ? err.message : '生成 Workshop 失败');
     } finally { setIsLoading(false); setLoadingMessage(undefined); }
-  }, [providerParam, modelParam, isCustomModelParam, customModelParam, language, isLoading, messages.loading, repositoryId]);
+  }, [
+    customModelParam,
+    isCustomModelParam,
+    isLoading,
+    isValidating,
+    isVersionContextReady,
+    language,
+    messages.loading,
+    modelParam,
+    providerParam,
+    repositoryId,
+    validationMessage,
+    versionContext.repositoryVersionId,
+    versionContext.wikiVersionId,
+  ]);
 
   const exportWorkshop = useCallback(async () => {
     if (!workshopContent) { setExportError('暂无可导出的训练营内容'); return; }
@@ -90,8 +125,11 @@ export default function WorkshopPage() {
 
   const contentGeneratedRef = useRef(false);
   useEffect(() => {
-    if (!contentGeneratedRef.current) { contentGeneratedRef.current = true; generateWorkshopContent(); }
-  }, [generateWorkshopContent]);
+    if (!contentGeneratedRef.current && isVersionContextReady) {
+      contentGeneratedRef.current = true;
+      generateWorkshopContent();
+    }
+  }, [generateWorkshopContent, isVersionContextReady]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--background)]">
@@ -105,9 +143,15 @@ export default function WorkshopPage() {
             <h1 className="text-xl font-bold text-[var(--accent-primary)]">
               {messages.workshop?.title || 'Workshop'}: {repo}
             </h1>
+            {wikiVersion && repositoryVersion && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+                <span className="tag tag-default">Wiki v{wikiVersion.version_no}</span>
+                <span className="tag tag-default">{repositoryVersion.commit_sha.slice(0, 8)}</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-3">
-            <button onClick={generateWorkshopContent} disabled={isLoading}
+            <button onClick={generateWorkshopContent} disabled={isLoading || !isVersionContextReady}
               className={`p-2 rounded-md ${isLoading ? 'bg-[var(--button-disabled-bg)] text-[var(--button-disabled-text)]' : 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20'} transition-colors`}>
               <FaSync className={`${isLoading ? 'animate-spin' : ''}`} />
             </button>
@@ -120,7 +164,17 @@ export default function WorkshopPage() {
         </div>
       </header>
       <main className="flex-1 container mx-auto px-4 py-6">
-        {isLoading && !workshopContent ? (
+        {isValidating ? (
+          <div className="flex flex-col items-center justify-center p-8">
+            <div className="w-12 h-12 border-4 border-[var(--accent-primary)]/30 border-t-[var(--accent-primary)] rounded-full animate-spin mb-4"></div>
+            <p className="text-[var(--foreground)]">正在校验当前浏览版本...</p>
+          </div>
+        ) : validationMessage ? (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4 mb-6">
+            <h3 className="text-red-800 dark:text-red-400 font-medium mb-2">版本校验失败</h3>
+            <p className="text-red-700 dark:text-red-300">{validationMessage}</p>
+          </div>
+        ) : isLoading && !workshopContent ? (
           <div className="flex flex-col items-center justify-center p-8">
             <div className="w-12 h-12 border-4 border-[var(--accent-primary)]/30 border-t-[var(--accent-primary)] rounded-full animate-spin mb-4"></div>
             <p className="text-[var(--foreground)]">{loadingMessage}</p>

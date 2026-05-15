@@ -1,40 +1,118 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FaSync, FaCog, FaCodeBranch } from 'react-icons/fa';
 
+/**
+ * 刷新面板属性。
+ */
 interface RefreshPanelProps {
+  /** 仓库唯一标识。 */
   repositoryId: string;
+  /** 默认分支。 */
   defaultBranch?: string;
+  /** 默认刷新策略。 */
+  defaultRefreshStrategy?: 'current' | 'latest';
+  /** 默认是否强制刷新。 */
+  defaultForceRefresh?: boolean;
+  /** 默认生成档位。 */
+  defaultGenerationProfile?: 'concise' | 'comprehensive';
+  /** 默认 Provider。 */
+  defaultProvider?: string;
+  /** 默认模型。 */
+  defaultModel?: string;
+  /** 提交刷新选项时的回调。 */
   onRefresh: (options: RefreshOptions) => void;
+  /** 外层加载状态。 */
   isLoading?: boolean;
+  /** 额外样式类名。 */
   className?: string;
 }
 
+/**
+ * 刷新选项。
+ */
 export interface RefreshOptions {
+  /** 目标分支。 */
   branch: string;
+  /** 刷新策略。 */
   refreshStrategy: 'current' | 'latest';
+  /** 是否强制重新生成。 */
   forceRefresh: boolean;
+  /** 生成档位。 */
   generationProfile: 'concise' | 'comprehensive';
+  /** 使用的模型提供方。 */
   provider: string;
+  /** 使用的模型名称。 */
   model: string;
 }
 
 export default function RefreshPanel({
   repositoryId,
   defaultBranch = 'main',
+  defaultRefreshStrategy = 'latest',
+  defaultForceRefresh = false,
+  defaultGenerationProfile = 'comprehensive',
+  defaultProvider = 'ollama',
+  defaultModel = 'gemma4:e2b',
   onRefresh,
   isLoading = false,
   className = '',
 }: RefreshPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [branch, setBranch] = useState(defaultBranch);
-  const [refreshStrategy, setRefreshStrategy] = useState<'current' | 'latest'>('latest');
-  const [forceRefresh, setForceRefresh] = useState(false);
-  const [generationProfile, setGenerationProfile] = useState<'concise' | 'comprehensive'>('comprehensive');
-  const [provider, setProvider] = useState('ollama');
-  const [model, setModel] = useState('gemma4:e2b');
+  const [refreshStrategy, setRefreshStrategy] = useState<'current' | 'latest'>(defaultRefreshStrategy);
+  const [forceRefresh, setForceRefresh] = useState(defaultForceRefresh);
+  const [generationProfile, setGenerationProfile] = useState<'concise' | 'comprehensive'>(defaultGenerationProfile);
+  const [provider, setProvider] = useState(defaultProvider);
+  const [model, setModel] = useState(defaultModel);
 
+  /**
+   * 当父组件的默认值更新时，同步刷新面板状态，
+   * 避免仓库页主状态与弹窗内选项出现割裂。
+   */
+  useEffect(() => {
+    setBranch(defaultBranch);
+  }, [defaultBranch]);
+
+  /**
+   * 同步默认刷新策略。
+   */
+  useEffect(() => {
+    setRefreshStrategy(defaultRefreshStrategy);
+  }, [defaultRefreshStrategy]);
+
+  /**
+   * 同步默认强制刷新状态。
+   */
+  useEffect(() => {
+    setForceRefresh(defaultForceRefresh);
+  }, [defaultForceRefresh]);
+
+  /**
+   * 同步默认生成档位。
+   */
+  useEffect(() => {
+    setGenerationProfile(defaultGenerationProfile);
+  }, [defaultGenerationProfile]);
+
+  /**
+   * 同步默认 Provider。
+   */
+  useEffect(() => {
+    setProvider(defaultProvider);
+  }, [defaultProvider]);
+
+  /**
+   * 同步默认模型。
+   */
+  useEffect(() => {
+    setModel(defaultModel);
+  }, [defaultModel]);
+
+  /**
+   * 提交刷新表单。
+   */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onRefresh({
@@ -49,7 +127,7 @@ export default function RefreshPanel({
   };
 
   return (
-    <div className={`refresh-panel ${className}`}>
+    <div className={`refresh-panel ${className}`} data-repository-id={repositoryId}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading}
