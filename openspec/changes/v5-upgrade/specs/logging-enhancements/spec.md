@@ -56,3 +56,21 @@ Wiki 生成任务 SHALL 在每个关键步骤输出结构化进度日志，包�
 #### Scenario: SQL 日志与业务日志交错显示时的区分
 - **WHEN** `showSql` 开启且业务日志和 SQL 日志同时输出
 - **THEN** SQL 日志带有 `[SQL]` 前缀，业务日志带有各自模块前缀（如 `[WikiTask]`、`[Heimdall]`），便于视觉区分
+
+### Requirement: SQL 日志启动预设
+
+系统 SHALL 支持通过环境变量 `HEIMDALL_LOG_SQL` 在服务启动时预设 SQL 日志开关状态，优先级低于运行时 API 切换，高于 `LogCategoryFilter` 默认值。
+
+#### Scenario: 环境变量设置为 true 启动
+- **WHEN** 启动应用时设置 `HEIMDALL_LOG_SQL=true`
+- **THEN** `LogCategoryFilter.ShowSqlCommands` 初始值为 `true`
+- **AND** 启动后立即可见 SQL 命令日志输出，无需调用 API
+
+#### Scenario: 环境变量未设置时启动
+- **WHEN** 启动应用时未设置 `HEIMDALL_LOG_SQL` 环境变量
+- **THEN** `LogCategoryFilter.ShowSqlCommands` 使用默认值 `false`
+- **AND** SQL 日志默认不输出，可通过 `POST /api/admin/logging/filter` 运行时开启
+
+#### Scenario: 运行时 API 覆盖启动预设
+- **WHEN** 启动时 `HEIMDALL_LOG_SQL=true` 开启 SQL 日志，随后管理员调用 API 设置 `showSql: false`
+- **THEN** SQL 日志立即关闭，运行时 API 优先级高于环境变量

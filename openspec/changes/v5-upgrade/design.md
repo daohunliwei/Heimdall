@@ -13,7 +13,10 @@ Provider 层现状：仅 `OllamaChatProvider` 硬编码了 `role: "system"` 消�
 - 实现 Prompt 片段合并引擎：请求时按 `[任务类型]` + `[Provider]` + `[输出格式]` 三个维度组合基础模板、格式指令、Provider 个性片段
 - 修复首页主题切换错位、Wiki 版本默认选择、快照选择器、刷新弹窗引导等前端 UI 缺陷
 - Slides/Workshop 页面接入模型选择机制，界面显式展示当前模型名称和选项说明
-- 实现控制台日志分类过滤与任务结构化进度日志
+- 实现控制台日志分类过滤（含环境变量 `HEIMDALL_LOG_SQL` 启动预设）与任务结构化进度日志
+- 修复 Markdown 渲染组件中 `rehype-raw` 插件导致的内联代码被渲染为块级代码的 Bug
+- Wiki 树结构支持多层嵌套（2-5 层，由模型根据仓库复杂度自行判断），前端 TreeView 增加层级缩进和折叠动画
+- 基于 deepwiki-open 原始英文提示词重写中文提示词，输出格式统一为 JSON，生成 SQL 初始化脚本
 
 **Non-Goals:**
 - 不新增 LLM Provider 类型
@@ -122,6 +125,56 @@ API 端点:
 **SQL 日志控制**: 在 `Program.cs` 中通过 `builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None)` 默认关闭 SQL 日志，由 `LogCategoryFilter` 运行时动态切换。开发环境可在 `appsettings.Development.json` 中保持 `Information` 级别，运行时通过 API 关闭。
 
 **任务进度日志**: `WikiTaskService` 在关键步骤（仓库准备→结构规划→逐页生成→弱页重生→完成）输出结构化日志，包含当前步骤、页码进度、耗时、LLM 调用参数等。
+
+### 6. SQL 日志启动预设
+
+**决定**: 通过环境变量 `HEIMDALL_LOG_SQL` 在服务启动时预设 SQL 日志开关状态，优先级高于 `LogCategoryFilter` 默认值。
+
+```csharp
+// Program.cs 启动时
+var logSql = builder.Configuration.GetValue<bool>("HEIMDALL_LOG_SQL"); // 也支持环境变量
+if (logSql) { LogCategoryFilter.ShowSqlCommands = true; }
+```
+
+配置优先级: 运行时 API 切换 > 环境变量 `HEIMDALL_LOG_SQL` > 默认值 (false)
+
+### 7. Markdown 内联代码渲染修复
+
+**决定**: `Markdown.tsx` 中 `code` 组件的 `!inline` 宽松判断改为 `inline === false` 严格判断。
+
+**根因**: `rehype-raw` 插件处理 LLM 输出的原始 HTML `<code>` 标签时，生成的 hast 节点 `inline` 属性为 `undefined`。`!undefined === true` 导致走块级代码路径，单行 code 被渲染为完整代码块。
+
+**修复**: 第 118 行 `!inline && normalizedLanguage === 'mermaid'` → `inline === false && normalizedLanguage === 'mermaid'`；第 126 行 `!inline` → `inline === false`。确保只有 react-markdown 显式标记为块级代码（`inline === false`）的节点才走块级渲染。
+
+### 8. 全新中文提示词与 SQL 初始化脚本
+
+**决定**: 基于 deepwiki-open 原始英文提示词（`api/prompts.py` 和 `src/app/[owner]/[repo]/page.tsx` 中的 wiki 结构 + 页面生成提示词），重写为中文版本，纳入 `PromptSeedData` 并额外生成纯 SQL 初始化脚本。
+
+**提示词改进要点**:
+- 角色定位改为中文："你是一位资深技术文档专家和软件架构师"
+- 输出格式从 XML 统一为 JSON，与现有 `WikiStructureDto` / `WikiPageDto` 对齐
+- 保留原版精华：`<details>` 源文件引用块、Mermaid 图表规范（graph TD、时序图语法等）、表格和代码片段要求
+- 新增样式规范：callout/tip/warning 块的 Markdown 写法、响应式表格、内联代码与块级代码的明确区分
+- 页面样式禁止事项：不要用 ```` 包裹整个回答、不要转义特殊字符、不要包含思考过程
+
+**SQL 脚本位置**: `backend/Heimdall.Repository/Data/SeedScripts/v5_prompts.sql`，包含所有系统模板的 `INSERT ... ON CONFLICT DO NOTHING` 语句，数据库清空后可直接执行恢复。
+
+### 9. Wiki 多层树结构
+
+**决定**: 让模型根据仓库文件总数和代码复杂度自行判断 Wiki 树深度（2-5 层），提示词中给出明确边界和示例，不硬编码固定层数。
+
+**层级边界规则**（在结构规划提示词中明确）:
+- 小仓库（<50 文件）：至少 2 层（章节 → 页面）
+- 中型仓库（50-200 文件）：至少 3 层（章 → 节 → 页面）
+- 大型仓库（>200 文件）：至少 3 层，鼓励 4-5 层（章 → 节 → 子节 → 页面 → 子页面）
+- 任何仓库最多 5 层（避免过深）
+
+**Section subsections 机制**: 全面视图下，章节通过 `subsections` 数组递归嵌套实现多级目录，页面通过 `parentId` 形成阅读顺序链。
+
+**前端 TreeView 改进**: 
+- 每层缩进增加视觉引导线（左边框线）
+- 支持折叠/展开动画（CSS transition + `overflow: hidden`）
+- 选中页面高亮，父节点自动展开
 
 ## Risks / Trade-offs
 

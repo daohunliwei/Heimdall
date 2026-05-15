@@ -63,3 +63,41 @@ Wiki 页面加载时 SHALL 默认选择按时间倒序排列的最新 Wiki 版�
 - **WHEN** RefreshPanel 渲染 Provider/Model 选择器
 - **THEN** 选择器 SHALL 使用 `UserSelector` 组件（动态获取 `/api/models/config`）而非硬编码的 `<select>` 元素
 - **AND** 选择器的选项与当前系统配置的后端 Provider 列表一致
+
+### Requirement: Markdown 内联代码正确渲染
+
+单反引号包裹的内联代码 SHALL 正确渲染为行内 `<code>` 元素，不被误渲染为块级代码块。`rehype-raw` 插件处理原始 HTML `<code>` 标签时产生的 `inline === undefined` 节点 SHALL 走内联渲染路径。
+
+#### Scenario: 单反引号内联代码
+- **WHEN** Markdown 内容包含 `` `const x = 1;` `` 单反引号内联代码
+- **THEN** 渲染为 `<code>` 行内元素，带有 monospace 字体、背景色和圆角，不换行
+
+#### Scenario: LLM 输出的原始 HTML code 标签
+- **WHEN** LLM 返回内容中包含 `<code>someFunction()</code>` 原始 HTML 标签（经 rehype-raw 转为 hast 节点，`inline` 为 `undefined`）
+- **THEN** 渲染为内联 `<code>` 元素，不触发块级代码块的 SyntaxHighlighter
+
+#### Scenario: 三反引号代码块正常渲染
+- **WHEN** Markdown 内容包含 ```` ```javascript\nconst x = 1;\n``` ```` 三反引号围栏代码块
+- **THEN** react-markdown 传入 `inline === false`，块级代码路径正常执行，显示语言标签和复制按钮
+
+### Requirement: Wiki 多层树结构
+
+Wiki 页面树 SHALL 支持 2-5 层嵌套结构，模型根据仓库文件总数和复杂度自行判断层级深度。前端 TreeView SHALL 展示层级缩进引导线和折叠/展开动画。
+
+#### Scenario: 小仓库的浅层结构
+- **WHEN** 仓库文件数 < 50 且结构简单
+- **THEN** 模型生成至少 2 层（章节 → 页面）的 Wiki 树，前端显示一级缩进
+
+#### Scenario: 大型仓库的深层结构
+- **WHEN** 仓库文件数 > 200 且模块复杂
+- **THEN** 模型可生成 4-5 层（章 → 节 → 子节 → 页面 → 子页面）的 Wiki 树
+- **AND** 前端 TreeView 对每层增加视觉引导线（左边框线），支持折叠/展开
+
+#### Scenario: TreeView 折叠展开交互
+- **WHEN** 用户点击某个有子节点的章节
+- **THEN** 子节点以 CSS transition 动画折叠或展开（`max-height` 过渡 + `overflow: hidden`）
+- **AND** 折叠/展开图标（箭头）旋转 90 度指示状态
+
+#### Scenario: 最大深度限制
+- **WHEN** Wiki 树结构超过 5 层深度
+- **THEN** 模型被提示词约束为最多 5 层，不生成 6 层及以上嵌套

@@ -75,3 +75,39 @@
 #### Scenario: 设置仓库级覆盖
 - **WHEN** 管理员请求 `POST /api/admin/prompt-templates/{id}/overrides` 包含 RepositoryId、OverrideContent、Strategy
 - **THEN** 系统创建或更新 RepositoryPromptOverride 记录，Strategy 为 "override"（完全覆盖）、"merge"（合并变量）、或 "append"（尾部追加）
+
+### Requirement: 全新中文提示词内容
+
+系统提示词 SHALL 基于 deepwiki-open 原始英文提示词重写为中文版本，保持专业性的同时提升兼容性。结构规划提示词 SHALL 要求 JSON 输出，页面生成提示词 SHALL 包含详细的 Markdown 样式规范（`<details>` 源文件引用、Mermaid 图表语法、callout 块、表格规范、禁止事项）。
+
+#### Scenario: 结构规划提示词语言和格式
+- **WHEN** 系统加载 Category 为 `wiki_structure` 的提示词模板
+- **THEN** 模板内容为中文，角色设定为"你是一位资深技术文档专家和软件架构师"
+- **AND** 输出格式要求为 JSON（与 `WikiStructureDto` 对齐），包含 `sections`（含 `subsections`）、`pages`（含 `parentId`）、`rootSections`
+
+#### Scenario: 页面生成提示词包含样式规范
+- **WHEN** 系统加载 Category 为 `wiki_page` 的提示词模板
+- **THEN** 模板内容为中文，包含以下指令：
+  - 页面以 `<details><summary>源文件参考</summary>...</details>` 块开头
+  - Mermaid 流程图仅限 `graph TD`，节点文字 3-4 个单词
+  - Mermaid 时序图支持 8 种箭头类型、激活框、分组、循环/条件块
+  - 表格用于参数/配置说明，表格上方必须有标题
+  - 禁止用 ```` ``` ```` 包裹整个回答，禁止转义特殊字符
+
+#### Scenario: 提示词内的样式禁止事项
+- **WHEN** 页面生成提示词被拼装
+- **THEN** 包含明确的禁止指令：不要输出思考过程、不要用 markdown fences 包裹回答、不要转义 `[]{}` 等字符、管道符 `|` 直接书写
+
+### Requirement: SQL 初始化脚本双重保障
+
+所有系统提示词 SHALL 同时以纯 SQL 脚本形式存储在 `backend/Heimdall.Repository/Data/SeedScripts/v5_prompts.sql`，数据库清空后可直接执行恢复，不依赖应用启动。
+
+#### Scenario: 使用 SQL 脚本恢复提示词
+- **WHEN** 数据库 `prompt_templates` 表被清空
+- **THEN** 执行 `psql -f v5_prompts.sql` 将所有系统提示词恢复至数据库
+- **AND** 每条 INSERT 使用 `ON CONFLICT (slug) DO NOTHING` 避免重复插入
+
+#### Scenario: 应用启动与 SQL 脚本同步
+- **WHEN** 应用每次启动
+- **THEN** `PromptSeedData.SeedAsync()` 执行与 SQL 脚本内容一致的 Upsert 逻辑
+- **AND** SQL 脚本在每次提示词变更时随 EF Core 迁移同步更新
