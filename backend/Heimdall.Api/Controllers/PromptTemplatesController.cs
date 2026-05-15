@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Heimdall.Api.Controllers;
 
 [ApiController]
-[Route("api/admin/prompt-templates")]
+[Route("admin/prompt-templates")]
 public class PromptTemplatesController : ControllerBase
 {
     private readonly PromptManagementService _promptService;
