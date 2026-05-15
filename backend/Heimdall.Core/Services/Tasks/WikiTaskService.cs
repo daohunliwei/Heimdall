@@ -402,8 +402,8 @@ public sealed class WikiTaskService
                     try
                     {
                         var pageResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, pagePrompt, execToken);
-                        await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
-                            pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false);
+                        try { await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
+                            pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false); } catch { }
                         _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
                             $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms");
 
@@ -421,8 +421,15 @@ public sealed class WikiTaskService
                         _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
                             $"失败: {page.Title} | {effectiveProvider}/{model ?? customModel}");
                         ApplyGeneratedPageDraft(page, BuildFailedPageDraft(page, ex.Message));
-                        await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
-                            pagePrompt, page.Content, (int)pageSw.ElapsedMilliseconds, true, ex.Message);
+                        try
+                        {
+                            await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
+                                pagePrompt, page.Content, (int)pageSw.ElapsedMilliseconds, true, ex.Message);
+                        }
+                        catch (Exception logEx)
+                        {
+                            _logger.LogWarning(logEx, "LLM 调用日志保存失败 TaskId={TaskId}", task.Id);
+                        }
                     }
                 }
 
