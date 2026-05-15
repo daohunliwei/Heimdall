@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<WikiEmbeddingChunk> WikiEmbeddingChunks => Set<WikiEmbeddingChunk>();
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<RepositoryPromptOverride> RepositoryPromptOverrides => Set<RepositoryPromptOverride>();
+    public DbSet<PromptTemplateHistory> PromptTemplateHistories => Set<PromptTemplateHistory>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -44,6 +45,7 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new WikiEmbeddingChunkConfiguration());
         modelBuilder.ApplyConfiguration(new PromptTemplateConfiguration());
         modelBuilder.ApplyConfiguration(new RepositoryPromptOverrideConfiguration());
+        modelBuilder.ApplyConfiguration(new PromptTemplateHistoryConfiguration());
         modelBuilder.ApplyConfiguration(new SystemSettingConfiguration());
     }
 }
