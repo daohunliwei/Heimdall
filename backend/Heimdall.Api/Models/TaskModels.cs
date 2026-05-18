@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Heimdall.Infrastructure.Models;
 
 namespace Heimdall.Api.Models;
 
@@ -269,13 +270,13 @@ public sealed class WikiTaskResponse
     /// Wiki 结构。
     /// </summary>
     [JsonPropertyName("wiki_structure")]
-    public WikiStructure WikiStructure { get; init; } = new();
+    public WikiStructureDto WikiStructure { get; init; } = new();
 
     /// <summary>
     /// 已生成页面。
     /// </summary>
     [JsonPropertyName("generated_pages")]
-    public Dictionary<string, WikiPage> GeneratedPages { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, WikiPageDto> GeneratedPages { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// 调试信息

@@ -15,19 +15,7 @@ public sealed class AuthorizationRequest
 }
 
 /// <summary>
-/// 鉴权状态响应。
-/// </summary>
-public sealed class AuthStatusResponse
-{
-    /// <summary>
-    /// 是否要求授权码。
-    /// </summary>
-    [JsonPropertyName("auth_required")]
-    public bool AuthRequired { get; init; }
-}
-
-/// <summary>
-/// 授权校验结果。
+/// 授权校验结果（旧版）。
 /// </summary>
 public sealed class AuthorizationValidationResponse
 {

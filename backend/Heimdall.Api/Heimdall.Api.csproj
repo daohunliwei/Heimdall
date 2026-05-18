@@ -8,7 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.3.4" />
-    <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.2.7" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="10.1.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Heimdall.Core\Heimdall.Core.csproj" />
+    <ProjectReference Include="..\Heimdall.Infrastructure\Heimdall.Infrastructure.csproj" />
+    <ProjectReference Include="..\Heimdall.Repository\Heimdall.Repository.csproj" />
   </ItemGroup>
 </Project>

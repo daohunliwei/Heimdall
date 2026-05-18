@@ -7,7 +7,7 @@
     "dev:all": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1",
     "dev:backend": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1 -BackendOnly",
     "dev:frontend": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1 -FrontendOnly",
-    "build": "next build",
+    "build": "set NODE_OPTIONS=--max-old-space-size=4096 && next build",
     "start": "next start",
     "lint": "next lint"
   },

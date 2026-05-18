@@ -16,10 +16,12 @@ interface MarkdownProps {
 const Markdown: React.FC<MarkdownProps> = ({ content }) => {
   const MarkdownComponents: React.ComponentProps<typeof ReactMarkdown>['components'] = {
     pre({ children }: { children?: React.ReactNode }) {
-      return <>{children}</>;
+      // 使用 div 包装而非 Fragment，避免 block 元素直接嵌套在 <p> 中导致 hydration 错误
+      return <div>{children}</div>;
     },
     p({ children, ...props }: { children?: React.ReactNode }) {
-      return <p className="mb-3 text-sm leading-relaxed text-[var(--foreground)]" {...props}>{children}</p>;
+      // V4 修复：段落可能存在块级子元素（代码块/div 等），使用 div 避免 hydration 错误
+      return <div className="mb-3 text-sm leading-relaxed text-[var(--foreground)]" {...props}>{children}</div>;
     },
     h1({ children, ...props }: { children?: React.ReactNode }) {
       return <h1 className="text-xl font-bold mt-8 mb-4 text-[var(--foreground)]" {...props}>{children}</h1>;
@@ -76,8 +78,9 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       );
     },
     table({ children, ...props }: { children?: React.ReactNode }) {
+      // V4 修复：表格外不应包裹在 p 标签中，独立 div 渲染避免 hydration 错误
       return (
-        <div className="overflow-x-auto my-6 rounded-lg border border-[var(--border-color)]">
+        <div className="overflow-x-auto my-6 rounded-lg border border-[var(--border-color)] table-wrapper">
           <table className="min-w-full text-sm border-collapse" {...props}>{children}</table>
         </div>
       );
@@ -112,7 +115,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       const language = match?.[1] ?? nodeLanguage;
       const normalizedLanguage = language ? language.toLowerCase() : undefined;
 
-      if (!inline && normalizedLanguage === 'mermaid') {
+      if (inline === false && normalizedLanguage === 'mermaid') {
         return (
           <div className="my-8 rounded-lg overflow-hidden border border-[var(--border-color)]">
             <Mermaid chart={codeContent} className="w-full max-w-full" zoomingEnabled={true} />
@@ -120,7 +123,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
         );
       }
 
-      if (!inline) {
+      if (inline === false) {
         const displayLanguage = normalizedLanguage ?? 'code';
         return (
           <div className="my-6 rounded-lg overflow-hidden text-sm border border-[var(--border-color)]">
