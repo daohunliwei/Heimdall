@@ -34,7 +34,7 @@ public sealed class OllamaChatProvider : IChatProvider
 
     public async Task<string> GenerateAsync(ProviderChatRequest request, CancellationToken cancellationToken)
     {
-        var baseUrl = (_configuration["OLLAMA_HOST"] ?? "http://127.0.0.1:11434").TrimEnd('/');
+        var baseUrl = (_configuration["HEIMDALL_OLLAMA_CHAT_HOST"] ?? _configuration["OLLAMA_HOST"] ?? "http://127.0.0.1:11434").TrimEnd('/');
         var endpoint = $"{baseUrl}/api/chat";
         var timeout = _configService.GetOllamaRequestTimeout();
 
@@ -53,14 +53,17 @@ public sealed class OllamaChatProvider : IChatProvider
         if (request.TopK.HasValue && !options.ContainsKey("top_k"))
             options["top_k"] = request.TopK.Value;
 
+        var messages = new List<object>();
+        if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
+        {
+            messages.Add(new { role = "system", content = request.SystemPrompt });
+        }
+        messages.Add(new { role = "user", content = request.Prompt });
+
         var payload = new Dictionary<string, object?>
         {
             ["model"] = request.Model,
-            ["messages"] = new[]
-            {
-                new { role = "system", content = "You are an expert software architect and technical documentation specialist. You must respond with valid, well-formed XML only. Do not include any text outside the XML structure." },
-                new { role = "user", content = request.Prompt }
-            },
+            ["messages"] = messages,
             ["stream"] = false
         };
 

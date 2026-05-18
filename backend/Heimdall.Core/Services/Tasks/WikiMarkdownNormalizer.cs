@@ -9,7 +9,10 @@ public static class WikiMarkdownNormalizer
         if (string.IsNullOrWhiteSpace(markdown)) return string.Empty;
         // 去除 think 标签
         var result = Regex.Replace(markdown, "<think>[\\s\\S]*?</think>", "", RegexOptions.IgnoreCase);
-        result = result.Replace("```xml", "").Replace("```", "").Trim();
+        // 移除 Markdown 代码围栏（```json, ```xml, ``` 等），但不移除 JSON 内部的 ```
+        result = Regex.Replace(result, @"^```[\w-]*\s*", "", RegexOptions.Multiline);
+        result = Regex.Replace(result, @"\s*```\s*$", "", RegexOptions.Multiline);
+        result = result.Trim();
         return result;
     }
 

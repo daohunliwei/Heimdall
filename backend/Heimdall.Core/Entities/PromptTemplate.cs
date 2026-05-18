@@ -9,6 +9,10 @@ public class PromptTemplate
     public string ScopeType { get; set; } = "global";
     public string? ScopeValue { get; set; }
     public string TemplateContent { get; set; } = string.Empty;
+    public string Category { get; set; } = "general";
+    public string? SubCategory { get; set; }
+    public int Priority { get; set; }
+    public string[]? ApplicableProviders { get; set; }
     public string[]? Variables { get; set; }
     public bool IsSystem { get; set; }
     public bool IsActive { get; set; } = true;

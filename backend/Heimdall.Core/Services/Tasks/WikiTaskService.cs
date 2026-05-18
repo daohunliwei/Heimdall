@@ -7,8 +7,9 @@ using Heimdall.Core.Models;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Repository;
+using Heimdall.Core.Services.Search;
 using Heimdall.Infrastructure.Models;
-using CodeAnalysisModels = Heimdall.Core.Models;
+using Heimdall.Infrastructure.Search;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -26,9 +27,10 @@ public sealed class WikiTaskService
     private readonly WikiGlobalConvergenceService _wikiConvergence;
     private readonly WikiRenderPostProcessor _wikiRenderPostProcessor;
     private readonly CodeStructureIndexService _codeIndexService;
-    private readonly CodeSummaryService _codeSummaryService;
+    private readonly IHybridSearchService _hybridSearch;
     private readonly RepositoryAccessService _repoAccess;
     private readonly IHostApplicationLifetime _appLifetime;
+    private readonly IStructuredLogger _structuredLogger;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -39,9 +41,10 @@ public sealed class WikiTaskService
         WikiGlobalConvergenceService wikiConvergence,
         WikiRenderPostProcessor wikiRenderPostProcessor,
         CodeStructureIndexService codeIndexService,
-        CodeSummaryService codeSummaryService,
+        IHybridSearchService hybridSearch,
         RepositoryAccessService repoAccess,
         IHostApplicationLifetime appLifetime,
+        IStructuredLogger structuredLogger,
         ILogger<WikiTaskService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -51,9 +54,10 @@ public sealed class WikiTaskService
         _wikiConvergence = wikiConvergence;
         _wikiRenderPostProcessor = wikiRenderPostProcessor;
         _codeIndexService = codeIndexService;
-        _codeSummaryService = codeSummaryService;
+        _hybridSearch = hybridSearch;
         _repoAccess = repoAccess;
         _appLifetime = appLifetime;
+        _structuredLogger = structuredLogger;
         _logger = logger;
     }
 
@@ -195,69 +199,34 @@ public sealed class WikiTaskService
                 markStageAsSuccessful: true);
 
             _logger.LogInformation("仓库准备完成 TaskId={TaskId} Files={Count} Path={Path}", task.Id, fileCount, repoPath);
+            _structuredLogger.LogTaskProgress(task.Id, "仓库准备", null, null, $"共 {fileCount} 个文件");
 
             var langDisplay = language == "zh" ? "中文" : "English";
 
-            // ── V4: 深度代码分析阶段 ──
-            CodeAnalysisModels.SystemSummary? systemSummary = null;
-            List<CodeAnalysisModels.ModuleSummary> moduleSummaries = new();
-            var codeAnalysisRecovery = await TryLoadArtifactByTypeAsync(artifactRepo, executingTask.Id, "code_analysis_artifact", execToken);
+            // ── V6: 本地代码索引阶段（无 LLM 摘要）──
+            var codeIndexResult = _codeIndexService.IndexRepository(repoPath);
+            var codeAnalysisRecovery = await TryLoadArtifactByTypeAsync(artifactRepo, executingTask.Id, "code_index_artifact", execToken);
 
             if (codeAnalysisRecovery is not null)
             {
-                _logger.LogInformation("从工件恢复代码分析结果 TaskId={TaskId}", task.Id);
-                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "completed", 25,
-                    "已从工件恢复代码分析结果", execToken, markStageAsSuccessful: true);
+                _logger.LogInformation("从工件恢复代码索引结果 TaskId={TaskId}", task.Id);
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_indexing", "completed", 25,
+                    "已从工件恢复代码索引结果", execToken, markStageAsSuccessful: true);
             }
             else
             {
-                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 17,
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_indexing", "running", 17,
                     "正在执行代码结构索引...", execToken);
 
-                var codeIndexResult = _codeIndexService.IndexRepository(repoPath);
+                codeIndexResult = _codeIndexService.IndexRepository(repoPath);
 
-                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 20,
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_indexing", "running", 22,
                     $"结构索引完成，共 {codeIndexResult.SourceFileCount} 个源文件，{codeIndexResult.ModuleNames.Count} 个模块",
                     execToken);
 
-                // 文件级摘要（仅对大仓库做，小仓库跳过以节省时间）
-                if (codeIndexResult.SourceFileCount <= 100)
-                {
-                    _logger.LogInformation("小仓库跳过文件级摘要 TaskId={TaskId} Files={Count}", task.Id, codeIndexResult.SourceFileCount);
-                }
-                else
-                {
-                    await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 22,
-                        "正在生成文件级摘要...", execToken);
-                    await _codeSummaryService.GenerateFileSummariesAsync(
-                        codeIndexResult.Entries, repoPath, effectiveProvider, model, langDisplay, execToken);
-                }
-
-                // 模块级摘要
-                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 24,
-                    $"正在生成 {codeIndexResult.ModuleNames.Count} 个模块的摘要...", execToken);
-                var fileSummaries = new List<CodeAnalysisModels.FileSummary>();
-                moduleSummaries = await _codeSummaryService.GenerateModuleSummariesAsync(
-                    fileSummaries, codeIndexResult.Entries, effectiveProvider, model, langDisplay, execToken);
-
-                // 系统级摘要
-                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "running", 26,
-                    "正在生成系统架构概述...", execToken);
-                systemSummary = await _codeSummaryService.GenerateSystemSummaryAsync(
-                    new SystemSummaryInput
-                    {
-                        ProjectType = codeIndexResult.ProjectType,
-                        TechStack = codeIndexResult.TechStack,
-                        TotalFileCount = codeIndexResult.TotalFileCount,
-                        ModuleNames = codeIndexResult.ModuleNames,
-                        EntryPointFiles = codeIndexResult.EntryPointFiles,
-                        CoreComponents = codeIndexResult.ModuleNames.Take(8).ToList(),
-                        ModuleDescriptions = moduleSummaries.ToDictionary(m => m.ModuleName, m => m.Summary)
-                    }, effectiveProvider, model, langDisplay, execToken);
-
-                // 持久化分析结果
+                // 持久化索引结果（不再包含 LLM 摘要）
                 await UpsertTaskArtifactAsync(artifactRepo, taskRepo, executingTask,
-                    "code_analysis_artifact", "analysis", "code_analysis", 0,
+                    "code_index_artifact", "analysis", "code_indexing", 0,
                     System.Text.Json.JsonSerializer.Serialize(new
                     {
                         project_type = codeIndexResult.ProjectType,
@@ -265,22 +234,25 @@ public sealed class WikiTaskService
                         total_files = codeIndexResult.TotalFileCount,
                         source_files = codeIndexResult.SourceFileCount,
                         module_count = codeIndexResult.ModuleNames.Count,
-                        entry_points = codeIndexResult.EntryPointFiles,
-                        module_summaries = moduleSummaries,
-                        system_summary = systemSummary
+                        module_names = codeIndexResult.ModuleNames,
+                        entry_points = codeIndexResult.EntryPointFiles
                     }, ArtifactJsonOptions),
-                    $"代码分析完成：{codeIndexResult.ModuleNames.Count} 个模块",
+                    $"代码索引完成：{codeIndexResult.ModuleNames.Count} 个模块",
                     execToken);
 
-                await MarkTaskStageAsync(taskRepo, executingTask, "code_analysis", "completed", 28,
-                    $"代码分析完成：{codeIndexResult.ProjectType} / {codeIndexResult.TechStack}，{codeIndexResult.ModuleNames.Count} 个模块",
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_indexing", "completed", 28,
+                    $"代码索引完成：{codeIndexResult.ProjectType} / {codeIndexResult.TechStack}，{codeIndexResult.ModuleNames.Count} 个模块",
                     execToken, markStageAsSuccessful: true);
             }
 
-            // 计算基于代码分析的建议页面数量
+            // 构建混合搜索索引（BM25 + 向量嵌入），供页面生成时检索真实代码
+            var searchIndexKey = $"repo-{executingTask.Id}";
+            await BuildSearchIndexAsync(repoPath, codeIndexResult, searchIndexKey, execToken);
+
+            // 基于代码索引计算建议页面数量
             var recommendedPageCount = CodeStructureIndexService.CalculateRecommendedPageCount(
-                moduleSummaries.Count > 0 ? moduleSummaries.Count : (int)Math.Ceiling(fileCount / 20.0),
-                systemSummary?.EntryPointCount ?? 1);
+                codeIndexResult.ModuleNames.Count,
+                codeIndexResult.EntryPointFiles.Count);
 
             var (execOwner, execRepo) = repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
             var structureRecovery = await TryLoadPlanningArtifactAsync(artifactRepo, executingTask.Id, execToken);
@@ -305,19 +277,9 @@ public sealed class WikiTaskService
             }
             else
             {
-                var hasCodeAnalysis = systemSummary is not null && moduleSummaries.Count > 0;
-                var moduleSummaryText = hasCodeAnalysis
-                    ? string.Join("\n", moduleSummaries.Select(m => $"- **{m.ModuleName}** ({m.FileCount} 文件): {m.Summary}"))
-                    : null;
-
-                var structurePrompt = hasCodeAnalysis
-                    ? _taskPrompt.BuildEnhancedWikiStructurePrompt(
-                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
-                        langDisplay, comprehensive, generationProfile,
-                        systemSummary?.ArchitectureOverview, moduleSummaryText, recommendedPageCount)
-                    : _taskPrompt.BuildWikiStructurePrompt(
-                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
-                        langDisplay, comprehensive, generationProfile);
+                var structurePrompt = _taskPrompt.BuildWikiStructurePrompt(
+                    execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
+                    langDisplay, comprehensive, generationProfile);
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -354,6 +316,9 @@ public sealed class WikiTaskService
                     }, ArtifactJsonOptions),
                     $"结构规划完成，共 {wikiStructure.Pages.Count} 个页面",
                     execToken);
+
+                _structuredLogger.LogTaskProgress(task.Id, "结构规划完成", null, wikiStructure.Pages.Count,
+                    $"共 {wikiStructure.Pages.Count} 个页面，{wikiStructure.Sections?.Count ?? 0} 个章节");
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -418,7 +383,16 @@ public sealed class WikiTaskService
                 {
                     execToken.ThrowIfCancellationRequested();
 
-                    var fileContents = ReadPageFiles(repoPath, page.FilePaths);
+                    // 使用混合搜索检索真实代码片段（替代旧的 ReadPageFiles）
+                    var searchQuery = page.SearchKeywords?.Count > 0
+                        ? string.Join(" ", page.SearchKeywords)
+                        : $"{page.Title} {page.Description}";
+                    var keyFiles = (page.KeyFilePaths?.Count > 0 ? page.KeyFilePaths : null)
+                        ?? (page.FilePaths?.Count > 0 ? page.FilePaths : null);
+                    var searchResults = await _hybridSearch.SearchAsync(
+                        searchIndexKey, searchQuery, keyFiles, topK: 15, maxTotalTokens: 20_000, ct: execToken);
+                    var fileContents = _hybridSearch.FormatForPrompt(searchResults);
+
                     var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
                         page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay, fileContents,
                         activePageContext);
@@ -428,8 +402,10 @@ public sealed class WikiTaskService
                     try
                     {
                         var pageResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, pagePrompt, execToken);
-                        await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
-                            pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false);
+                        try { await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
+                            pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false); } catch { }
+                        _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
+                            $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms");
 
                         var pageDraft = _wikiParser.ParsePageDraft(page, pageResponse);
                         ApplyGeneratedPageDraft(page, pageDraft);
@@ -442,9 +418,18 @@ public sealed class WikiTaskService
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "页面生成失败 Page={Title} TaskId={TaskId}", page.Title, task.Id);
+                        _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
+                            $"失败: {page.Title} | {effectiveProvider}/{model ?? customModel}");
                         ApplyGeneratedPageDraft(page, BuildFailedPageDraft(page, ex.Message));
-                        await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
-                            pagePrompt, page.Content, (int)pageSw.ElapsedMilliseconds, true, ex.Message);
+                        try
+                        {
+                            await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
+                                pagePrompt, page.Content, (int)pageSw.ElapsedMilliseconds, true, ex.Message);
+                        }
+                        catch (Exception logEx)
+                        {
+                            _logger.LogWarning(logEx, "LLM 调用日志保存失败 TaskId={TaskId}", task.Id);
+                        }
                     }
                 }
 
@@ -700,6 +685,8 @@ public sealed class WikiTaskService
 
             _logger.LogInformation("Wiki 生成完成 TaskId={TaskId} Pages={Count} Elapsed={Ms}ms",
                 task.Id, totalPages, totalStopwatch.ElapsedMilliseconds);
+            _structuredLogger.LogTaskSummary(task.Id, totalPages,
+                totalStopwatch.Elapsed.TotalSeconds, 0, 0, 0);
         }
         catch (OperationCanceledException)
         {
@@ -1139,5 +1126,48 @@ public sealed class WikiTaskService
         }
 
         return parts.Count == 0 ? "（无法读取关联源文件）" : string.Join("\n\n", parts);
+    }
+
+    /// <summary>
+    /// 构建混合搜索索引（BM25），供页面生成阶段检索真实代码片段。
+    /// </summary>
+    private async Task BuildSearchIndexAsync(string repoPath, CodeIndexResult codeIndexResult, string indexKey, CancellationToken ct)
+    {
+        _logger.LogInformation("开始构建搜索索引：{Key}", indexKey);
+
+        var snippets = new List<CodeSnippetInput>();
+        var codeIndexService = new Heimdall.Core.Services.Repository.CodeIndexService(
+            new Microsoft.Extensions.Logging.Abstractions.NullLogger<Heimdall.Core.Services.Repository.CodeIndexService>());
+
+        foreach (var entry in codeIndexResult.Entries.Where(e => e.FileType is "source" or "config"))
+        {
+            try
+            {
+                var fullPath = Path.Combine(repoPath, entry.FilePath.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(fullPath)) continue;
+
+                var content = File.ReadAllText(fullPath);
+                if (content.Length > 5000) content = content[..5000];
+
+                var chunks = codeIndexService.ChunkFile(fullPath, entry.Language);
+                foreach (var (start, end, chunkContent) in chunks.Take(20))
+                {
+                    snippets.Add(new CodeSnippetInput
+                    {
+                        FilePath = entry.FilePath,
+                        ModuleName = entry.ModuleName,
+                        Content = chunkContent,
+                        Symbols = string.Join(" ", entry.ExportedSymbols.Take(20)),
+                        Language = entry.Language,
+                        StartLine = start,
+                        EndLine = end
+                    });
+                }
+            }
+            catch { /* skip */ }
+        }
+
+        await _hybridSearch.BuildIndexAsync(indexKey, snippets, ct);
+        _logger.LogInformation("搜索索引构建完成：{Key}, {Count} 代码段", indexKey, snippets.Count);
     }
 }

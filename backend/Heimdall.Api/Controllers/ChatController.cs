@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Services.Tasks;
 using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Providers;
@@ -13,15 +14,18 @@ public class ChatController : ControllerBase
 {
     private readonly ProviderRegistry _providerRegistry;
     private readonly TextUtilityService _textUtility;
+    private readonly IPromptMergeService _promptMergeService;
     private readonly ILogger<ChatController> _logger;
 
     public ChatController(
         ProviderRegistry providerRegistry,
         TextUtilityService textUtility,
+        IPromptMergeService promptMergeService,
         ILogger<ChatController> logger)
     {
         _providerRegistry = providerRegistry;
         _textUtility = textUtility;
+        _promptMergeService = promptMergeService;
         _logger = logger;
     }
 
@@ -40,8 +44,10 @@ public class ChatController : ControllerBase
         {
             using var reader = new StreamReader(Request.Body);
             var body = await reader.ReadToEndAsync(ct);
-            request = JsonSerializer.Deserialize<ChatCompletionRequest>(body)
-                ?? new ChatCompletionRequest();
+            request = JsonSerializer.Deserialize<ChatCompletionRequest>(body, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            }) ?? new ChatCompletionRequest();
         }
         catch
         {
@@ -50,19 +56,23 @@ public class ChatController : ControllerBase
 
         try
         {
-            var (_, _, parameters, provider) = _providerRegistry.ResolveChatProvider(request);
+            var (_, resolvedModel, parameters, provider) = _providerRegistry.ResolveChatProvider(request);
             var prompt = request.Messages.Count > 0
                 ? request.Messages[^1].Content
                 : "Hello";
 
-            var systemPrompt = "You are a helpful code analysis assistant. Respond in the same language as the user's query.";
-            var fullPrompt = $"{systemPrompt}\n\nUser query: {prompt}";
+            var (systemPrompt, userPrompt) = await _promptMergeService.BuildChatPromptAsync(
+                "chat", provider.ProviderId, "text",
+                new Dictionary<string, string> { ["question"] = prompt });
+
+            var finalPrompt = string.IsNullOrEmpty(userPrompt) ? prompt : userPrompt;
 
             var providerRequest = new ProviderChatRequest
             {
                 ProviderId = provider.ProviderId,
-                Model = request.Model ?? string.Empty,
-                Prompt = fullPrompt,
+                Model = resolvedModel,
+                Prompt = finalPrompt,
+                SystemPrompt = systemPrompt,
                 Temperature = parameters.Temperature,
                 TopP = parameters.TopP,
                 TopK = parameters.TopK,

@@ -143,12 +143,17 @@ export default function VersionSwitcher({
           ) : (
             <div className="space-y-1">
               {repositoryVersions.slice(0, 5).map((version) => (
-                <div
+                <button
+                  type="button"
                   key={version.repository_version_id}
-                  className={`px-3 py-1.5 text-xs rounded-md ${
+                  onClick={() => {
+                    onVersionChange('', version.repository_version_id);
+                    setIsExpanded(false);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-xs rounded-md cursor-pointer transition-colors ${
                     currentRepositoryVersionId === version.repository_version_id
-                      ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]'
-                      : 'text-[var(--foreground)]'
+                      ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] ring-1 ring-[var(--accent-primary)]/30'
+                      : 'text-[var(--foreground)] hover:bg-[var(--card-bg)]'
                   }`}
                 >
                   <div className="flex items-center gap-1.5">
@@ -159,7 +164,7 @@ export default function VersionSwitcher({
                   <div className="text-[var(--muted)] mt-0.5">
                     {truncateSha(version.commit_sha)} · {formatDate(version.commit_time)}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}

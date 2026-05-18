@@ -43,6 +43,24 @@ public class PromptTemplateRepository : IPromptTemplateRepository
             .ToListAsync();
     }
 
+    public async Task<List<PromptTemplate>> GetByCategoryAsync(string category)
+    {
+        return await _context.PromptTemplates
+            .AsNoTracking()
+            .Where(p => p.Category == category && p.IsActive)
+            .OrderBy(p => p.Priority)
+            .ToListAsync();
+    }
+
+    public async Task<List<PromptTemplate>> GetBySlugAsync(IEnumerable<string> slugs)
+    {
+        return await _context.PromptTemplates
+            .AsNoTracking()
+            .Where(p => slugs.Contains(p.Slug) && p.IsActive)
+            .OrderBy(p => p.Priority)
+            .ToListAsync();
+    }
+
     public async Task<PromptTemplate> AddAsync(PromptTemplate template)
     {
         template.CreatedAt = DateTime.UtcNow;

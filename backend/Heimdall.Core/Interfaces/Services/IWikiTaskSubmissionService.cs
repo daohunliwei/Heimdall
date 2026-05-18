@@ -132,4 +132,27 @@ public sealed class WikiTaskSubmissionResult
     /// 面向前端的结果说明。
     /// </summary>
     public string? Message { get; set; }
+
+    /// <summary>
+    /// 预估成本信息（V6 新增）。
+    /// </summary>
+    public WikiTaskCostEstimate? CostEstimate { get; set; }
+
+    /// <summary>
+    /// 小模型质量警告（V6 新增）。
+    /// </summary>
+    public string? QualityWarning { get; set; }
+}
+
+/// <summary>
+/// Wiki 任务预估成本（V6 新增）。
+/// </summary>
+public sealed class WikiTaskCostEstimate
+{
+    public long EstimatedInputTokens { get; set; }
+    public long EstimatedOutputTokens { get; set; }
+    public int EstimatedCallCount { get; set; }
+    public double EstimatedCostUsd { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
 }

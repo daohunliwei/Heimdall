@@ -113,11 +113,14 @@ public sealed class BedrockChatProvider : IChatProvider
     /// </summary>
     private static object BuildRequestBody(string provider, ProviderChatRequest request)
     {
+        var hasSystem = !string.IsNullOrWhiteSpace(request.SystemPrompt);
+
         return provider switch
         {
             "anthropic" => new
             {
                 anthropic_version = "bedrock-2023-05-31",
+                system = hasSystem ? request.SystemPrompt : null,
                 messages = new[]
                 {
                     new
@@ -135,7 +138,7 @@ public sealed class BedrockChatProvider : IChatProvider
             },
             "amazon" => new
             {
-                inputText = request.Prompt,
+                inputText = hasSystem ? $"{request.SystemPrompt}\n\n{request.Prompt}" : request.Prompt,
                 textGenerationConfig = new
                 {
                     maxTokenCount = 4096,
@@ -146,19 +149,19 @@ public sealed class BedrockChatProvider : IChatProvider
             },
             "cohere" => new
             {
-                prompt = request.Prompt,
+                prompt = hasSystem ? $"{request.SystemPrompt}\n\n{request.Prompt}" : request.Prompt,
                 max_tokens = 4096,
                 temperature = request.Temperature ?? 0.7,
                 p = request.TopP ?? 0.8
             },
             "ai21" => new
             {
-                prompt = request.Prompt,
+                prompt = hasSystem ? $"{request.SystemPrompt}\n\n{request.Prompt}" : request.Prompt,
                 maxTokens = 4096,
                 temperature = request.Temperature ?? 0.7,
                 topP = request.TopP ?? 0.8
             },
-            _ => new { prompt = request.Prompt }
+            _ => new { prompt = hasSystem ? $"{request.SystemPrompt}\n\n{request.Prompt}" : request.Prompt }
         };
     }
 

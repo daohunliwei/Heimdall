@@ -17,18 +17,31 @@ public sealed class TaskLlmService
     }
 
     public async Task<string> GenerateTextAsync(
-        string provider, string? model, string? customModel, string prompt, CancellationToken ct)
+        string provider, string? model, string? customModel, string prompt,
+        CancellationToken ct, string? systemPrompt = null)
     {
         var stopwatch = Stopwatch.StartNew();
+        // 规范化 provider：空值时回退到环境配置
+        var effectiveProvider = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
+        var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
+            : !string.IsNullOrWhiteSpace(customModel) ? customModel
+            : null;
+
         var request = new ChatCompletionRequest
         {
-            Provider = provider,
-            Model = model ?? customModel ?? string.Empty,
+            Provider = effectiveProvider,
+            Model = effectiveModel ?? string.Empty,
             CustomModel = customModel,
             Messages = [new ChatMessage { Role = "user", Content = prompt }]
         };
 
         var (resolvedProviderId, resolvedModel, parameters, chatProvider) = _providerRegistry.ResolveChatProvider(request);
+
+        if (string.IsNullOrWhiteSpace(resolvedModel))
+        {
+            throw new InvalidOperationException(
+                $"无法解析 Provider='{resolvedProviderId}' 的模型。请在请求中指定 model 参数，或在 generator.json 中配置该 Provider 的默认模型。");
+        }
 
         _logger.LogInformation("LLM 调用 Provider={Provider} Model={Model} PromptLen={Len}",
             resolvedProviderId, resolvedModel, prompt.Length);
@@ -38,6 +51,7 @@ public sealed class TaskLlmService
             ProviderId = resolvedProviderId,
             Model = resolvedModel,
             Prompt = prompt,
+            SystemPrompt = systemPrompt,
             Temperature = parameters.Temperature,
             TopP = parameters.TopP,
             TopK = parameters.TopK,
