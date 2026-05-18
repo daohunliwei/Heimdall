@@ -1,8 +1,4 @@
-import RepoInfo from '@/types/repoinfo';
-import getRepoUrl from '@/utils/getRepoUrl';
-
 export interface TaskRequestOptions {
-  repoInfo: RepoInfo;
   token?: string | null;
   provider?: string;
   model?: string;
@@ -20,7 +16,6 @@ export function buildTaskRequestBody(
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const {
-    repoInfo,
     token,
     provider,
     model,
@@ -34,10 +29,6 @@ export function buildTaskRequestBody(
   } = options;
 
   const body: Record<string, unknown> = {
-    repo_url: getRepoUrl(repoInfo),
-    owner: repoInfo.owner,
-    repo: repoInfo.repo,
-    type: repoInfo.type,
     language,
     ...extra,
   };
@@ -51,6 +42,7 @@ export function buildTaskRequestBody(
   }
 
   if (isCustomModel) {
+    body.is_custom_model = true;
     if (customModel) {
       body.custom_model = customModel;
     }

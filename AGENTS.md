@@ -7,40 +7,60 @@
 当前官方技术栈：
 
 - 后端：C# / ASP.NET Core / `.NET 10`
-- 前端：Next.js
+- 前端：Next.js 16 (App Router)
+- 数据库：PostgreSQL + pgvector
 
 历史 Python 逻辑已完全移除，仓库不再包含任何 Python 运行链路与源码目录。
 
+## 架构
+
+```
+Heimdall.Api (API 层)         →  控制器、DTO、中间件、Mappings
+    ↓
+Heimdall.Core (业务层)        →  实体、业务接口与实现、领域模型
+    ↓
+Heimdall.Repository (数据层)  →  EF Core、仓储、迁移、向量查询
+    ↘              ↙
+Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本工具
+```
+
+依赖规则：Api → Core → Repository；全部 → Infrastructure。Core 不依赖 Api。层间通过接口通信，DI 注入。
+
 ## 目录职责
 
-- `backend/Heimdall.Api`：C# 后端入口、配置、Provider、RAG、仓库访问与缓存逻辑
+- `backend/Heimdall.Api`：C# API 入口——控制器、中间件、DTO 模型、Mappings、`Program.cs`
+- `backend/Heimdall.Core`：业务逻辑——`Entities/`、`Interfaces/`、`Services/`、`Models/`。`Services/Repository/` 含 `CodeIndexService`（本地代码索引，无 LLM）和 `CodeStructureIndexService`；`Services/Search/` 含 `HybridSearchService`（BM25 + 向量双路检索）；`Services/Tasks/` 含 `AgentOrchestratorService`（大仓库子代理协调）
+- `backend/Heimdall.Infrastructure`：工具层——`Providers/`（LLM 适配）、`Search/`（BM25 搜索引擎）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
+- `backend/Heimdall.Repository`：数据层——`Data/`（AppDbContext）、`EntityConfigurations/`、`Repositories/`、`Migrations/`
 - `frontend/src/app`：Next.js 页面与 API 代理路由
 - `frontend/src/components`：前端组件
-- `frontend/src/contexts`：前端上下文
+- `frontend/src/contexts`：Auth/Language 上下文
+- `frontend/src/hooks`：自定义 Hook（useTaskStream、useProcessedProjects、useArtifactVersionContext）
 - `frontend/src/messages`：中文界面文案
-- `.trae/specs/migrate-stack-to-csharp-nextjs`：本次改造规格与任务文档
+- `doc/architecture`：架构升级方案与审计清单
 
 ## 修改原则
 
 - 所有新增文档、注释、说明文字必须使用中文
-- 主目录只允许存在 C# 与 Next.js 主逻辑
 - C# 运行时固定为 `.NET 10`
-- 优先修改 C# 后端与 Next.js 前端，不要引入新的 Python 业务代码或运行依赖
+- 优先修改 C# 后端与 Next.js 前端，不要引入 Python 业务代码
+- 数据层变更需生成 EF Core 迁移
+- 新服务需在 `Program.cs` 中注册 DI
 
 ## 常见任务入口
 
-### 新增后端接口或后端业务能力
+### 新增后端接口或业务能力
 
 优先修改：
 
-- `backend/Heimdall.Api/Program.cs`
-- `backend/Heimdall.Api/Services/Chat/*`
-- `backend/Heimdall.Api/Services/Providers/*`
-- `backend/Heimdall.Api/Services/Rag/*`
-- `backend/Heimdall.Api/Services/Repository/*`
-- `backend/Heimdall.Api/Services/Configuration/*`
-- `backend/Heimdall.Api/Models/ApiModels.cs`
-- `backend/Heimdall.Api/config/*.json`
+- `backend/Heimdall.Api/Program.cs` — DI 注册、中间件管道
+- `backend/Heimdall.Api/Controllers/` — API 控制器
+- `backend/Heimdall.Core/Services/` — 业务服务实现
+- `backend/Heimdall.Core/Interfaces/` — 接口定义
+- `backend/Heimdall.Core/Entities/` — 领域实体
+- `backend/Heimdall.Repository/Repositories/` — 数据访问实现
+- `backend/Heimdall.Api/Models/` — API DTO
+- `backend/Heimdall.Api/config/` — JSON 配置文件
 
 如果只是前端转发，可同步查看：
 
@@ -52,30 +72,59 @@
 优先修改：
 
 - `frontend/src/app/page.tsx`
-- `frontend/src/app/[owner]/[repo]/page.tsx`
+- `frontend/src/app/repositories/[repositoryId]/page.tsx`
 - `frontend/src/components/*`
+- `frontend/src/components/RefreshPanel.tsx`
+- `frontend/src/components/VersionSwitcher.tsx`
 
 ### 修改缓存与项目列表
 
 优先修改：
 
-- `backend/Heimdall.Api/Program.cs` 中的路由映射
-- `backend/Heimdall.Api/Models/ApiModels.cs`
+- `backend/Heimdall.Api/Controllers/ProjectsController.cs`
+- `backend/Heimdall.Api/Controllers/WikiCacheController.cs`
 - `frontend/src/app/api/wiki/projects/route.ts`
 - `frontend/src/components/ProcessedProjects.tsx`
+
+### 修改 Wiki 生成管线与代码索引
+
+优先修改：
+
+- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 8 阶段管线编排
+- `backend/Heimdall.Core/Services/Repository/CodeIndexService.cs` — 本地代码索引（正则符号提取，无 LLM）
+- `backend/Heimdall.Core/Services/Search/HybridSearchService.cs` — BM25 + 向量混合检索
+- `backend/Heimdall.Infrastructure/Search/Bm25SearchService.cs` — BM25 精确匹配引擎
+- `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs` — 提示词构建
+- `backend/Heimdall.Core/Services/Prompt/PromptSeedData.cs` — 提示词模板播种
+- `backend/Heimdall.Core/Interfaces/Services/IHybridSearchService.cs` — 混合检索接口
+- `backend/Heimdall.Core/Entities/CodeIndexEntry.cs` — 代码索引实体
+- `backend/Heimdall.Repository/Repositories/CodeIndexRepository.cs` — 索引持久化
 
 ### 修改问答、演示文稿、训练营能力
 
 优先修改：
 
-- `backend/Heimdall.Api/Program.cs` 中的 `/chat/completions/stream`
-- `backend/Heimdall.Api/Services/Chat/ChatOrchestratorService.cs`
-- `backend/Heimdall.Api/Services/Rag/*`
-- `backend/Heimdall.Api/Services/Providers/*`
-- `backend/Heimdall.Api/Services/Utility/PromptTemplateService.cs`
+- `backend/Heimdall.Api/Controllers/ChatController.cs`
+- `backend/Heimdall.Api/Controllers/TasksController.cs`
+- `backend/Heimdall.Core/Services/Tasks/AskTaskService.cs`
+- `backend/Heimdall.Core/Services/Tasks/SlidesTaskService.cs`
+- `backend/Heimdall.Core/Services/Tasks/WorkshopTaskService.cs`
+- `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs`
+- `backend/Heimdall.Core/Services/Tasks/VersionedKnowledgeService.cs`
+- `backend/Heimdall.Core/Services/Prompt/PromptTemplateService.cs`
+- `backend/Heimdall.Infrastructure/Providers/`
 - `frontend/src/components/Ask.tsx`
-- `frontend/src/app/[owner]/[repo]/slides/page.tsx`
-- `frontend/src/app/[owner]/[repo]/workshop/page.tsx`
+- `frontend/src/app/repositories/[repositoryId]/slides/page.tsx`
+- `frontend/src/app/repositories/[repositoryId]/workshop/page.tsx`
+
+### 修改数据库
+
+优先修改：
+
+- `backend/Heimdall.Core/Entities/` — 实体定义
+- `backend/Heimdall.Repository/Data/EntityConfigurations/` — Fluent API
+- `backend/Heimdall.Repository/Data/AppDbContext.cs` — DbContext
+- 修改后执行：`dotnet ef migrations add <Name>` → `dotnet ef database update`
 
 ## 运行方式
 
@@ -95,28 +144,31 @@ npm install
 npm run dev
 ```
 
+一键启动：
+
+```bash
+cd frontend
+npm run dev:all
+```
+
 ### 关键环境变量
 
-- 品牌名称已切换为 Heimdall，环境变量统一使用 `HEIMDALL_*` 键名
-- `SERVER_BASE_URL`
-- `HEIMDALL_AUTH_MODE`
-- `HEIMDALL_AUTH_CODE`
-- `HEIMDALL_DATA_DIR`
-- `HEIMDALL_DEFAULT_PROVIDER`
-- `HEIMDALL_EMBEDDER_TYPE`
-- `OPENAI_API_KEY`
-- `OPENROUTER_API_KEY`
-- `GOOGLE_API_KEY`
-- `MINIMAX_API_KEY`
-- `MINIMAX_BASE_URL`
-- `DASHSCOPE_API_KEY`
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_ENDPOINT`
-- `AZURE_OPENAI_VERSION`
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_REGION`
-- `OLLAMA_HOST`
+- `HEIMDALL_CONNECTION_STRING` — PostgreSQL + pgvector 连接字符串
+- `HEIMDALL_AUTH_MODE` — `none` 或 `jwt`
+- `HEIMDALL_JWT_SECRET` — JWT 签名密钥
+- `HEIMDALL_JWT_EXPIRY_HOURS` — Token 过期小时数
+- `HEIMDALL_REGISTRATION_OPEN` — 是否开放注册
+- `HEIMDALL_DEFAULT_PROVIDER` — 默认 LLM Provider
+- `HEIMDALL_EMBEDDER_TYPE` — 向量嵌入器类型
+- `HEIMDALL_OLLAMA_CHAT_HOST` — Ollama Chat 地址
+- `HEIMDALL_OLLAMA_EMBED_HOST` — Ollama Embedding 地址
+- `SERVER_BASE_URL` — 前端代理的后端地址
+- `HEIMDALL_DATA_DIR` — Wiki 缓存数据目录
+- `HEIMDALL_STORAGE_DIR` — 仓库克隆暂存目录
+- `HEIMDALL_HTTP_TIMEOUT_MINUTES` — HTTP 超时
+- `HEIMDALL_WIKI_TASK_TIMEOUT_MINUTES` — Wiki 任务超时
+
+Provider 密钥：`OPENAI_API_KEY`、`GOOGLE_API_KEY`、`OLLAMA_HOST` 等
 
 ## 验证方式
 
@@ -133,13 +185,29 @@ npm run build
 dotnet build backend/Heimdall.Api/Heimdall.Api.csproj
 ```
 
+### 数据库迁移
+
+```bash
+dotnet ef migrations add <Name> \
+  --project backend/Heimdall.Repository \
+  --startup-project backend/Heimdall.Api
+
+dotnet ef database update \
+  --project backend/Heimdall.Repository \
+  --startup-project backend/Heimdall.Api
+```
+
 ### 联调重点
 
-- 首页能否进入仓库页面
-- 项目列表能否加载与删除缓存
-- Wiki 缓存能否读取、保存、清理
-- 问答流式输出是否正常
-- 演示文稿与训练营页面是否能正常生成内容
+- 首页输入仓库 URL → 调用 `POST /api/repositories/import` → 跳转 `/repositories/{repositoryId}`
+- 仓库页能否加载 Wiki 版本列表、页面树与页面内容
+- `POST /api/repositories/{repositoryId}/wiki/refresh` 是否立即返回 task_id
+- 后台异步 Wiki 生成是否按新管线执行：仓库准备 → 代码索引（本地，无 LLM）→ 结构规划 → 检索增强页面生成 → 质量审查 → 渲染后处理 → 持久化 → 向量嵌入
+- 页面生成是否使用混合检索（BM25 + 向量搜索）注入真实代码片段，而非旧的逐文件 LLM 摘要
+- 版本切换器能否切换到指定 Wiki 版本并正确加载页面
+- 问答（Ask）是否继承当前版本上下文并基于双向量检索生成回答
+- Slides / Workshop 页面是否透传 `repositoryVersionId` + `wikiVersionId`
+- 管理后台仪表盘、用户管理、任务监控、Prompt 模板是否正常
 
 ## 禁止事项
 
@@ -147,3 +215,5 @@ dotnet build backend/Heimdall.Api/Heimdall.Api.csproj
 - 不要引入新的多语言文档与多语言界面资源
 - 不要把 .NET 版本改成非 `.NET 10`
 - 不要引入任何 Python 运行链路（包括脚本、服务、镜像依赖与 CI 步骤）
+- 不要删除数据库已有表（使用增量迁移）
+- 不要创建 Core → Api 方向的项目引用
