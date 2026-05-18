@@ -175,6 +175,11 @@ public class TasksController : ControllerBase
             ? repository.DefaultBranch ?? "main"
             : request.Branch;
 
+        // 空字符串 → null，确保下游 ?? 运算符正确回退
+        var provider = string.IsNullOrWhiteSpace(request.Provider) ? null : request.Provider;
+        var model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
+        var customModel = string.IsNullOrWhiteSpace(request.CustomModel) ? null : request.CustomModel;
+
         if (request.IsCustomModel == true)
         {
             return new VersionedTaskExecutionOptions
@@ -184,8 +189,8 @@ public class TasksController : ControllerBase
                 WikiVersionId = request.WikiVersionId,
                 Language = request.Language,
                 Branch = branch,
-                Provider = request.Provider,
-                CustomModel = request.CustomModel
+                Provider = provider,
+                CustomModel = customModel
             };
         }
 
@@ -196,8 +201,8 @@ public class TasksController : ControllerBase
             WikiVersionId = request.WikiVersionId,
             Language = request.Language,
             Branch = branch,
-            Provider = request.Provider,
-            Model = request.Model,
+            Provider = provider,
+            Model = model,
             CustomModel = null
         };
     }

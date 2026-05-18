@@ -47,6 +47,16 @@ public class WikiPageDto
     public List<string> FilePaths { get; set; } = new();
 
     /// <summary>
+    /// 页面搜索关键词——供混合检索引擎在生成时检索真实代码片段。
+    /// </summary>
+    public List<string> SearchKeywords { get; set; } = new();
+
+    /// <summary>
+    /// 必须包含的关键文件路径——检索结果会与这些路径取并集。
+    /// </summary>
+    public List<string> KeyFilePaths { get; set; } = new();
+
+    /// <summary>
     /// 页面重要性。
     /// 允许值包括 high、medium、low。
     /// </summary>

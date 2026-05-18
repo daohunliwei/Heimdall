@@ -16,6 +16,10 @@ public class PromptTemplateConfiguration : IEntityTypeConfiguration<PromptTempla
         builder.Property(e => e.ScopeType).HasMaxLength(16).IsRequired().HasDefaultValue("global");
         builder.Property(e => e.ScopeValue).HasMaxLength(128);
         builder.Property(e => e.TemplateContent).HasColumnType("text").IsRequired();
+        builder.Property(e => e.Category).HasMaxLength(64).IsRequired().HasDefaultValue("general");
+        builder.Property(e => e.SubCategory).HasMaxLength(64);
+        builder.Property(e => e.Priority).HasDefaultValue(0);
+        builder.Property(e => e.ApplicableProviders).HasColumnType("text[]");
         builder.Property(e => e.Variables).HasColumnType("text[]");
         builder.Property(e => e.IsSystem).HasDefaultValue(false);
         builder.Property(e => e.IsActive).HasDefaultValue(true);

@@ -29,8 +29,8 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 ## 目录职责
 
 - `backend/Heimdall.Api`：C# API 入口——控制器、中间件、DTO 模型、Mappings、`Program.cs`
-- `backend/Heimdall.Core`：业务逻辑——`Entities/`、`Interfaces/`、`Services/`、`Models/`
-- `backend/Heimdall.Infrastructure`：工具层——`Providers/`（LLM 适配）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
+- `backend/Heimdall.Core`：业务逻辑——`Entities/`、`Interfaces/`、`Services/`、`Models/`。`Services/Repository/` 含 `CodeIndexService`（本地代码索引，无 LLM）和 `CodeStructureIndexService`；`Services/Search/` 含 `HybridSearchService`（BM25 + 向量双路检索）；`Services/Tasks/` 含 `AgentOrchestratorService`（大仓库子代理协调）
+- `backend/Heimdall.Infrastructure`：工具层——`Providers/`（LLM 适配）、`Search/`（BM25 搜索引擎）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
 - `backend/Heimdall.Repository`：数据层——`Data/`（AppDbContext）、`EntityConfigurations/`、`Repositories/`、`Migrations/`
 - `frontend/src/app`：Next.js 页面与 API 代理路由
 - `frontend/src/components`：前端组件
@@ -85,6 +85,20 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 - `backend/Heimdall.Api/Controllers/WikiCacheController.cs`
 - `frontend/src/app/api/wiki/projects/route.ts`
 - `frontend/src/components/ProcessedProjects.tsx`
+
+### 修改 Wiki 生成管线与代码索引
+
+优先修改：
+
+- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 8 阶段管线编排
+- `backend/Heimdall.Core/Services/Repository/CodeIndexService.cs` — 本地代码索引（正则符号提取，无 LLM）
+- `backend/Heimdall.Core/Services/Search/HybridSearchService.cs` — BM25 + 向量混合检索
+- `backend/Heimdall.Infrastructure/Search/Bm25SearchService.cs` — BM25 精确匹配引擎
+- `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs` — 提示词构建
+- `backend/Heimdall.Core/Services/Prompt/PromptSeedData.cs` — 提示词模板播种
+- `backend/Heimdall.Core/Interfaces/Services/IHybridSearchService.cs` — 混合检索接口
+- `backend/Heimdall.Core/Entities/CodeIndexEntry.cs` — 代码索引实体
+- `backend/Heimdall.Repository/Repositories/CodeIndexRepository.cs` — 索引持久化
 
 ### 修改问答、演示文稿、训练营能力
 
@@ -188,7 +202,8 @@ dotnet ef database update \
 - 首页输入仓库 URL → 调用 `POST /api/repositories/import` → 跳转 `/repositories/{repositoryId}`
 - 仓库页能否加载 Wiki 版本列表、页面树与页面内容
 - `POST /api/repositories/{repositoryId}/wiki/refresh` 是否立即返回 task_id
-- 后台异步 Wiki 生成是否按 8 阶段逐阶段推进并落库
+- 后台异步 Wiki 生成是否按新管线执行：仓库准备 → 代码索引（本地，无 LLM）→ 结构规划 → 检索增强页面生成 → 质量审查 → 渲染后处理 → 持久化 → 向量嵌入
+- 页面生成是否使用混合检索（BM25 + 向量搜索）注入真实代码片段，而非旧的逐文件 LLM 摘要
 - 版本切换器能否切换到指定 Wiki 版本并正确加载页面
 - 问答（Ask）是否继承当前版本上下文并基于双向量检索生成回答
 - Slides / Workshop 页面是否透传 `repositoryVersionId` + `wikiVersionId`

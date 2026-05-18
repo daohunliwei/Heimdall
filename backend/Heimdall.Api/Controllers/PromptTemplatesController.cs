@@ -40,7 +40,10 @@ public class PromptTemplatesController : ControllerBase
         {
             Slug = request.Slug,
             Name = request.Name,
-            Layer = request.Category,
+            Category = request.Category,
+            SubCategory = request.SubCategory,
+            Priority = request.Priority,
+            ApplicableProviders = request.ApplicableProviders,
             TemplateContent = request.ContentTemplate,
             IsSystem = false
         };
@@ -145,6 +148,29 @@ public class PromptTemplatesController : ControllerBase
         return Content(result, "text/plain; charset=utf-8");
     }
 
+    // ── 类别查询 (V5) ──
+
+    [HttpGet("categories")]
+    public async Task<IActionResult> GetCategories()
+    {
+        var templates = await _promptService.GetAllAsync();
+        var categories = templates
+            .Where(t => t.IsActive)
+            .GroupBy(t => t.Category)
+            .Select(g => new
+            {
+                category = g.Key,
+                subCategories = g.Where(t => t.SubCategory != null)
+                    .Select(t => t.SubCategory!)
+                    .Distinct()
+                    .OrderBy(s => s)
+                    .ToList()
+            })
+            .OrderBy(c => c.category)
+            .ToList();
+        return Ok(categories);
+    }
+
     // ── DTO 映射 ──
 
     private static object MapToDto(PromptTemplate t) => new
@@ -152,7 +178,10 @@ public class PromptTemplatesController : ControllerBase
         t.Id,
         t.Slug,
         t.Name,
-        Category = t.Layer,
+        Category = t.Category,
+        SubCategory = t.SubCategory,
+        Priority = t.Priority,
+        ApplicableProviders = t.ApplicableProviders,
         t.TemplateContent,
         t.IsSystem,
         t.IsActive,
@@ -169,6 +198,9 @@ public class CreatePromptTemplateRequest
     [Required] public string Slug { get; set; } = string.Empty;
     [Required] public string Name { get; set; } = string.Empty;
     [Required] public string Category { get; set; } = string.Empty;
+    public string? SubCategory { get; set; }
+    public int Priority { get; set; }
+    public string[]? ApplicableProviders { get; set; }
     [Required] public string ContentTemplate { get; set; } = string.Empty;
 }
 

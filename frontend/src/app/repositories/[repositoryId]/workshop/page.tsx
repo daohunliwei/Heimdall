@@ -160,6 +160,11 @@ export default function WorkshopPage() {
               <FaDownload />
             </button>
             <ThemeToggle />
+            {(providerParam || modelParam) && (
+              <span className="tag tag-primary text-xs">
+                当前模型：{modelParam || customModelParam || '(默认)'} ({providerParam || 'ollama'})
+              </span>
+            )}
           </div>
         </div>
       </header>
