@@ -72,8 +72,8 @@
 - [x] 8.1 新增 `GET /api/providers/metadata` 端点：返回所有 Provider 的模型元数据（BillingType、MaxContextTokens 等）
 - [x] 8.2 扩展 Wiki 刷新响应：返回预估页面数量和预估成本范围
 - [x] 8.3 前端 Wiki 树组件支持 3-5 层深度折叠展示（更新 TreeView 组件递归渲染逻辑）
-- [ ] 8.4 前端新增 LLM 调用进度/成本实时展示面板（轮询 `/api/tasks/{taskId}/metrics`）
-- [ ] 8.5 前端 Wiki 刷新弹窗增加"预估页面数"和"预估成本"显示
+- [x] 8.4 前端新增 LLM 调用进度/成本实时展示面板（轮询 `/api/tasks/{taskId}/metrics`）
+- [x] 8.5 前端 Wiki 刷新弹窗增加"预估页面数"和"预估成本"显示
 
 ## 9. 日志增强
 
