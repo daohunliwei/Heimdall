@@ -364,12 +364,44 @@ public sealed class WikiTaskService
                     "正在生成 Wiki 结构...",
                     execToken);
 
-                var structureSw = Stopwatch.StartNew();
-                structureRawResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
-                await LogLlmCallAsync(task.Id, 0, "structure_generation", effectiveProvider, model ?? customModel,
-                    structurePrompt, structureRawResponse, (int)structureSw.ElapsedMilliseconds, false);
+                // 结构规划重试机制：当解析结果页面数过少时自动重试（最多 2 次）
+                var minExpectedPages = comprehensive ? 6 : 3;
+                var structureAttemptCount = 0;
+                const int maxStructureAttempts = 3;
 
-                wikiStructure = _wikiParser.ParseStructure(structureRawResponse, comprehensive);
+                do
+                {
+                    structureAttemptCount++;
+                    var structureSw = Stopwatch.StartNew();
+                    structureRawResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
+                    await LogLlmCallAsync(task.Id, 0, "structure_generation", effectiveProvider, model ?? customModel,
+                        structurePrompt, structureRawResponse, (int)structureSw.ElapsedMilliseconds, false);
+
+                    wikiStructure = _wikiParser.ParseStructure(structureRawResponse, comprehensive);
+
+                    if (wikiStructure.Pages.Count >= minExpectedPages)
+                        break;
+
+                    _logger.LogWarning(
+                        "结构规划页面数不足 TaskId={TaskId} Attempt={Attempt} PageCount={Count} MinExpected={Min}，将重试",
+                        task.Id, structureAttemptCount, wikiStructure.Pages.Count, minExpectedPages);
+
+                    if (structureAttemptCount < maxStructureAttempts)
+                    {
+                        await MarkTaskStageAsync(taskRepo, executingTask, "structure_planning", "running", 22,
+                            $"结构规划结果不理想（仅 {wikiStructure.Pages.Count} 页），正在重试第 {structureAttemptCount + 1} 次...",
+                            execToken);
+                    }
+                } while (structureAttemptCount < maxStructureAttempts);
+
+                // 即使重试后仍不足，也继续执行（使用最后一次结果）
+                if (wikiStructure.Pages.Count < minExpectedPages)
+                {
+                    _logger.LogWarning(
+                        "结构规划重试 {Attempts} 次后仍仅 {Count} 页 TaskId={TaskId}，使用当前结果继续",
+                        maxStructureAttempts, wikiStructure.Pages.Count, task.Id);
+                }
+
                 structureJson = _wikiParser.SerializeStructure(wikiStructure);
                 await UpsertTaskArtifactAsync(
                     artifactRepo,
