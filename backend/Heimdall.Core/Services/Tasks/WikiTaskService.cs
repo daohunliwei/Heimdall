@@ -875,6 +875,9 @@ public sealed class WikiTaskService
                 task.Id, totalPages, maxDepth, totalStopwatch.Elapsed.TotalSeconds,
                 isV7Pipeline ? "v7" : "v6");
 
+            var llmCalls = 0;
+            var llmInputTokens = 0;
+            var llmOutputTokens = 0;
             if (isV7Pipeline)
             {
                 try
@@ -885,6 +888,9 @@ public sealed class WikiTaskService
                     if (obsService != null)
                     {
                         var summary = await obsService.GetTaskSummaryAsync(task.Id);
+                        llmCalls = summary.TotalCalls;
+                        llmInputTokens = (int)summary.TotalInputTokens;
+                        llmOutputTokens = (int)summary.TotalOutputTokens;
                         _logger.LogInformation(
                             "[Wiki] LLM汇总 TaskId={TaskId} Calls={Calls} InputTokens={In} OutputTokens={Out} CacheHitTokens={Cache} TotalCost≈${Cost:F4} CacheRate={Rate:P0}",
                             task.Id, summary.TotalCalls, summary.TotalInputTokens,
@@ -898,7 +904,7 @@ public sealed class WikiTaskService
                 catch { /* 日志失败不影响主流程 */ }
             }
             _structuredLogger.LogTaskSummary(task.Id, totalPages,
-                totalStopwatch.Elapsed.TotalSeconds, 0, 0, 0);
+                totalStopwatch.Elapsed.TotalSeconds, llmCalls, llmInputTokens, llmOutputTokens);
         }
         catch (OperationCanceledException)
         {
