@@ -406,6 +406,23 @@ public sealed class WikiTaskService
             }
 
             var completedBatchKeys = await RestoreCompletedPageBatchesAsync(artifactRepo, executingTask.Id, wikiStructure, execToken);
+
+            // V7: 拓扑序排列——按 depth 分层生成（先生成 L1-2 概览页，再 L3 中层页，最后 L4-5 详细页）
+            // 这确保子页面生成时可以注入父页面摘要
+            if (isV7Pipeline)
+            {
+                wikiStructure.Pages = wikiStructure.Pages
+                    .OrderBy(p => p.Depth)
+                    .ThenBy(p => p.ContentDepthLevel switch
+                    {
+                        "overview" => 0,
+                        "section" => 1,
+                        "article" => 2,
+                        _ => 1
+                    })
+                    .ToList();
+            }
+
             var totalPages = wikiStructure.Pages.Count;
 
             // V7: CodingPlan 模型使用更大的批次（减少调用次数）
@@ -470,6 +487,33 @@ public sealed class WikiTaskService
                 {
                     execToken.ThrowIfCancellationRequested();
 
+                    // V7: 注入父页面摘要（拓扑序确保父页面已生成）
+                    string? parentContext = null;
+                    if (isV7Pipeline && !string.IsNullOrEmpty(page.ParentId))
+                    {
+                        var parentPage = wikiStructure.Pages.FirstOrDefault(p => p.Id == page.ParentId);
+                        if (parentPage is not null && !string.IsNullOrWhiteSpace(parentPage.Content))
+                        {
+                            var parentSummary = parentPage.Content.Length > 500
+                                ? parentPage.Content[..500] + "..."
+                                : parentPage.Content;
+                            parentContext = $"\n父页面「{parentPage.Title}」摘要：\n{parentSummary}";
+
+                            // 祖父页面标题
+                            if (!string.IsNullOrEmpty(parentPage.ParentId))
+                            {
+                                var grandparent = wikiStructure.Pages.FirstOrDefault(p => p.Id == parentPage.ParentId);
+                                if (grandparent is not null)
+                                    parentContext += $"\n祖父页面：{grandparent.Title}";
+                            }
+                        }
+                    }
+
+                    // 合并跨页面上下文和父页面上下文
+                    var combinedContext = string.IsNullOrWhiteSpace(parentContext)
+                        ? activePageContext
+                        : $"{activePageContext ?? ""}\n{parentContext}";
+
                     // 使用混合搜索检索真实代码片段（替代旧的 ReadPageFiles）
                     var searchQuery = page.SearchKeywords?.Count > 0
                         ? string.Join(" ", page.SearchKeywords)
@@ -488,7 +532,7 @@ public sealed class WikiTaskService
 
                     var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
                         page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay, fileContents,
-                        activePageContext);
+                        combinedContext);
 
                     var pageSw = Stopwatch.StartNew();
                     var stepOrder = wikiStructure.Pages.FindIndex(p => p.Id == page.Id) + 1;

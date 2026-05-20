@@ -42,9 +42,9 @@
 
 - [x] 5.1 重写 `TaskPromptService.BuildWikiStructurePrompt`：接收 CodeUnderstandingResult 作为额外输入，要求输出多层嵌套 JSON（sections.children 递归结构，每页含 depth/parentId/contentDepthLevel 字段）
 - [x] 5.2 更新 `WikiStructureDto` 和相关解析逻辑（`WikiGenerationParserService`）：支持多层嵌套结构解析，pages 含 depth 和 contentDepthLevel 字段
-- [ ] 5.3 实现动态页面数量计算：新公式 `max(15, min(80, modules*3 + entryPoints*2 + patterns*2 + callGraphDepth*3))`，替换现有 `CalculateRecommendedPageCount`
-- [ ] 5.4 实现动态最大深度决定：files < 50  2 层，50-200  3 层，200-500  4 层，> 500  5 层
-- [ ] 5.5 重写 `TaskPromptService.BuildWikiPagePrompt`：根据 contentDepthLevel 分级（overview/section/article）使用不同深度要求的 prompt 模板
+- [x] 5.3 实现动态页面数量计算：新公式 `max(15, min(80, modules*3 + entryPoints*2 + patterns*2 + callGraphDepth*3))`，替换现有 `CalculateRecommendedPageCount`
+- [x] 5.4 实现动态最大深度决定：files < 50  2 层，50-200  3 层，200-500  4 层，> 500  5 层
+- [x] 5.5 重写 `TaskPromptService.BuildWikiPagePrompt`：根据 contentDepthLevel 分级（overview/section/article）使用不同深度要求的 prompt 模板
 - [ ] 5.6 实现拓扑序生成调度器：按 depth 分层生成（先 L1-2  再 L3  再 L4-5），子页面 prompt 注入父页面摘要（500 字）+ 祖父页面标题
 
 ## 6. 管线重构与集成
@@ -53,10 +53,10 @@
 - [x] 6.2 重构 `WikiTaskService`：修改 Stage 4 结构规划阶段，注入 CodeUnderstandingResult 到 prompt
 - [x] 6.3 重构 `WikiTaskService`：修改 Stage 5 页面生成阶段为拓扑序渐进式生成（替换现有 flat batch 逻辑）
 - [x] 6.4 实现 Stage 6 交叉引用编织：分析所有已生成页面内容，自动插入"另见"链接、符号跨页面链接、术语引用
-- [ ] 6.5 集成 ContextPackingService 到页面生成流程：替换硬编码 `maxTotalTokens: 20_000` 为动态预算
-- [ ] 6.6 集成 BillingStrategyService 到页面生成流程：CodingPlan 模型走合并调用路径，TokenPlan 走单页调用路径
-- [ ] 6.7 增强质量审查阶段：新增"层级深度符合度"评估维度，Article 页面缺少代码引用扣分
-- [ ] 6.8 实现 `HEIMDALL_WIKI_PIPELINE_VERSION` 环境变量开关：v7 启用新管线，v6/未设置走旧逻辑
+- [x] 6.5 集成 ContextPackingService 到页面生成流程：替换硬编码 `maxTotalTokens: 20_000` 为动态预算
+- [x] 6.6 集成 BillingStrategyService 到页面生成流程：CodingPlan 模型走合并调用路径，TokenPlan 走单页调用路径
+- [x] 6.7 增强质量审查阶段：新增"层级深度符合度"评估维度，Article 页面缺少代码引用扣分
+- [x] 6.8 实现 `HEIMDALL_WIKI_PIPELINE_VERSION` 环境变量开关：v7 启用新管线，v6/未设置走旧逻辑
 - [ ] 6.9 确保所有新增阶段的工件持久化和断点恢复逻辑正确
 
 ## 7. 混合检索向量路完善
@@ -69,7 +69,7 @@
 
 ## 8. API 层与前端适配
 
-- [ ] 8.1 新增 `GET /api/providers/metadata` 端点：返回所有 Provider 的模型元数据（BillingType、MaxContextTokens 等）
+- [x] 8.1 新增 `GET /api/providers/metadata` 端点：返回所有 Provider 的模型元数据（BillingType、MaxContextTokens 等）
 - [ ] 8.2 扩展 Wiki 刷新响应：返回预估页面数量和预估成本范围
 - [ ] 8.3 前端 Wiki 树组件支持 3-5 层深度折叠展示（更新 TreeView 组件递归渲染逻辑）
 - [ ] 8.4 前端新增 LLM 调用进度/成本实时展示面板（轮询 `/api/tasks/{taskId}/metrics`）
@@ -77,21 +77,21 @@
 
 ## 9. 日志增强
 
-- [ ] 9.1 实现 `[LLM]` 前缀日志输出：调用前记录 Stage/Provider/BillingType/PromptTokens(est)/策略，调用后记录 InputTokens/OutputTokens/CacheHit/Latency/Cost
-- [ ] 9.2 实现深度理解阶段日志：调用图边数、设计模式数、依赖拓扑模块数
+- [x] 9.1 实现 `[LLM]` 前缀日志输出：调用前记录 Stage/Provider/BillingType/PromptTokens(est)/策略，调用后记录 InputTokens/OutputTokens/CacheHit/Latency/Cost
+- [x] 9.2 实现深度理解阶段日志：调用图边数、设计模式数、依赖拓扑模块数
 - [ ] 9.3 实现交叉引用编织阶段日志：插入链接数、符号追踪数、术语引用数
-- [ ] 9.4 增强任务完成汇总日志：总页数/层深/耗时/LLM 调用次数/Token 汇总/缓存率/总成本
+- [x] 9.4 增强任务完成汇总日志：总页数/层深/耗时/LLM 调用次数/Token 汇总/缓存率/总成本
 
 ## 10. DI 注册与配置
 
 - [x] 10.1 在 `Program.cs` 中注册新增服务：IContextPackingService、IRateLimiterService、IBillingStrategyService、ICodeUnderstandingService、ILlmObservabilityService、CallGraphBuilder、DependencyTopologyService、DesignPatternDetector
 - [x] 10.2 注册 LlmMetricsController 和 ProviderMetadataController 路由
 - [x] 10.3 注册 `HEIMDALL_WIKI_PIPELINE_VERSION` 环境变量读取逻辑
-- [ ] 10.4 更新 `config/generator.json` 为所有现有 Provider 填入默认 metadata（Ollama: CodingPlan/131072, OpenAI: TokenPlan/128000 等）
+- [x] 10.4 更新 `config/generator.json` 为所有现有 Provider 填入默认 metadata（Ollama: CodingPlan/131072, OpenAI: TokenPlan/128000 等）
 
 ## 11. 验证与测试
 
-- [ ] 11.1 确保后端 `dotnet build` 编译通过
+- [x] 11.1 确保后端 `dotnet build` 编译通过
 - [ ] 11.2 确保前端 `npm run build` 和 `npm run lint` 通过
 - [ ] 11.3 手动验证：小仓库（< 50 文件）生成 15-20 页 2 层 Wiki
 - [ ] 11.4 手动验证：中型仓库（100-200 文件）生成 30-45 页 3 层 Wiki
