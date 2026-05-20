@@ -46,9 +46,22 @@ const WikiTreeView: React.FC<WikiTreeViewProps> = ({
   currentPageId,
   onPageSelect,
 }) => {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(wikiStructure.rootSections)
-  );
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
+    // V7: 默认展开前 2 层，深层折叠
+    const initialExpanded = new Set<string>();
+    const expandLevel = (sectionIds: string[], depth: number) => {
+      if (depth > 2) return; // 仅自动展开前 2 层
+      for (const id of sectionIds) {
+        initialExpanded.add(id);
+        const section = wikiStructure.sections.find(s => s.id === id);
+        if (section?.subsections?.length) {
+          expandLevel(section.subsections, depth + 1);
+        }
+      }
+    };
+    expandLevel(wikiStructure.rootSections || [], 0);
+    return initialExpanded;
+  });
 
   // 当选中页面变化时，自动展开包含该页面的所有父章节
   useEffect(() => {
@@ -140,14 +153,14 @@ const WikiTreeView: React.FC<WikiTreeViewProps> = ({
 
         <div
           className={`overflow-hidden transition-all duration-200 ease-in-out ${
-            isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+            isExpanded ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0'
           }`}
         >
           <div
             className={`mt-0.5 space-y-0.5 ${
               level >= 0 ? 'pl-2 border-l border-[var(--border-color)]/30' : ''
             }`}
-            style={{ marginLeft: `${level * 4 + 4}px` }}
+            style={{ marginLeft: `${Math.min(level * 4 + 4, 20)}px` }}
           >
             {section.pages.map(pageId => {
               const page = wikiStructure.pages.find(p => p.id === pageId);
