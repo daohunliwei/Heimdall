@@ -13,7 +13,9 @@ public sealed partial class CodeIndexService
 {
     private readonly ILogger<CodeIndexService> _logger;
 
-    // 每块最大行数
+    // V7: 优先按函数/类边界分块时最大行数（120 行）
+    private const int ChunkMaxLinesWithBoundary = 120;
+    // 无边界时回退最大行数
     private const int ChunkMaxLines = 80;
     // 块间重叠行数
     private const int ChunkOverlapLines = 10;
@@ -112,9 +114,12 @@ public sealed partial class CodeIndexService
         for (var i = 0; i < boundaries.Count; i++)
         {
             var start = boundaries[i];
-            var end = Math.Min(start + ChunkMaxLines - 1, lines.Length);
-            // 尝试在下一个边界处断开
-            if (i + 1 < boundaries.Count && boundaries[i + 1] > start && boundaries[i + 1] <= end)
+            // V7: 如果有明确的下一个边界，允许最多 120 行；否则回退 80 行
+            var hasNextBoundary = i + 1 < boundaries.Count;
+            var maxLines = hasNextBoundary ? ChunkMaxLinesWithBoundary : ChunkMaxLines;
+            var end = Math.Min(start + maxLines - 1, lines.Length);
+            // 尝试在下一个边界处断开（优先按函数/类边界分块）
+            if (hasNextBoundary && boundaries[i + 1] > start && boundaries[i + 1] <= end)
             {
                 end = boundaries[i + 1] - 1;
             }
