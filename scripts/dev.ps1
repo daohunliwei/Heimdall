@@ -237,8 +237,10 @@ Read-Host '按 Enter 退出'
 "@
     $scriptContent | Set-Content -LiteralPath $psFile -Encoding UTF8
 
-    $proc = Start-Process -FilePath 'powershell.exe' `
-        -ArgumentList @('-NoLogo', '-NoExit', '-File', $psFile) `
+    # 优先使用 pwsh（PS7），回退到 powershell.exe（PS5）
+    $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
+    $proc = Start-Process -FilePath $shell `
+        -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-File', $psFile) `
         -WindowStyle Normal `
         -PassThru
 
