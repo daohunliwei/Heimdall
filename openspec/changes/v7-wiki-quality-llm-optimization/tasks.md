@@ -64,13 +64,13 @@
 - [x] 7.1 在 `HybridSearchService` 中实现向量检索路径：调用 EmbeddingProvider 对 query 向量化，通过 pgvector 执行 cosine similarity 搜索
 - [x] 7.2 实现 RRF 融合算法：`score = sum(1/(60 + rank_i))`，合并 BM25 和向量搜索结果
 - [x] 7.3 实现向量数据可用性检测：首次生成时降级为纯 BM25，嵌入完成后标记可用
-- [ ] 7.4 优化代码嵌入分块策略：优先按函数/类边界分块（ 120 行），无边界时回退 80 行分块
-- [ ] 7.5 增强 BM25 tokenization：增加中文 bigram 索引、camelCase/snake_case 变体展开
+- [x] 7.4 优化代码嵌入分块策略：优先按函数/类边界分块（ 120 行），无边界时回退 80 行分块
+- [x] 7.5 增强 BM25 tokenization：增加中文 bigram 索引、camelCase/snake_case 变体展开
 
 ## 8. API 层与前端适配
 
 - [x] 8.1 新增 `GET /api/providers/metadata` 端点：返回所有 Provider 的模型元数据（BillingType、MaxContextTokens 等）
-- [ ] 8.2 扩展 Wiki 刷新响应：返回预估页面数量和预估成本范围
+- [x] 8.2 扩展 Wiki 刷新响应：返回预估页面数量和预估成本范围
 - [x] 8.3 前端 Wiki 树组件支持 3-5 层深度折叠展示（更新 TreeView 组件递归渲染逻辑）
 - [ ] 8.4 前端新增 LLM 调用进度/成本实时展示面板（轮询 `/api/tasks/{taskId}/metrics`）
 - [ ] 8.5 前端 Wiki 刷新弹窗增加"预估页面数"和"预估成本"显示
