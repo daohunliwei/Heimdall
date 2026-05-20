@@ -19,7 +19,8 @@ public sealed class HeimdallConfigService
     private readonly IConfiguration _configuration;
     private readonly JsonSerializerOptions _jsonSerializerOptions = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
     };
 
     /// <summary>
@@ -211,9 +212,9 @@ public sealed class HeimdallConfigService
         var generatorConfig = GetGeneratorConfig();
         if (generatorConfig.Providers.TryGetValue(provider, out var definition))
         {
-            if (definition.Metadata.TryGetValue(model, out var metadata))
+            if (definition.Metadata != null)
             {
-                return metadata;
+                return definition.Metadata;
             }
         }
 
