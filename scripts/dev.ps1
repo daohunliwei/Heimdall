@@ -256,7 +256,7 @@ if (-not $FrontendOnly) {
 
 # ── 等待后端就绪 ───────────────────────────────────────────
 if (-not $FrontendOnly -and -not $NoHealthCheck) {
-    $healthUrl = "$backendUrl/api/processed_projects"
+    $healthUrl = "$backendUrl/api/repositories"
     Write-Host '▸ 等待后端就绪...' -ForegroundColor Yellow
     $retries = 30
     $ready = $false

@@ -1,7 +1,7 @@
 'use client';
 
 import { RepositoryVersionSummary, WikiVersionSummary } from '@/types/wiki';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FaCodeBranch, FaHistory, FaCheckCircle, FaClock } from 'react-icons/fa';
 
 /**
@@ -36,9 +36,10 @@ export default function VersionSwitcher({
   const [selectedWikiVersion, setSelectedWikiVersion] = useState<string>(currentWikiVersionId || '');
   const [isExpanded, setIsExpanded] = useState(false);
 
-  useEffect(() => {
+  // 当外部选中版本变化时同步本地选中状态
+  if (selectedWikiVersion !== (currentWikiVersionId || '')) {
     setSelectedWikiVersion(currentWikiVersionId || '');
-  }, [currentWikiVersionId]);
+  }
 
   /**
    * 当前已选中的 Wiki 版本。
