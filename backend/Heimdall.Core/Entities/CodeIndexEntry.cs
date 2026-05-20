@@ -15,6 +15,15 @@ public class CodeIndexEntry
     public string ExportedSymbolsJson { get; set; } = "[]";
     public string DependencyHintsJson { get; set; } = "[]";
 
+    /// <summary>方法级调用关系 JSON（V7: CallEdge 数组序列化）。</summary>
+    public string? CallGraphJson { get; set; }
+
+    /// <summary>模块间依赖边 JSON（V7: DependencyEdge 数组序列化）。</summary>
+    public string? DependencyEdgesJson { get; set; }
+
+    /// <summary>设计模式启发式提示（V7: 逗号分隔的模式名，如 "Factory,Strategy"）。</summary>
+    public string? DesignPatternHints { get; set; }
+
     // 版本关联
     public Guid RepositoryVersionId { get; set; }
     public RepositoryVersion? RepositoryVersion { get; set; }

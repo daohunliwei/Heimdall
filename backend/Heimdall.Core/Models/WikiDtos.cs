@@ -81,6 +81,17 @@ public class WikiPageDto
     public string? ParentId { get; set; }
 
     /// <summary>
+    /// V7: 页面在结构树中的深度（0 为根页面，1 为一级子页面，以此类推）。
+    /// </summary>
+    public int Depth { get; set; }
+
+    /// <summary>
+    /// V7: 页面内容深度级别——决定页面内容的详细程度。
+    /// overview=高层概述，module=模块级介绍，component=组件级详解，implementation=实现细节。
+    /// </summary>
+    public string ContentDepthLevel { get; set; } = "module";
+
+    /// <summary>
     /// 是否表示目录型页面。
     /// </summary>
     public bool? IsSection { get; set; }
@@ -230,6 +241,16 @@ public class WikiSectionDto
     /// 子分组标识列表。
     /// </summary>
     public List<string>? Subsections { get; set; }
+
+    /// <summary>
+    /// V7: 递归子分组（内联展开），用于深层嵌套结构规划。
+    /// </summary>
+    public List<WikiSectionDto>? Children { get; set; }
+
+    /// <summary>
+    /// V7: 该分组在结构树中的深度。
+    /// </summary>
+    public int Depth { get; set; }
 }
 
 /// <summary>

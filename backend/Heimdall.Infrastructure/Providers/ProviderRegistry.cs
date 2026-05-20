@@ -29,6 +29,32 @@ public sealed class ProviderRegistry
         return (providerId, model, parameters, provider);
     }
 
+    /// <summary>
+    /// V7: 解析 Provider 并附带计费元数据。
+    /// </summary>
+    public (string ProviderId, string Model, ProviderModelParameters Parameters, ProviderModelMetadata Metadata, IChatProvider Provider) ResolveChatProviderWithMetadata(ChatCompletionRequest request)
+    {
+        var providerId = _configService.ResolveProvider(request);
+        var model = _configService.ResolveModel(request, providerId);
+        var parameters = _configService.GetProviderModelParameters(providerId, model);
+        var metadata = _configService.GetProviderModelMetadata(providerId, model);
+        var provider = _chatProviders.FirstOrDefault(item => item.ProviderId == providerId)
+            ?? throw new InvalidOperationException($"未找到 provider `{providerId}` 的聊天适配器。");
+        return (providerId, model, parameters, metadata, provider);
+    }
+
+    /// <summary>
+    /// V7: 通过 providerId + model 直接解析 Provider（无需 ChatCompletionRequest）。
+    /// </summary>
+    public (ProviderModelParameters Parameters, ProviderModelMetadata Metadata, IChatProvider Provider) ResolveChatProviderDirect(string providerId, string model)
+    {
+        var parameters = _configService.GetProviderModelParameters(providerId, model);
+        var metadata = _configService.GetProviderModelMetadata(providerId, model);
+        var provider = _chatProviders.FirstOrDefault(item => item.ProviderId == providerId)
+            ?? throw new InvalidOperationException($"未找到 provider `{providerId}` 的聊天适配器。");
+        return (parameters, metadata, provider);
+    }
+
     public IEmbeddingProvider ResolveEmbeddingProvider()
     {
         var embedderType = _configService.GetEmbedderType();

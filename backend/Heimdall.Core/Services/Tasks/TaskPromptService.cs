@@ -157,6 +157,127 @@ QUALITY CHECKLIST before generating JSON:
     }
 
     /// <summary>
+    /// V7: 构建增强版结构规划提示词——集成 CodeUnderstandingResult 以实现深层嵌套结构。
+    /// </summary>
+    public string BuildWikiStructurePromptV7(
+        string owner, string repo, string fileTree, string readme,
+        string languageDisplayName, bool isComprehensiveView,
+        CodeUnderstandingResult? codeUnderstanding,
+        string generationProfile = "comprehensive")
+    {
+        var codeInsightSection = "";
+        if (codeUnderstanding != null)
+        {
+            var modules = string.Join("\n", codeUnderstanding.DependencyTopology.Modules.Take(20)
+                .Select(m => $"- {m.Name} ({m.ModuleType}, {m.FileCount} files)"));
+
+            var deps = string.Join("\n", codeUnderstanding.DependencyTopology.Edges.Take(20)
+                .Select(e => $"- {e.FromModule} → {e.ToModule}"));
+
+            var patterns = string.Join("\n", codeUnderstanding.DesignPatterns.Take(10)
+                .Select(p => $"- {p.PatternName} ({p.Confidence:P0}): {string.Join(", ", p.Participants.Select(pp => pp.SymbolName))}"));
+
+            var archInsight = codeUnderstanding.ArchitectureInsight;
+            var archSection = !string.IsNullOrEmpty(archInsight.ArchitecturePattern)
+                ? $"架构模式：{archInsight.ArchitecturePattern}\n描述：{archInsight.PatternDescription}"
+                : "";
+
+            var layers = string.Join("\n", archInsight.Layers.Select(l =>
+                $"- {l.Name}: {l.Responsibility}"));
+
+            codeInsightSection = $"""
+
+            DEEP CODE UNDERSTANDING RESULTS (from automated analysis):
+
+            Architecture Pattern: {archSection}
+
+            Module Dependencies:
+            {modules}
+
+            Key Dependency Edges:
+            {deps}
+
+            Detected Design Patterns:
+            {patterns}
+
+            Architecture Layers:
+            {layers}
+
+            Call Graph Summary: {codeUnderstanding.CallGraph.NodeCount} methods, {codeUnderstanding.CallGraph.Edges.Count} call edges, max depth {codeUnderstanding.CallGraph.MaxDepth}
+            """;
+        }
+
+        return $$"""
+You are an expert software architect and technical documentation specialist. Your task is to create a DEEPLY STRUCTURED, multi-layered wiki for this repository.
+
+STEP 1: REPOSITORY ANALYSIS
+Analyze this {{owner}}/{{repo}} repository:
+
+1. Complete file tree:
+<file_tree>
+{{fileTree}}
+</file_tree>
+
+2. README content:
+<readme>
+{{readme}}
+</readme>
+{{codeInsightSection}}
+
+STEP 2: DEEP WIKI STRUCTURE DESIGN
+
+CRITICAL: You must create a MULTI-LAYERED wiki with NESTED SECTIONS AND PAGES.
+Target: {{(isComprehensiveView ? "50+ pages" : "20+ pages")}} organized in a 3-4 level deep hierarchy.
+
+Structure Requirements:
+- Level 0: Root overview page (1 page)
+- Level 1: Major sections (5-8 sections, each with overview page)
+- Level 2: Sub-sections per major section (3-5 per section)
+- Level 3: Detailed implementation pages (2-4 per sub-section)
+
+Each page MUST have:
+- `depth`: 0-3 indicating its level in the hierarchy
+- `contentDepthLevel`: "overview" | "module" | "component" | "implementation"
+- `parentId`: reference to parent page (null for root)
+
+Content Depth Mapping:
+- depth=0 → contentDepthLevel="overview" (高层架构概述)
+- depth=1 → contentDepthLevel="module" (模块级介绍)
+- depth=2 → contentDepthLevel="component" (组件级详解)
+- depth=3 → contentDepthLevel="implementation" (实现细节)
+
+STEP 3: FILE MAPPING
+For each page, map relevant source files:
+- depth=0 pages: 3-5 key entry point files
+- depth=1 pages: 5-8 module-level files
+- depth=2 pages: 8-12 component files
+- depth=3 pages: 10-15 implementation files (maximum detail)
+
+{{GetWikiStructureFormatInstructions(isComprehensiveView)}}
+
+IMPORTANT: The wiki content will be generated in {{languageDisplayName}} language.
+
+CRITICAL FORMATTING:
+- Return ONLY the valid JSON object specified above
+- DO NOT wrap in markdown code blocks
+- Start directly with { and end with }
+- `parentId` MUST reference another page id or be null
+- Every non-root page MUST have a valid parentId
+- `sections` should form a tree structure via `children` (recursive WikiSectionDto)
+- Each section's `pages` array contains page ids that belong to that section
+
+QUALITY REQUIREMENTS:
+1. MINIMUM {{(isComprehensiveView ? "50" : "20")}} pages total
+2. Every page must have a clear parentId establishing hierarchy
+3. Mix of pageTypes: overview (root), section (level 1-2), article (level 2-3)
+4. Each page description must be SPECIFIC and TECHNICAL
+5. Include pages for: architecture, modules, APIs, data models, workflows, configuration, testing, deployment
+6. Provide `relatedPages` cross-references between related topics
+7. Use `searchKeywords` for each page to enable retrieval-augmented generation
+""";
+    }
+
+    /// <summary>
     /// 构建单个 Wiki 页面的生成提示词。
     /// </summary>
     /// <param name="page">目标页面 DTO。</param>
@@ -534,7 +655,9 @@ Return your analysis in the following JSON format:
       "id": "section-1",
       "title": "[Section title]",
       "pages": ["page-1"],
-      "subsections": ["section-2"]
+      "subsections": ["section-2"],
+      "children": [],
+      "depth": 0
     }
   ],
   "pages": [
@@ -545,7 +668,11 @@ Return your analysis in the following JSON format:
       "navTitle": "[Short nav title]",
       "pageType": "overview|section|article|appendix",
       "importance": "high|medium|low",
+      "depth": 0,
+      "contentDepthLevel": "overview|module|component|implementation",
       "filePaths": ["[Path to a relevant file]"],
+      "searchKeywords": ["keyword1", "keyword2"],
+      "keyFilePaths": ["[Must-include file path]"],
       "relatedPages": ["page-2"],
       "prerequisitePages": ["page-0"],
       "parentId": null
@@ -568,7 +695,10 @@ Return your analysis in the following JSON format:
       "navTitle": "[Short nav title]",
       "pageType": "overview|section|article|appendix",
       "importance": "high|medium|low",
+      "depth": 0,
+      "contentDepthLevel": "overview|module|component|implementation",
       "filePaths": ["[Path to a relevant file]"],
+      "searchKeywords": ["keyword1", "keyword2"],
       "relatedPages": ["page-2"],
       "prerequisitePages": ["page-0"],
       "parentId": null
