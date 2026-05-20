@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { FaChevronRight, FaChevronDown } from 'react-icons/fa';
 
 interface WikiPage {
@@ -63,16 +63,16 @@ const WikiTreeView: React.FC<WikiTreeViewProps> = ({
     return initialExpanded;
   });
 
-  // 当选中页面变化时，自动展开包含该页面的所有父章节
-  useEffect(() => {
-    if (!currentPageId || !wikiStructure.sections?.length) return;
+  // 当选中页面变化时，自动展开包含该页面的所有父章节（render-time 同步）
+  const [prevPageId, setPrevPageId] = useState(currentPageId);
+  if (currentPageId && currentPageId !== prevPageId && wikiStructure.sections?.length) {
+    setPrevPageId(currentPageId);
 
     const findParentSections = (pageId: string): string[] => {
       const parents: string[] = [];
       for (const section of wikiStructure.sections) {
         if (section.pages.includes(pageId)) {
           parents.push(section.id);
-          // 检查该 section 是否被其他 section 的 subsections 引用
           for (const parent of wikiStructure.sections) {
             if (parent.subsections?.includes(section.id)) {
               parents.push(...findParentSections(parent.id));
@@ -106,13 +106,19 @@ const WikiTreeView: React.FC<WikiTreeViewProps> = ({
 
     const parents = findParentSections(currentPageId);
     if (parents.length > 0) {
-      setExpandedSections(prev => {
-        const next = new Set(prev);
-        parents.forEach(p => next.add(p));
-        return next;
-      });
+      const hasAll = parents.every(p => expandedSections.has(p));
+      if (!hasAll) {
+        setExpandedSections(prev => {
+          const next = new Set(prev);
+          parents.forEach(p => next.add(p));
+          return next;
+        });
+      }
     }
-  }, [currentPageId, wikiStructure.sections]);
+  }
+  if (!currentPageId && prevPageId) {
+    setPrevPageId(undefined);
+  }
 
   const toggleSection = useCallback((sectionId: string, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -127,7 +133,7 @@ const WikiTreeView: React.FC<WikiTreeViewProps> = ({
     });
   }, []);
 
-  const renderSection = useCallback((sectionId: string, level = 0) => {
+  const renderSection = (sectionId: string, level = 0): React.ReactNode => {
     const section = wikiStructure.sections.find(s => s.id === sectionId);
     if (!section) return null;
 
@@ -201,7 +207,7 @@ const WikiTreeView: React.FC<WikiTreeViewProps> = ({
         </div>
       </div>
     );
-  }, [wikiStructure, currentPageId, expandedSections, toggleSection, onPageSelect]);
+  };
 
   if (!wikiStructure.sections || wikiStructure.sections.length === 0 || !wikiStructure.rootSections || wikiStructure.rootSections.length === 0) {
     return (

@@ -240,7 +240,7 @@ public sealed class HeimdallConfigService
     /// </summary>
     public string GetWikiPipelineVersion()
     {
-        return (GetConfigurationValue("HEIMDALL_WIKI_PIPELINE_VERSION") ?? "v6").Trim().ToLowerInvariant();
+        return (GetConfigurationValue("HEIMDALL_WIKI_PIPELINE_VERSION") ?? "v7").Trim().ToLowerInvariant();
     }
 
     /// <summary>

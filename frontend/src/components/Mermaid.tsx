@@ -101,8 +101,17 @@ const FullScreenModal: React.FC<{
 }> = ({ isOpen, onClose, children }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [prevIsOpen, setPrevIsOpen] = useState(false);
 
-  // Close on Escape key
+  // Reset zoom when modal transitions to open
+  if (isOpen && !prevIsOpen) {
+    setPrevIsOpen(true);
+    if (zoom !== 1) setZoom(1);
+  }
+  if (!isOpen && prevIsOpen) {
+    setPrevIsOpen(false);
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -135,13 +144,6 @@ const FullScreenModal: React.FC<{
       document.removeEventListener('mousedown', handleOutsideClick);
     };
   }, [isOpen, onClose]);
-
-  // Reset zoom when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setZoom(1);
-    }
-  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -221,18 +223,21 @@ const FullScreenModal: React.FC<{
   );
 };
 
+let mermaidIdCounter = 0;
+
 const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled = false }) => {
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const mermaidRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const idRef = useRef(`mermaid-${Math.random().toString(36).substring(2, 9)}`);
-  const isDarkModeRef = useRef(
-    typeof window !== 'undefined' &&
-    window.matchMedia &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  );
+  const idRef = useRef(`mermaid-${++mermaidIdCounter}`);
+  const isDarkModeRef = useRef(false);
+
+  // Detect dark mode on mount (client-side only)
+  useEffect(() => {
+    isDarkModeRef.current = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+  }, []);
 
   // Initialize pan-zoom functionality when SVG is rendered
   useEffect(() => {

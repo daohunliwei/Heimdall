@@ -104,7 +104,7 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
       inline?: boolean;
       className?: string | string[];
       children?: React.ReactNode;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       [key: string]: any;
     }) {
       const { inline, className, children, node, ...otherProps } = props;
