@@ -10,6 +10,7 @@ using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Services.Search;
 using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Search;
+using Heimdall.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -296,6 +297,20 @@ public sealed class WikiTaskService
                         $"深度代码理解完成：{codeUnderstanding.CallGraph.NodeCount} 节点，{codeUnderstanding.DependencyTopology.Modules.Count} 模块",
                         execToken, markStageAsSuccessful: true);
                 }
+
+                // V7: 使用增强公式重新计算页面数和最大深度
+                var callGraphDepth = codeUnderstanding.CallGraph.MaxDepth;
+                var patternCount = codeUnderstanding.DesignPatterns.Count;
+                recommendedPageCount = CodeStructureIndexService.CalculateRecommendedPageCountV7(
+                    codeIndexResult.ModuleNames.Count,
+                    codeIndexResult.EntryPointFiles.Count,
+                    patternCount,
+                    callGraphDepth);
+                var maxDepthLevel = CodeStructureIndexService.CalculateMaxDepth(codeIndexResult.TotalFileCount);
+                _logger.LogInformation(
+                    "[Wiki] V7 页面规划：推荐 {PageCount} 页，最大深度 {MaxDepth} 层 (files={Files}, modules={Modules}, patterns={Patterns}, graphDepth={GraphDepth})",
+                    recommendedPageCount, maxDepthLevel, codeIndexResult.TotalFileCount,
+                    codeIndexResult.ModuleNames.Count, patternCount, callGraphDepth);
             }
 
             var (execOwner, execRepo) = repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
@@ -438,8 +453,14 @@ public sealed class WikiTaskService
                         : $"{page.Title} {page.Description}";
                     var keyFiles = (page.KeyFilePaths?.Count > 0 ? page.KeyFilePaths : null)
                         ?? (page.FilePaths?.Count > 0 ? page.FilePaths : null);
+
+                    // V7: 动态 Token 预算替代硬编码 20_000
+                    var contextBudget = isV7Pipeline
+                        ? new ContextPackingService(_configService)
+                            .CalculateAvailableBudget(effectiveProvider, model ?? customModel ?? "")
+                        : 20_000;
                     var searchResults = await _hybridSearch.SearchAsync(
-                        searchIndexKey, searchQuery, keyFiles, topK: 15, maxTotalTokens: 20_000, ct: execToken);
+                        searchIndexKey, searchQuery, keyFiles, topK: 15, maxTotalTokens: contextBudget, ct: execToken);
                     var fileContents = _hybridSearch.FormatForPrompt(searchResults);
 
                     var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
@@ -748,8 +769,35 @@ public sealed class WikiTaskService
                 wikiChunkCount);
             await taskRepo.UpdateAsync(executingTask);
 
-            _logger.LogInformation("Wiki 生成完成 TaskId={TaskId} Pages={Count} Elapsed={Ms}ms",
-                task.Id, totalPages, totalStopwatch.ElapsedMilliseconds);
+            // V7: 增强任务完成汇总日志
+            var maxDepth = wikiStructure.Pages.Any() ? wikiStructure.Pages.Max(p => p.Depth) : 0;
+            _logger.LogInformation(
+                "[Wiki] 生成完成 TaskId={TaskId} Pages={Pages} MaxDepth={Depth} Elapsed={Elapsed:F1}s Pipeline={Pipeline}",
+                task.Id, totalPages, maxDepth, totalStopwatch.Elapsed.TotalSeconds,
+                isV7Pipeline ? "v7" : "v6");
+
+            if (isV7Pipeline)
+            {
+                try
+                {
+                    using var metricScope = _scopeFactory.CreateScope();
+                    var obsService = metricScope.ServiceProvider
+                        .GetService<ILlmObservabilityService>();
+                    if (obsService != null)
+                    {
+                        var summary = await obsService.GetTaskSummaryAsync(task.Id);
+                        _logger.LogInformation(
+                            "[Wiki] LLM汇总 TaskId={TaskId} Calls={Calls} InputTokens={In} OutputTokens={Out} CacheHitTokens={Cache} TotalCost≈${Cost:F4} CacheRate={Rate:P0}",
+                            task.Id, summary.TotalCalls, summary.TotalInputTokens,
+                            summary.TotalOutputTokens, summary.TotalCacheHitTokens,
+                            summary.EstimatedCost,
+                            summary.TotalInputTokens > 0
+                                ? (double)summary.TotalCacheHitTokens / summary.TotalInputTokens
+                                : 0.0);
+                    }
+                }
+                catch { /* 日志失败不影响主流程 */ }
+            }
             _structuredLogger.LogTaskSummary(task.Id, totalPages,
                 totalStopwatch.Elapsed.TotalSeconds, 0, 0, 0);
         }
