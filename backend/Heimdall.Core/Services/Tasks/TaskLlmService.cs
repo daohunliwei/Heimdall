@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Providers;
+using Heimdall.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services.Tasks;
@@ -8,20 +9,40 @@ namespace Heimdall.Core.Services.Tasks;
 public sealed class TaskLlmService
 {
     private readonly ProviderRegistry _providerRegistry;
+    private readonly ProviderRateLimiter _rateLimiter;
+    private readonly LlmRetryPolicy _retryPolicy;
     private readonly ILogger<TaskLlmService> _logger;
 
-    public TaskLlmService(ProviderRegistry providerRegistry, ILogger<TaskLlmService> logger)
+    public TaskLlmService(
+        ProviderRegistry providerRegistry,
+        ProviderRateLimiter rateLimiter,
+        LlmRetryPolicy retryPolicy,
+        ILogger<TaskLlmService> logger)
     {
         _providerRegistry = providerRegistry;
+        _rateLimiter = rateLimiter;
+        _retryPolicy = retryPolicy;
         _logger = logger;
     }
 
+    /// <summary>
+    /// 生成文本（兼容旧接口）。
+    /// </summary>
     public async Task<string> GenerateTextAsync(
         string provider, string? model, string? customModel, string prompt,
         CancellationToken ct, string? systemPrompt = null)
     {
-        var stopwatch = Stopwatch.StartNew();
-        // 规范化 provider：空值时回退到环境配置
+        var response = await GenerateWithMetricsAsync(provider, model, customModel, prompt, ct, systemPrompt);
+        return response.Content;
+    }
+
+    /// <summary>
+    /// V7: 带完整指标的 LLM 调用——返回 Token 用量、延迟等元数据。
+    /// </summary>
+    public async Task<ChatCompletionResponse> GenerateWithMetricsAsync(
+        string provider, string? model, string? customModel, string prompt,
+        CancellationToken ct, string? systemPrompt = null)
+    {
         var effectiveProvider = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
         var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
             : !string.IsNullOrWhiteSpace(customModel) ? customModel
@@ -46,22 +67,32 @@ public sealed class TaskLlmService
         _logger.LogInformation("LLM 调用 Provider={Provider} Model={Model} PromptLen={Len}",
             resolvedProviderId, resolvedModel, prompt.Length);
 
-        var result = await chatProvider.GenerateAsync(new ProviderChatRequest
+        // 速率限制等待
+        await _rateLimiter.AcquireAsync(resolvedProviderId, resolvedModel, ct);
+
+        // 带重试的调用
+        var response = await _retryPolicy.ExecuteAsync(async token =>
         {
-            ProviderId = resolvedProviderId,
-            Model = resolvedModel,
-            Prompt = prompt,
-            SystemPrompt = systemPrompt,
-            Temperature = parameters.Temperature,
-            TopP = parameters.TopP,
-            TopK = parameters.TopK,
-            Options = parameters.Options
-        }, ct);
+            return await chatProvider.GenerateWithMetricsAsync(new ProviderChatRequest
+            {
+                ProviderId = resolvedProviderId,
+                Model = resolvedModel,
+                Prompt = prompt,
+                SystemPrompt = systemPrompt,
+                Temperature = parameters.Temperature,
+                TopP = parameters.TopP,
+                TopK = parameters.TopK,
+                Options = parameters.Options
+            }, token);
+        }, $"GenerateText:{resolvedProviderId}/{resolvedModel}", ct);
 
-        _logger.LogInformation("LLM 调用完成 ElapsedMs={Ms} ResultLen={Len}",
-            stopwatch.ElapsedMilliseconds, result.Length);
+        _logger.LogInformation(
+            "LLM 调用完成 Provider={Provider} Model={Model} ElapsedMs={Ms} InputTokens={In} OutputTokens={Out} CacheHit={Cache} Estimated={Est}",
+            resolvedProviderId, resolvedModel, response.LatencyMs,
+            response.Usage.InputTokens, response.Usage.OutputTokens,
+            response.Usage.CacheHitTokens, response.Usage.IsEstimated);
 
-        return result;
+        return response;
     }
 
     public (string providerId, string model) ResolveTarget(string? provider, string? model, string? customModel)

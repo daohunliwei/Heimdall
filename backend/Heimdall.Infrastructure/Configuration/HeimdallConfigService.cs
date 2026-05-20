@@ -203,6 +203,129 @@ public sealed class HeimdallConfigService
     }
 
     /// <summary>
+    /// 获取 Provider/Model 组合的计费与能力元数据。
+    /// 未配置时返回基于 Provider 类型推断的默认值。
+    /// </summary>
+    public ProviderModelMetadata GetProviderModelMetadata(string provider, string model)
+    {
+        var generatorConfig = GetGeneratorConfig();
+        if (generatorConfig.Providers.TryGetValue(provider, out var definition))
+        {
+            if (definition.Metadata.TryGetValue(model, out var metadata))
+            {
+                return metadata;
+            }
+        }
+
+        // 未配置时根据 Provider 类型推断默认元数据
+        return InferDefaultMetadata(provider);
+    }
+
+    /// <summary>
+    /// 获取上下文填充比例（默认 0.65）。
+    /// </summary>
+    public double GetContextFillRatio()
+    {
+        var raw = GetConfigurationValue("HEIMDALL_CONTEXT_FILL_RATIO");
+        if (!string.IsNullOrWhiteSpace(raw) && double.TryParse(raw.Trim(), out var ratio) && ratio is > 0.1 and <= 1.0)
+        {
+            return ratio;
+        }
+        return 0.65;
+    }
+
+    /// <summary>
+    /// 获取 Wiki 管线版本（v6 或 v7）。
+    /// </summary>
+    public string GetWikiPipelineVersion()
+    {
+        return (GetConfigurationValue("HEIMDALL_WIKI_PIPELINE_VERSION") ?? "v6").Trim().ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// 根据 Provider 类型推断默认元数据。
+    /// </summary>
+    private static ProviderModelMetadata InferDefaultMetadata(string provider)
+    {
+        return provider.ToLowerInvariant() switch
+        {
+            "ollama" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.CodingPlan,
+                MaxContextTokens = 131072,
+                MaxOutputTokens = 32768,
+                RateLimitPerMinute = 5,
+                CallPrice = 0m,
+                SupportsCaching = false
+            },
+            "openai" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 128000,
+                MaxOutputTokens = 16384,
+                InputTokenPrice = 2.50m,
+                OutputTokenPrice = 10.00m,
+                SupportsCaching = true
+            },
+            "google" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 1048576,
+                MaxOutputTokens = 65536,
+                InputTokenPrice = 0.15m,
+                OutputTokenPrice = 0.60m,
+                SupportsCaching = true
+            },
+            "azure" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 128000,
+                MaxOutputTokens = 16384,
+                InputTokenPrice = 2.50m,
+                OutputTokenPrice = 10.00m,
+                SupportsCaching = false
+            },
+            "minimax" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 1048576,
+                MaxOutputTokens = 65536,
+                InputTokenPrice = 1.00m,
+                OutputTokenPrice = 4.00m,
+                SupportsCaching = false
+            },
+            "dashscope" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 131072,
+                MaxOutputTokens = 16384,
+                InputTokenPrice = 0.80m,
+                OutputTokenPrice = 2.00m,
+                SupportsCaching = false
+            },
+            "bedrock" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 200000,
+                MaxOutputTokens = 4096,
+                InputTokenPrice = 3.00m,
+                OutputTokenPrice = 15.00m,
+                SupportsCaching = false
+            },
+            "openrouter" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 128000,
+                MaxOutputTokens = 16384,
+                InputTokenPrice = 2.50m,
+                OutputTokenPrice = 10.00m,
+                SupportsCaching = false
+            },
+            _ => new ProviderModelMetadata()
+        };
+    }
+
+    /// <summary>
     /// 读取 JSON 配置并执行环境变量替换。
     /// </summary>
     private T? LoadJsonConfig<T>(string fileName)

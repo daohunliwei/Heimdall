@@ -35,6 +35,8 @@ public class ProviderDefinition
     public string DefaultModel { get; set; } = string.Empty;
     public bool SupportsCustomModel { get; set; }
     public Dictionary<string, ProviderModelParameters> Models { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>每个模型的计费与能力元数据（可选，未配置时使用默认值）。</summary>
+    public Dictionary<string, ProviderModelMetadata> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class GeneratorConfig
