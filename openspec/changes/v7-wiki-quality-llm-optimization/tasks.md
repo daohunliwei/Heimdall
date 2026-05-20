@@ -25,8 +25,8 @@
 - [x] 3.2 重构所有 ChatProvider（Ollama/OpenAI/Google/MiniMax/Azure/Bedrock）的返回类型从 string 改为 `ChatCompletionResponse`，从各自 API 响应中提取 usage 信息
 - [x] 3.3 实现 `ILlmObservabilityService` 接口：记录每次调用指标到 `llm_call_metrics` 表，提供按 TaskId 聚合查询方法
 - [x] 3.4 实现成本估算逻辑：TokenPlan = (InputTokens/1M * Price) + (OutputTokens/1M * Price)；CodingPlan = TotalCalls * CallPrice
-- [ ] 3.5 实现控制台实时进度仪表盘输出（格式：进度条 + 页数 + Token 汇总 + 缓存率 + 成本 + 耗时）
-- [ ] 3.6 重构 `WikiTaskService` 中的 `LogLlmCallAsync` 方法：改为调用 `ILlmObservabilityService.RecordCallAsync`，传入 ChatCompletionResponse 中的 usage 数据
+- [x] 3.5 实现控制台实时进度仪表盘输出（格式：进度条 + 页数 + Token 汇总 + 缓存率 + 成本 + 耗时）
+- [x] 3.6 重构 `WikiTaskService` 中的 `LogLlmCallAsync` 方法：改为调用 `ILlmObservabilityService.RecordCallAsync`，传入 ChatCompletionResponse 中的 usage 数据
 - [x] 3.7 新增 `LlmMetricsController`：实现 `GET /api/tasks/{taskId}/metrics` 和 `GET /api/admin/llm-metrics` 端点
 
 ## 4. 深度代码理解
@@ -35,8 +35,8 @@
 - [x] 4.2 实现 `DependencyTopologyService` 服务：解析 .csproj ProjectReference / package.json dependencies / import 语句，构建模块间有向图，检测循环依赖
 - [x] 4.3 实现 `DesignPatternDetector` 服务：基于命名约定和结构特征启发式检测工厂/策略/观察者/建造者/单例模式，输出 List<DetectedPattern>
 - [x] 4.4 实现 `ICodeUnderstandingService` 接口和 `CodeUnderstandingService` 类：编排调用 CallGraphBuilder + DependencyTopologyService + DesignPatternDetector + LLM 辅助架构理解（1-2 次调用）
-- [ ] 4.5 编写 LLM 辅助架构理解的 prompt 模板（输入：模块列表+依赖拓扑+调用图摘要+入口点；输出：架构模式+数据流+设计决策），注册到 PromptSeedData
-- [ ] 4.6 将 `CodeUnderstandingResult` 持久化为任务工件（artifact_type=code_understanding），支持断点恢复
+- [x] 4.5 编写 LLM 辅助架构理解的 prompt 模板（输入：模块列表+依赖拓扑+调用图摘要+入口点；输出：架构模式+数据流+设计决策），注册到 PromptSeedData
+- [x] 4.6 将 `CodeUnderstandingResult` 持久化为任务工件（artifact_type=code_understanding），支持断点恢复
 
 ## 5. 深层 Wiki 结构编排
 
@@ -49,10 +49,10 @@
 
 ## 6. 管线重构与集成
 
-- [ ] 6.1 重构 `WikiTaskService`：新增 Stage 3 深度代码理解阶段（调用 ICodeUnderstandingService，产出 CodeUnderstandingResult 工件）
-- [ ] 6.2 重构 `WikiTaskService`：修改 Stage 4 结构规划阶段，注入 CodeUnderstandingResult 到 prompt
-- [ ] 6.3 重构 `WikiTaskService`：修改 Stage 5 页面生成阶段为拓扑序渐进式生成（替换现有 flat batch 逻辑）
-- [ ] 6.4 实现 Stage 6 交叉引用编织：分析所有已生成页面内容，自动插入"另见"链接、符号跨页面链接、术语引用
+- [x] 6.1 重构 `WikiTaskService`：新增 Stage 3 深度代码理解阶段（调用 ICodeUnderstandingService，产出 CodeUnderstandingResult 工件）
+- [x] 6.2 重构 `WikiTaskService`：修改 Stage 4 结构规划阶段，注入 CodeUnderstandingResult 到 prompt
+- [x] 6.3 重构 `WikiTaskService`：修改 Stage 5 页面生成阶段为拓扑序渐进式生成（替换现有 flat batch 逻辑）
+- [x] 6.4 实现 Stage 6 交叉引用编织：分析所有已生成页面内容，自动插入"另见"链接、符号跨页面链接、术语引用
 - [ ] 6.5 集成 ContextPackingService 到页面生成流程：替换硬编码 `maxTotalTokens: 20_000` 为动态预算
 - [ ] 6.6 集成 BillingStrategyService 到页面生成流程：CodingPlan 模型走合并调用路径，TokenPlan 走单页调用路径
 - [ ] 6.7 增强质量审查阶段：新增"层级深度符合度"评估维度，Article 页面缺少代码引用扣分
@@ -84,9 +84,9 @@
 
 ## 10. DI 注册与配置
 
-- [ ] 10.1 在 `Program.cs` 中注册新增服务：IContextPackingService、IRateLimiterService、IBillingStrategyService、ICodeUnderstandingService、ILlmObservabilityService、CallGraphBuilder、DependencyTopologyService、DesignPatternDetector
-- [ ] 10.2 注册 LlmMetricsController 和 ProviderMetadataController 路由
-- [ ] 10.3 注册 `HEIMDALL_WIKI_PIPELINE_VERSION` 环境变量读取逻辑
+- [x] 10.1 在 `Program.cs` 中注册新增服务：IContextPackingService、IRateLimiterService、IBillingStrategyService、ICodeUnderstandingService、ILlmObservabilityService、CallGraphBuilder、DependencyTopologyService、DesignPatternDetector
+- [x] 10.2 注册 LlmMetricsController 和 ProviderMetadataController 路由
+- [x] 10.3 注册 `HEIMDALL_WIKI_PIPELINE_VERSION` 环境变量读取逻辑
 - [ ] 10.4 更新 `config/generator.json` 为所有现有 Provider 填入默认 metadata（Ollama: CodingPlan/131072, OpenAI: TokenPlan/128000 等）
 
 ## 11. 验证与测试
