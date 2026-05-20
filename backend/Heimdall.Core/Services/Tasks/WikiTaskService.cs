@@ -298,6 +298,16 @@ public sealed class WikiTaskService
                         execToken, markStageAsSuccessful: true);
                 }
 
+                // Task 9.2: 深度理解阶段详细日志
+                _logger.LogInformation(
+                    "[Wiki] 深度理解结果 TaskId={TaskId} CallGraphNodes={Nodes} CallGraphEdges={Edges} MaxDepth={Depth} Modules={Modules} Patterns={Patterns}",
+                    task.Id,
+                    codeUnderstanding.CallGraph.NodeCount,
+                    codeUnderstanding.CallGraph.Edges.Count,
+                    codeUnderstanding.CallGraph.MaxDepth,
+                    codeUnderstanding.DependencyTopology.Modules.Count,
+                    codeUnderstanding.DesignPatterns.Count);
+
                 // V7: 使用增强公式重新计算页面数和最大深度
                 var callGraphDepth = codeUnderstanding.CallGraph.MaxDepth;
                 var patternCount = codeUnderstanding.DesignPatterns.Count;
@@ -397,7 +407,20 @@ public sealed class WikiTaskService
 
             var completedBatchKeys = await RestoreCompletedPageBatchesAsync(artifactRepo, executingTask.Id, wikiStructure, execToken);
             var totalPages = wikiStructure.Pages.Count;
-            var totalBatchCount = Math.Max(1, (int)Math.Ceiling(totalPages / (double)PageBatchSize));
+
+            // V7: CodingPlan 模型使用更大的批次（减少调用次数）
+            var effectiveBatchSize = PageBatchSize;
+            if (isV7Pipeline)
+            {
+                var providerMeta = _configService.GetProviderModelMetadata(effectiveProvider, model ?? customModel ?? "");
+                if (providerMeta.BillingType == BillingType.CodingPlan)
+                {
+                    effectiveBatchSize = Math.Min(10, totalPages); // CodingPlan: 更大批次
+                    _logger.LogInformation("[Wiki] CodingPlan 模式：使用批次大小 {BatchSize} 以减少调用次数", effectiveBatchSize);
+                }
+            }
+
+            var totalBatchCount = Math.Max(1, (int)Math.Ceiling(totalPages / (double)effectiveBatchSize));
 
             // V4: 跨页面上下文收集器——将已生成页面摘要注入后续页面 prompt
             var generatedPageContexts = new List<(string Title, string Summary)>();
@@ -408,8 +431,8 @@ public sealed class WikiTaskService
 
                 var batchKey = BuildBatchArtifactKey(batchIndex);
                 var batchPages = wikiStructure.Pages
-                    .Skip(batchIndex * PageBatchSize)
-                    .Take(PageBatchSize)
+                    .Skip(batchIndex * effectiveBatchSize)
+                    .Take(effectiveBatchSize)
                     .ToList();
 
                 var percent = 35 + (int)(40.0 * (batchIndex + 1) / totalBatchCount);
@@ -1149,13 +1172,22 @@ public sealed class WikiTaskService
             _ => "原始内容有一定基础但仍需改进，请增强结构化程度和具体代码引用。"
         };
 
+        // V7: 根据 ContentDepthLevel 附加层级深度符合性要求
+        var depthCompliance = page.ContentDepthLevel?.ToLowerInvariant() switch
+        {
+            "article" => "\n特别要求：这是 Article 级别的深度页面，必须包含代码引用、函数签名和实现细节。缺少代码引用会严重扣分。",
+            "overview" => "\n特别要求：这是 Overview 级别的概览页面，应聚焦架构图和组件关系，不需要过深的实现细节。",
+            "section" => "\n特别要求：这是 Section 级别的中层页面，应平衡广度和深度，包含类图或流程图。",
+            _ => ""
+        };
+
         return $$"""
 你是资深技术文档专家。请重新生成以下 Wiki 页面，显著提升内容质量。
 
 页面标题：{{page.Title}}
 页面描述：{{page.Description}}
 当前质量评分：{{qualityScore}}/100
-改进方向：{{weaknessHint}}
+改进方向：{{weaknessHint}}{{depthCompliance}}
 
 原始内容摘要（需要改进）：
 {{(page.Content.Length > 500 ? page.Content[..500] + "..." : page.Content)}}
