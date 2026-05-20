@@ -29,6 +29,7 @@ public sealed class WikiTaskService
     private readonly CodeStructureIndexService _codeIndexService;
     private readonly IHybridSearchService _hybridSearch;
     private readonly RepositoryAccessService _repoAccess;
+    private readonly Infrastructure.Configuration.HeimdallConfigService _configService;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IStructuredLogger _structuredLogger;
     private readonly ILogger<WikiTaskService> _logger;
@@ -43,6 +44,7 @@ public sealed class WikiTaskService
         CodeStructureIndexService codeIndexService,
         IHybridSearchService hybridSearch,
         RepositoryAccessService repoAccess,
+        Infrastructure.Configuration.HeimdallConfigService configService,
         IHostApplicationLifetime appLifetime,
         IStructuredLogger structuredLogger,
         ILogger<WikiTaskService> logger)
@@ -56,6 +58,7 @@ public sealed class WikiTaskService
         _codeIndexService = codeIndexService;
         _hybridSearch = hybridSearch;
         _repoAccess = repoAccess;
+        _configService = configService;
         _appLifetime = appLifetime;
         _structuredLogger = structuredLogger;
         _logger = logger;
@@ -254,6 +257,47 @@ public sealed class WikiTaskService
                 codeIndexResult.ModuleNames.Count,
                 codeIndexResult.EntryPointFiles.Count);
 
+            // V7: 深度代码理解阶段（调用图 + 依赖拓扑 + 设计模式 + LLM 架构洞察）
+            CodeUnderstandingResult? codeUnderstanding = null;
+            var isV7Pipeline = _configService.GetWikiPipelineVersion() == "v7";
+            if (isV7Pipeline)
+            {
+                var codeUnderstandingRecovery = await TryLoadArtifactByTypeAsync(
+                    artifactRepo, executingTask.Id, "code_understanding", execToken);
+                if (codeUnderstandingRecovery is not null)
+                {
+                    try
+                    {
+                        codeUnderstanding = System.Text.Json.JsonSerializer.Deserialize<CodeUnderstandingResult>(
+                            codeUnderstandingRecovery, ArtifactJsonOptions);
+                        _logger.LogInformation("从工件恢复深度代码理解 TaskId={TaskId}", task.Id);
+                    }
+                    catch { /* 恢复失败，重新执行 */ }
+                }
+
+                if (codeUnderstanding is null)
+                {
+                    await MarkTaskStageAsync(taskRepo, executingTask, "code_understanding", "running", 28,
+                        "正在执行深度代码理解分析...", execToken);
+
+                    var codeUnderstandingService = execScope.ServiceProvider
+                        .GetRequiredService<ICodeUnderstandingService>();
+                    codeUnderstanding = await codeUnderstandingService.AnalyzeAsync(
+                        Guid.Empty,
+                        repoPath, effectiveProvider, model ?? customModel, execToken);
+
+                    await UpsertTaskArtifactAsync(artifactRepo, taskRepo, executingTask,
+                        "code_understanding", "analysis", "code_understanding", 0,
+                        System.Text.Json.JsonSerializer.Serialize(codeUnderstanding, ArtifactJsonOptions),
+                        $"深度代码理解完成：{codeUnderstanding.CallGraph.NodeCount} 方法节点，{codeUnderstanding.DesignPatterns.Count} 设计模式",
+                        execToken);
+
+                    await MarkTaskStageAsync(taskRepo, executingTask, "code_understanding", "completed", 32,
+                        $"深度代码理解完成：{codeUnderstanding.CallGraph.NodeCount} 节点，{codeUnderstanding.DependencyTopology.Modules.Count} 模块",
+                        execToken, markStageAsSuccessful: true);
+                }
+            }
+
             var (execOwner, execRepo) = repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
             var structureRecovery = await TryLoadPlanningArtifactAsync(artifactRepo, executingTask.Id, execToken);
             string structureRawResponse;
@@ -277,9 +321,14 @@ public sealed class WikiTaskService
             }
             else
             {
-                var structurePrompt = _taskPrompt.BuildWikiStructurePrompt(
-                    execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
-                    langDisplay, comprehensive, generationProfile);
+                // V7: 使用增强版结构规划提示词（传入 CodeUnderstandingResult）
+                var structurePrompt = isV7Pipeline
+                    ? _taskPrompt.BuildWikiStructurePromptV7(
+                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
+                        langDisplay, comprehensive, codeUnderstanding, generationProfile)
+                    : _taskPrompt.BuildWikiStructurePrompt(
+                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
+                        langDisplay, comprehensive, generationProfile);
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -401,11 +450,27 @@ public sealed class WikiTaskService
                     var stepOrder = wikiStructure.Pages.FindIndex(p => p.Id == page.Id) + 1;
                     try
                     {
-                        var pageResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, pagePrompt, execToken);
+                        // V7: 使用带指标的调用，记录 Token 消耗
+                        var pageResponseObj = await _taskLlm.GenerateWithMetricsAsync(
+                            effectiveProvider, model, customModel, pagePrompt, execToken);
+                        var pageResponse = pageResponseObj.Content;
+
+                        if (isV7Pipeline)
+                        {
+                            try
+                            {
+                                var observability = execScope.ServiceProvider
+                                    .GetRequiredService<ILlmObservabilityService>();
+                                await observability.RecordCallAsync(task.Id, "page_generation",
+                                    effectiveProvider, model ?? customModel ?? "", pageResponseObj, execToken);
+                            }
+                            catch { /* 指标记录失败不应中断主流程 */ }
+                        }
+
                         try { await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
                             pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false); } catch { }
                         _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
-                            $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms");
+                            $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms | In={pageResponseObj.Usage.InputTokens} Out={pageResponseObj.Usage.OutputTokens}");
 
                         var pageDraft = _wikiParser.ParsePageDraft(page, pageResponse);
                         ApplyGeneratedPageDraft(page, pageDraft);
