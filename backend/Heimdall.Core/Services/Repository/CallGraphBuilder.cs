@@ -204,9 +204,9 @@ public sealed class CallGraphBuilder
     {
         if (edges.Count == 0) return 0;
 
-        // 简化的 DFS 最大深度计算
+        // 使用不回溯的 DFS 计算近似最大深度（O(V+E) per root，不会指数爆炸）
         var adjacency = edges.GroupBy(e => e.CallerSymbol)
-            .ToDictionary(g => g.Key, g => g.Select(e => e.CalleeSymbol).ToList());
+            .ToDictionary(g => g.Key, g => g.Select(e => e.CalleeSymbol).Distinct().ToList());
 
         int maxDepth = 0;
         var visited = new HashSet<string>();
@@ -214,7 +214,7 @@ public sealed class CallGraphBuilder
         void Dfs(string node, int depth)
         {
             if (depth > maxDepth) maxDepth = depth;
-            if (depth > 10) return; // 防止深度过大
+            if (depth > 20) return; // 防止深度过大
 
             if (!adjacency.TryGetValue(node, out var neighbors)) return;
             foreach (var neighbor in neighbors)
@@ -222,12 +222,12 @@ public sealed class CallGraphBuilder
                 if (visited.Add(neighbor))
                 {
                     Dfs(neighbor, depth + 1);
-                    visited.Remove(neighbor);
+                    // 不移除 visited，避免指数级路径探索
                 }
             }
         }
 
-        foreach (var root in adjacency.Keys.Take(20))
+        foreach (var root in adjacency.Keys.Take(50))
         {
             visited.Clear();
             visited.Add(root);

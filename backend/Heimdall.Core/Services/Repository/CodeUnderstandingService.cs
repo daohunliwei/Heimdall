@@ -60,14 +60,20 @@ public sealed class CodeUnderstandingService : ICodeUnderstandingService
         var callGraph = _callGraphBuilder.Build(sourceFiles);
 
         // 3. 构建依赖拓扑（本地，无 LLM）
+        _logger.LogInformation("开始构建依赖拓扑...");
         var topology = _dependencyTopology.Build(projectFiles.Concat(sourceFiles));
+        _logger.LogInformation("依赖拓扑完成 模块={Modules}", topology.Modules.Count);
 
         // 4. 检测设计模式（本地，无 LLM）
+        _logger.LogInformation("开始检测设计模式...");
         var patterns = _patternDetector.Detect(sourceFiles);
+        _logger.LogInformation("设计模式检测完成 模式={Patterns}", patterns.Count);
 
         // 5. LLM 辅助架构理解（1-2 次调用）
+        _logger.LogInformation("开始 LLM 架构理解 Provider={Provider} Model={Model}...", provider, model);
         var insight = await GenerateArchitectureInsightAsync(
             callGraph, topology, patterns, provider, model, ct);
+        _logger.LogInformation("LLM 架构理解完成");
 
         var result = new CodeUnderstandingResult
         {
