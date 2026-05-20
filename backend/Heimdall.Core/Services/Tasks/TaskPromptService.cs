@@ -304,6 +304,9 @@ QUALITY REQUIREMENTS:
         var fileLinks = string.Join('\n', page.FilePaths.Select(path =>
             $"- [{path}]({BuildRepositoryFileUrl(repoType, repoUrl, repoOwner, repoName, path)})"));
 
+        // V7: 根据 ContentDepthLevel 构建差异化深度要求
+        var depthGuidance = GetDepthGuidance(page.ContentDepthLevel);
+
         return $$"""
 You are an expert technical writer and software architect.
 Your task is to generate a comprehensive and accurate technical wiki page in Markdown format about a specific feature, system, or module within a given software project.
@@ -315,6 +318,9 @@ CONTEXT AWARENESS: This wiki has multiple pages. You are generating content for 
 ## [WIKI_PAGE_TOPIC]
 Title: {{page.Title}}
 Description: {{page.Description}}
+
+## [CONTENT_DEPTH_INSTRUCTIONS]
+{{depthGuidance}}
 
 ## [RELEVANT_SOURCE_FILES]
 The following are the ACTUAL source file contents from the repository. You MUST use these as the sole basis for your analysis. Do NOT invent or infer anything not present in these files.
@@ -369,6 +375,35 @@ Markdown 正文写作要求：
 6. 如果信息不足，需在 Markdown 中明确说明“当前源文件未提供足够证据”。
 7. 所有内容必须使用 {{languageDisplayName}}。
 """;
+    }
+
+    /// <summary>
+    /// V7: 根据页面深度级别返回差异化的内容深度要求。
+    /// </summary>
+    private static string GetDepthGuidance(string? contentDepthLevel)
+    {
+        return (contentDepthLevel?.ToLowerInvariant()) switch
+        {
+            "overview" =>
+                "This is an OVERVIEW page. " +
+                "Provide a high-level architectural view. Focus on purpose, key components, and relationships. " +
+                "Include a Mermaid architecture/flow diagram. Summarize each child topic in 2-3 sentences. " +
+                "Aim for 800-1200 words. Breadth over depth. DO NOT dive into implementation details.",
+            "section" =>
+                "This is a SECTION page. " +
+                "Cover key classes/modules, their responsibilities, and interactions with moderate detail. " +
+                "Include at least one Mermaid sequence/class diagram and a table of key interfaces or config. " +
+                "Reference specific files and code patterns. Aim for 1200-2000 words. Balance breadth and depth.",
+            "article" =>
+                "This is an ARTICLE page (deepest level). " +
+                "Provide full implementation-level detail. Include actual code snippets from source files. " +
+                "Document function signatures, parameters, return values, and error handling. " +
+                "Explain algorithms, data flows, and edge cases. Include Mermaid diagrams for complex flows. " +
+                "Aim for 2000-3000+ words. Maximum depth and precision. Every claim must cite file evidence.",
+            _ =>
+                "Provide comprehensive coverage appropriate for this page's role in the wiki. " +
+                "Include code references, diagrams where helpful, and sufficient detail for developers."
+        };
     }
 
     public string BuildSlidesPlanPrompt(string owner, string repo, string wikiContent, string languageDisplayName)

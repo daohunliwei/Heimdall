@@ -4,6 +4,11 @@
     "dashscope": {
       "default_model": "qwen-plus",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 131072,
+        "maxOutputTokens": 8192
+      },
       "models": {
         "qwen-plus": {
           "temperature": 0.7,
@@ -22,6 +27,11 @@
     "google": {
       "default_model": "gemini-2.5-flash",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 1048576,
+        "maxOutputTokens": 65536
+      },
       "models": {
         "gemini-2.5-flash": {
           "temperature": 1.0,
@@ -43,6 +53,11 @@
     "minimax": {
       "default_model": "MiniMax-M2.7",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 1048576,
+        "maxOutputTokens": 16384
+      },
       "models": {
         "MiniMax-M2.7": {
           "temperature": 1.0,
@@ -77,6 +92,11 @@
     "openai": {
       "default_model": "gpt-5-nano",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 128000,
+        "maxOutputTokens": 16384
+      },
       "models": {
         "gpt-5": { "temperature": 1.0 },
         "gpt-5-nano": { "temperature": 1.0 },
@@ -100,6 +120,11 @@
     "openrouter": {
       "default_model": "openai/gpt-5-nano",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 128000,
+        "maxOutputTokens": 16384
+      },
       "models": {
         "openai/gpt-5-nano": {
           "temperature": 0.7,
@@ -136,6 +161,11 @@
     "ollama": {
       "default_model": "gemma4:e2b",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "CodingPlan",
+        "maxContextTokens": 131072,
+        "maxOutputTokens": 8192
+      },
       "models": {
         "gemma4:e2b": {
           "options": {
@@ -170,6 +200,11 @@
     "bedrock": {
       "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 200000,
+        "maxOutputTokens": 4096
+      },
       "models": {
         "anthropic.claude-3-sonnet-20240229-v1:0": {
           "temperature": 0.7,
@@ -200,6 +235,11 @@
     "azure": {
       "default_model": "gpt-4o",
       "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 128000,
+        "maxOutputTokens": 16384
+      },
       "models": {
         "gpt-4o": {
           "temperature": 0.7,
