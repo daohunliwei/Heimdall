@@ -246,56 +246,83 @@ public sealed class TaskPromptService
 
 ## 输出约束
 
-返回纯 JSON，格式：
+输出 Markdown + YAML frontmatter 格式。以 `---` 开始，YAML 元数据，`---` 分隔，然后是完整的 Markdown 正文。
+
+```markdown
+---
+id: "{{page.Id}}"
+title: "{{page.Title}}"
+pageType: overview
+importance: medium
+sourceFiles:
+  - "README.md"
+  - "LICENSE.md"
+tags:
+  - "标签1"
+  - "标签2"
+summary: "一段 1-2 句的页面摘要"
+relatedPages:
+  - "other-page-id"
+---
+
+<details><summary>📁 源文件参考</summary>
+
+- README.md (行 1-50)
+- LibGit2Sharp/Repository.cs (行 10-200)
+- ...
+
+</details>
+
+# {{page.Title}}
+
+## 第一个小节
+
+正文内容...
+
+```mermaid
+graph TD
+  A[入口] --> B[处理]
+  B --> C[输出]
+  classDef primary fill:#e1f5fe
+```
+
+### 代码引用
+
+关键代码逻辑：
+
+```csharp
+// LibGit2Sharp/Repository.cs:45-52
+public class Repository : IDisposable
 {
-  "id": "{{page.Id}}",
-  "title": "{{page.Title}}",
-  "pageType": "overview|section|article|appendix",
-  "parentId": "父页面 id 或 null",
-  "relatedPages": ["page-id"],
-  "frontMatter": { "summary": "...", "tags": [...] },
-  "content": "Markdown 正文"
+    // ...
 }
+```
 
-### 内容格式强制规则（违反任何一条即视为不合格）
+## 另见
 
-**Markdown 结构**：
-1. 正文第一行必须是 `<details><summary>📁 源文件参考</summary>`，列出 ≥ 5 个源文件路径和行号，以 `</details>` 闭合
-2. 随后是 H2/H3 正文，不包含 H1 顶级标题
-3. 全部内容使用 {{languageDisplayName}}
+- [相关页面](./other-page) — 描述
+```
 
-**Mermaid 图表（必须）**：
-4. 所有 Mermaid 图必须放在独立的 ` ```mermaid ` 代码围栏中
-5. 架构图使用 `graph TD`，图表节点文字 ≤ 4 个词
-6. 时序图使用 `sequenceDiagram` + `autonumber` 自动编号
-7. 使用 `classDef` 为不同层级节点定义样式
-8. **绝对禁止**将 Mermaid 语法作为裸文本直接输出——用户看到 `graph TD` 裸文本即为不合格
+**关键要求**：
+1. 以 `---` YAML frontmatter 开头，所有元数据字段放在 frontmatter 中
+2. 正文以 `<details><summary>📁 源文件参考</summary>` 折叠块开头
+3. **所有 Mermaid 图必须放在 ` ```mermaid ` 代码围栏中**，使用 autonumber 和 classDef
+4. **所有代码片段必须放在 ` ```csharp ` 或 ` ```json ` 等带语言标识的围栏中**
+5. H2/H3 组织正文，不包含 H1 顶级标题（标题在 frontmatter 中已有）
+6. 禁止虚构代码、禁止裸文本代码语句、禁止裸文本 Mermaid 语法
+7. 至少 1 个 Mermaid 图 + 1 个表格 + 1 个列表
+8. 全部内容使用 {{languageDisplayName}}
 
-**代码引用（必须）**：
-9. 所有代码片段必须放在 ` ```csharp ` 或 ` ```json ` 等带语言标识的围栏代码块中
-10. 代码块前后必须有空行
-11. 代码引用必须标注 `文件路径:起始行-结束行` 格式的来源注释
-12. **绝对禁止**裸文本输出方法签名、代码语句、配置内容——用户看到 `public static void` 裸文本即为不合格
+## 质量自查清单
 
-**元数据隐藏（必须）**：
-13. JSON 元数据字段（title、nav_title、page_type、tags、source_files、summary、related_pages、prerequisite_pages 等）**不得**出现在 `content` 正文中
-14. 正文只包含 Markdown 文档内容，不含任何 JSON 结构或元数据格式文本
-
-**技术准确性**：
-15. 禁止虚构代码——所有引用必须来自上方提供的真实片段
-16. 若代码不足以完整描述某方面，注明"未在代码中找到对应实现"
-17. 至少 1 个表格 + 1 个 Mermaid 图 + 1 个列表
-
-## 质量自查清单（输出前逐项自检）
-
-1. □ 所有 Mermaid 图是否用 ` ```mermaid ` 包裹（非裸文本 graph TD）？
-2. □ 所有代码块是否标注了语言类型并前后空行？
-3. □ 正文开头是否为 `<details>`（非裸露 title/nav_title/tags 元数据文本）？
-4. □ 是否存在裸文本的代码语句（如 `public class X`）或 Mermaid 语法（如 `graph TD`）？
-5. □ 所有类名、方法名是否来自上方提供的代码片段（非编造）？
+1. □ YAML frontmatter 格式是否正确（`---` 开头和分隔，无 tab 缩进）？
+2. □ 所有 Mermaid 图是否用 ` ```mermaid ` 包裹？
+3. □ 所有代码块是否标注了语言类型？
+4. □ 正文开头是否为 `<details>` 折叠块？
+5. □ 是否存在裸文本的代码或 Mermaid 语法？
 6. □ 是否有至少 1 个 Mermaid 图 + 1 个表格？
-7. □ Mermaid 节点文字是否 ≤ 4 词？
-8. □ JSON 格式是否正确（双引号、无尾逗号、content 内引号转义）？
+7. □ 所有代码引用是否来自上方提供的真实片段？
+8. □ Markdown 语法是否完整（无截断、无未闭合围栏）？
 """;
     }
 
