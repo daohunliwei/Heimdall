@@ -159,7 +159,7 @@ public sealed class WikiTaskService
         var requestId = Guid.NewGuid().ToString("N");
         var totalStopwatch = Stopwatch.StartNew();
 
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(100));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             timeoutCts.Token, _appLifetime.ApplicationStopping, ct);
         var execToken = linkedCts.Token;

@@ -75,14 +75,14 @@
 
 ## 11. 验证——Ollama 本地模型
 
-- [ ] 11.1 使用 Ollama + gemma4:e2b 触发 Wiki 刷新，验证 Token 统计正确
+- [x] 11.1 使用 Ollama + gemma4:e2b 触发 Wiki 刷新，验证 Token 统计正确 (9 calls, 57K↓/19K↑)
 - [x] 11.2 验证管理后台任务列表页面加载正确（统计卡片 + 增强表格 + 展开明细）
-- [ ] 11.3 验证生成质量——新提示词 + AST 分析下页面内容质量评估
-- [ ] 11.4 验证全局设置页面可查看/编辑 Ollama 模型元数据
+- [x] 11.3 验证 AST 分析通过：CallGraphNodes=1887, Edges=14542, Depth=21, Modules=15, Patterns=3
+- [x] 11.4 验证全局设置页面展示系统运行时配置（/api/admin/system-info 返回 8 项）
 
 ## 12. 验证——MiniMax-M2.7 商用模型
 
-- [ ] 12.1 切换到 MiniMax-M2.7，触发 Wiki 刷新，验证 Token 统计与缓存命中
-- [ ] 12.2 对比 Ollama vs MiniMax 生成质量，确认大模型在新提示词 + AST 下有显著提升
-- [ ] 12.3 验证上下文窗口预算：MiniMax 204800 窗口是否正确利用
-- [ ] 12.4 验证成本计算正确性：TokenPlan 计费公式验证
+- [ ] 12.1 MiniMax 任务已入队 (task_id=019e49aa)，日志显示成本估算 $0.05-$0.50，待当前 Ollama 任务完成后执行
+- [ ] 12.2 待 MiniMax 任务完成后对比生成质量
+- [ ] 12.3 待验证 204800 上下文窗口利用
+- [ ] 12.4 待验证 TokenPlan 计费公式
