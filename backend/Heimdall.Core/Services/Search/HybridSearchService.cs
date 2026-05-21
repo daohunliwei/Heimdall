@@ -126,12 +126,12 @@ public sealed class HybridSearchService : IHybridSearchService
         var byFile = results.GroupBy(r => r.FilePath);
         foreach (var group in byFile.OrderByDescending(g => g.First().CombinedScore))
         {
-            foreach (var result in group.Take(3))
+            foreach (var result in group)
             {
-                sb.AppendLine($"**文件**: `{result.FilePath}` (行 {result.StartLine}-{result.EndLine})");
-                sb.AppendLine($"**语言**: {result.Language}  **相关性**: {result.CombinedScore:F2}");
+                var lang = string.IsNullOrWhiteSpace(result.Language) ? "text" : result.Language.ToLowerInvariant();
+                sb.AppendLine($"**文件**: `{result.FilePath}` (行 {result.StartLine}-{result.EndLine})  [{lang}]");
                 sb.AppendLine();
-                sb.AppendLine("```" + result.Language);
+                sb.AppendLine("```" + lang);
                 sb.AppendLine(result.Content);
                 sb.AppendLine("```");
                 sb.AppendLine();
