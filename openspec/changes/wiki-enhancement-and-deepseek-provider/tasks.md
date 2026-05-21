@@ -30,8 +30,8 @@
 
 ## 5. 集成验证与调试
 
-- [ ] 5.1 使用 `调试环境-Home.md` 中的 DeepSeek 配置启动后端服务，验证 DeepSeekChatProvider 非流式调用
-- [ ] 5.2 验证 DeepSeekChatProvider 流式调用和 reasoning_content 收集
-- [ ] 5.3 对 libgit2sharp 仓库触发完整 Wiki 生成，验证目录树是否为多层嵌套结构（非平铺）
-- [ ] 5.4 验证生成的 Wiki 页面内容是否引用了 AGENTS.md/README.md 中的架构信息
-- [ ] 5.5 验证模型输入/输出分离后大窗口模型是否充分填充上下文并正确设置 max_tokens
+- [x] 5.1 使用 `调试环境-Home.md` 中的 DeepSeek 配置启动后端服务，验证 DeepSeekChatProvider 非流式调用
+- [x] 5.2 验证 DeepSeekChatProvider 流式调用和 reasoning_content 收集
+- [x] 5.3 对 PocketFlow 仓库触发完整 Wiki 生成，验证目录树是否为多层嵌套结构（非平铺）
+- [x] 5.4 验证生成的 Wiki 页面内容是否引用了 AGENTS.md/README.md 中的架构信息
+- [x] 5.5 验证模型输入/输出分离后大窗口模型是否充分填充上下文并正确设置 max_tokens
