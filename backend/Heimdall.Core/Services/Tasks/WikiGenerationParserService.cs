@@ -134,7 +134,9 @@ public sealed class WikiGenerationParserService
     private bool TryParsePageDraftFrontmatter(string response, out WikiPageDto? page)
     {
         page = null;
-        var trimmed = response.TrimStart();
+        // 剥离 MiniMax 的 <think>...</think> 思考块
+        var cleaned = Regex.Replace(response, @"<think>[\s\S]*?</think>\s*", "");
+        var trimmed = cleaned.TrimStart();
         if (!trimmed.StartsWith("---")) return false;
 
         // 找到第二个 ---（frontmatter 结束标记）
