@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useEffect, useState} from 'react';
+import React, {useState} from 'react';
 import {useLanguage} from '@/contexts/LanguageContext';
 import UserSelector from './UserSelector';
 import WikiTypeSelector from './WikiTypeSelector';
@@ -77,6 +77,7 @@ export default function ModelSelectionModal({
   repositoryType = 'github',
 }: ModelSelectionModalProps) {
   const { messages: t } = useLanguage();
+  const [prevIsOpen, setPrevIsOpen] = useState(false);
 
   // Local state for form values (to only apply changes when the user clicks "Submit")
   const [localProvider, setLocalProvider] = useState(provider);
@@ -94,23 +95,25 @@ export default function ModelSelectionModal({
   const [localSelectedPlatform, setLocalSelectedPlatform] = useState<'github' | 'gitlab' | 'bitbucket'>(repositoryType);
   const [showTokenSection, setShowTokenSection] = useState(showTokenInput);
 
-  // Reset local state when modal is opened
-  useEffect(() => {
-    if (isOpen) {
-      setLocalProvider(provider);
-      setLocalModel(model);
-      setLocalIsCustomModel(isCustomModel);
-      setLocalCustomModel(customModel);
-      setLocalIsComprehensiveView(isComprehensiveView);
-      setLocalExcludedDirs(excludedDirs);
-      setLocalExcludedFiles(excludedFiles);
-      setLocalIncludedDirs(includedDirs);
-      setLocalIncludedFiles(includedFiles);
-      setLocalSelectedPlatform(repositoryType);
-      setLocalAccessToken('');
-      setShowTokenSection(showTokenInput);
-    }
-  }, [isOpen, provider, model, isCustomModel, customModel, isComprehensiveView, excludedDirs, excludedFiles, includedDirs, includedFiles, repositoryType, showTokenInput]);
+  // Reset local state when modal transitions to open
+  if (isOpen && !prevIsOpen) {
+    setPrevIsOpen(true);
+    setLocalProvider(provider);
+    setLocalModel(model);
+    setLocalIsCustomModel(isCustomModel);
+    setLocalCustomModel(customModel);
+    setLocalIsComprehensiveView(isComprehensiveView);
+    setLocalExcludedDirs(excludedDirs);
+    setLocalExcludedFiles(excludedFiles);
+    setLocalIncludedDirs(includedDirs);
+    setLocalIncludedFiles(includedFiles);
+    setLocalSelectedPlatform(repositoryType);
+    setLocalAccessToken('');
+    setShowTokenSection(showTokenInput);
+  }
+  if (!isOpen && prevIsOpen) {
+    setPrevIsOpen(false);
+  }
 
   // Handler for applying changes
   const handleApply = () => {

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Heimdall.Infrastructure.Models;
 
@@ -32,13 +33,17 @@ public class ProviderModelParameters
 
 public class ProviderDefinition
 {
+    [JsonPropertyName("default_model")]
     public string DefaultModel { get; set; } = string.Empty;
     public bool SupportsCustomModel { get; set; }
     public Dictionary<string, ProviderModelParameters> Models { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Provider 级别的计费与能力元数据（可选，未配置时使用默认值）。</summary>
+    public ProviderModelMetadata? Metadata { get; set; }
 }
 
 public class GeneratorConfig
 {
+    [JsonPropertyName("default_provider")]
     public string DefaultProvider { get; set; } = "google";
     public Dictionary<string, ProviderDefinition> Providers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
