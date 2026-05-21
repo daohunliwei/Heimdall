@@ -82,6 +82,11 @@ public sealed class OpenAiCompatibleChatProvider : IChatProvider
             ["stream"] = false
         };
 
+        if (request.MaxOutputTokens > 0)
+        {
+            payload["max_tokens"] = request.MaxOutputTokens;
+        }
+
         if (request.Temperature.HasValue)
         {
             payload["temperature"] = request.Temperature.Value;
