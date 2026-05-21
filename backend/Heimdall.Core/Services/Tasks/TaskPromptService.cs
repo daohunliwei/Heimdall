@@ -86,72 +86,79 @@ public sealed class TaskPromptService
         }
 
         return $$"""
-You are an expert software architect and technical documentation specialist. Your task is to create a DEEPLY STRUCTURED, multi-layered wiki for this repository.
+## 角色
 
-STEP 1: REPOSITORY ANALYSIS
-Analyze this {{owner}}/{{repo}} repository:
+你是一位拥有 15 年经验的软件架构师和技术文档策略专家。你为 Spring Framework、Kubernetes、VS Code 等级别的开源项目设计过文档架构。你的核心能力是：从代码结构中洞察系统本质，设计出逻辑严密、层次清晰的文档地图。
 
-1. Complete file tree:
+## 上下文
+
+以下是该代码仓库的完整分析数据：
+
+**仓库**：{{owner}}/{{repo}}
+
+**文件树**：
 <file_tree>
 {{fileTree}}
 </file_tree>
 
-2. README content:
+**README**：
 <readme>
 {{readme}}
 </readme>
 {{codeInsightSection}}
 
-STEP 2: DEEP WIKI STRUCTURE DESIGN
+目标语言：{{languageDisplayName}}
+生成档位：{{(isComprehensiveView ? "完整型（50+ 页）" : "简洁型（20+ 页）")}}
 
-CRITICAL: You must create a MULTI-LAYERED wiki with NESTED SECTIONS AND PAGES.
-Target: {{(isComprehensiveView ? "50+ pages" : "20+ pages")}} organized in a 3-4 level deep hierarchy.
+## 分步指令
 
-Structure Requirements:
-- Level 0: Root overview page (1 page)
-- Level 1: Major sections (5-8 sections, each with overview page)
-- Level 2: Sub-sections per major section (3-5 per section)
-- Level 3: Detailed implementation pages (2-4 per sub-section)
+### 步骤 1：全局架构理解
+- 从 README 和文件树推断项目类型（Web 应用 / 库 / CLI 工具 / 微服务等）
+- 识别技术栈和 3-7 个核心功能域
+- 若有代码理解数据，将其中的架构模式、设计模式、依赖拓扑作为核心参考
 
-Each page MUST have:
-- `depth`: 0-3 indicating its level in the hierarchy
-- `contentDepthLevel`: "overview" | "module" | "component" | "implementation"
-- `parentId`: reference to parent page (null for root)
+### 步骤 2：确定文档层级深度
+- 文件数 < 50：2 层（章 → 页）
+- 文件数 50-200：3 层（章 → 节 → 页）
+- 文件数 200-500：4 层（章 → 节 → 子节 → 页）
+- 文件数 > 500：4-5 层（章 → 节 → 子节 → 页 → 子页）
 
-Content Depth Mapping:
-- depth=0 → contentDepthLevel="overview" (高层架构概述)
-- depth=1 → contentDepthLevel="module" (模块级介绍)
-- depth=2 → contentDepthLevel="component" (组件级详解)
-- depth=3 → contentDepthLevel="implementation" (实现细节)
+### 步骤 3：设计顶层章节（≤ 7 个）
+每个章节覆盖一个独立的功能域或技术关注点。章节之间逻辑互斥、内容互补。
 
-STEP 3: FILE MAPPING
-For each page, map relevant source files:
-- depth=0 pages: 3-5 key entry point files
-- depth=1 pages: 5-8 module-level files
-- depth=2 pages: 8-12 component files
-- depth=3 pages: 10-15 implementation files (maximum detail)
+### 步骤 4：规划页面清单
+- overview 页面（1-2 层）：架构全景、模块关系、设计理念
+- section 页面（2-3 层）：模块分析、数据流、关键接口
+- article 页面（3-5 层）：实现细节、代码深挖、逐方法分析
+- 每个页面明确 pageType、depth（1-5）、contentDepthLevel
+
+### 步骤 5：建立关联关系
+- 为每个页面标记 1-3 个关联页面（relatedPages）
+- 为需要前置知识的页面标记前置页面（prerequisitePages）
+
+### 步骤 6：映射源文件
+- 为每个页面分配 5-15 个最相关的源文件路径
+- 文件选择依据：文件名/路径与页面主题的语义相关性
+
+## 输出约束
 
 {{GetWikiStructureFormatInstructions(isComprehensiveView)}}
 
-IMPORTANT: The wiki content will be generated in {{languageDisplayName}} language.
+核心格式规则：
+1. 输出纯 JSON，以 `{` 开头 `}` 结尾，禁止代码围栏
+2. `sections` 通过 `children` 递归形成树形结构
+3. 每个页面必须指定 `depth`（1-5）、`contentDepthLevel`（overview/section/article/appendix）、`parentId`
+4. `parentId` 必须引用页面 ID，不可引用章节 ID
+5. 顶层页面 `parentId` 为 null
 
-CRITICAL FORMATTING:
-- Return ONLY the valid JSON object specified above
-- DO NOT wrap in markdown code blocks
-- Start directly with { and end with }
-- `parentId` MUST reference another page id or be null
-- Every non-root page MUST have a valid parentId
-- `sections` should form a tree structure via `children` (recursive WikiSectionDto)
-- Each section's `pages` array contains page ids that belong to that section
+## 质量自查清单
 
-QUALITY REQUIREMENTS:
-1. MINIMUM {{(isComprehensiveView ? "50" : "20")}} pages total
-2. Every page must have a clear parentId establishing hierarchy
-3. Mix of pageTypes: overview (root), section (level 1-2), article (level 2-3)
-4. Each page description must be SPECIFIC and TECHNICAL
-5. Include pages for: architecture, modules, APIs, data models, workflows, configuration, testing, deployment
-6. Provide `relatedPages` cross-references between related topics
-7. Use `searchKeywords` for each page to enable retrieval-augmented generation
+1. □ 顶层章节是否 ≤ 7 个且互斥互补？
+2. □ 页面总数是否合理（简介型 15-25、完整型 35-80）？
+3. □ overview 页面是否放在 1-2 层、article 页面放在 3-5 层？
+4. □ 每个 article 页面是否指定了 ≥ 5 个源文件？
+5. □ 是否有循环依赖？
+6. □ JSON 是否可以成功解析？
 """;
     }
 
@@ -186,72 +193,87 @@ QUALITY REQUIREMENTS:
         var depthGuidance = GetDepthGuidance(page.ContentDepthLevel);
 
         return $$"""
-You are an expert technical writer and software architect.
-Your task is to generate a comprehensive and accurate technical wiki page in Markdown format about a specific feature, system, or module within a given software project.
+## 角色
 
-CONTEXT AWARENESS: This wiki has multiple pages. You are generating content for "{{page.Title}}" specifically.
-{{(string.IsNullOrWhiteSpace(relatedPagesContext) ? string.Empty : $"\nRelated pages in this wiki:\n{relatedPagesContext}\n\nEnsure your content is DISTINCT from these related pages and does not duplicate their coverage.")}}
-{{(string.IsNullOrWhiteSpace(previousPageContext) ? string.Empty : $"\nPages already generated (V4 cross-page context) — avoid duplicate coverage, reference where appropriate:\n{previousPageContext}")}}
+你是一位资深技术文档撰写专家。你的文档被一线工程师用作日常开发参考。你的写作风格：精确、深入、以代码为证据、以图表辅助理解。你从不写空洞的概述——每一句话都有代码或架构事实支撑。
 
-## [WIKI_PAGE_TOPIC]
-Title: {{page.Title}}
-Description: {{page.Description}}
+## 上下文
 
-## [CONTENT_DEPTH_INSTRUCTIONS]
-{{depthGuidance}}
+### 页面元数据
+- 标题：{{page.Title}}
+- 描述：{{page.Description}}
+- 深度级别：{{page.ContentDepthLevel}}
+- 目标语言：{{languageDisplayName}}
 
-## [RELEVANT_SOURCE_FILES]
-The following are the ACTUAL source file contents from the repository. You MUST use these as the sole basis for your analysis. Do NOT invent or infer anything not present in these files.
+### 关联页面（避免内容重复）
+{{(string.IsNullOrWhiteSpace(relatedPagesContext) ? "无" : relatedPagesContext)}}
 
+### 已生成页面上下文（跨页面一致性）
+{{(string.IsNullOrWhiteSpace(previousPageContext) ? "无" : previousPageContext)}}
+
+### 真实源代码片段
+以下是从仓库中检索到的与当前主题最相关的真实代码。**你只能使用这些片段中的代码作为依据**：
 {{fileContents}}
 
-## File Reference Links:
+### 源文件链接
 {{fileLinks}}
 
-CRITICAL: This page should provide UNIQUE, NON-OVERLAPPING content focused specifically on "{{page.Title}}". Analyze the REAL source code provided above and generate content based on what you ACTUALLY SEE in the files.
+## 分步指令
 
-Return ONLY one valid JSON object with the following schema:
+### 步骤 1：理解主题范围
+- 仔细阅读页面标题和描述，确定本文档的精确范围边界
+- 识别哪些内容属于本文档、哪些应留给关联页面
+- 从代码片段中提取与主题直接相关的类、方法、接口
+
+### 步骤 2：构建内容大纲（3-6 个 H2 小节）
+- 按逻辑递进排列小节
+- 每个 H2 聚焦一个独立的技术点
+{{depthGuidance}}
+
+### 步骤 3：撰写正文（以代码为中心）
+- 每个断言必须引用至少一个真实代码片段作为证据
+- 使用表格对比 API 参数、配置选项、类职责
+- 在关键流程处插入 Mermaid 图表
+- 代码引用格式：从上方提供的片段中提取，标注文件路径
+
+### 步骤 4：生成 Mermaid 图表（至少 1 个）
+- 架构图用 graph TD、调用流程用 sequenceDiagram、类关系用 classDiagram
+- 时序图使用 autonumber 自动编号
+- 图表节点文字简洁（3-4 词）
+
+### 步骤 5：编写关联导航
+- 在末尾"另见"区域列出关联页面链接
+
+## 输出约束
+
+返回纯 JSON（不要用代码围栏包裹），格式：
 {
   "id": "{{page.Id}}",
   "title": "{{page.Title}}",
-  "description": "页面描述，可比原始描述更具体",
-  "navTitle": "用于导航的短标题",
   "pageType": "overview|section|article|appendix",
-  "importance": "high|medium|low",
   "parentId": "父页面 id 或 null",
-  "filePaths": ["必须是与页面直接相关的仓库文件路径"],
   "relatedPages": ["page-id"],
-  "prerequisitePages": ["page-id"],
-  "frontMatter": {
-    "summary": "一段可用于 Frontmatter 的摘要",
-    "description": "一段可用于 Frontmatter 的描述",
-    "tags": ["标签1", "标签2"],
-    "sourceFiles": ["与页面强相关的文件路径"]
-  },
-  "outline": [
-    { "level": 2, "title": "章节标题", "anchor": "chapter-anchor" }
-  ],
-  "sourceCoverage": {
-    "primaryFiles": ["核心文件路径"],
-    "evidence": [
-      {
-        "filePath": "文件路径",
-        "reason": "为什么该文件支撑当前页面",
-        "symbols": ["类名", "方法名"]
-      }
-    ]
-  },
-  "content": "仅包含 Markdown 正文，不要包含 Frontmatter，不要包含 <details>，正文内部必须包含 H2/H3 分节、表格或列表，并在合适位置使用 Mermaid。"
+  "frontMatter": { "summary": "...", "tags": [...] },
+  "content": "Markdown 正文（以 <details><summary>📁 源文件参考</summary> 开头，随后是 H2/H3 正文、表格、Mermaid 图）"
 }
 
-Markdown 正文写作要求：
-1. 正文不要包含最外层 Frontmatter，也不要包含 `# {{page.Title}}` 顶级标题。
-2. 必须使用 `##` / `###` 组织结构，聚焦实现细节而非泛泛介绍。
-3. 必须引用真实代码证据，明确指出文件、类、方法或配置。
-4. 至少提供一个表格、一个列表；当适合时提供 Mermaid 图。
-5. 不要输出 HTML 页面，不要输出 XML，不要输出额外解释文本。
-6. 如果信息不足，需在 Markdown 中明确说明“当前源文件未提供足够证据”。
-7. 所有内容必须使用 {{languageDisplayName}}。
+内容约束：
+1. 以 `<details><summary>📁 源文件参考</summary>` 折叠块开头
+2. 使用 H2/H3 组织正文，不包含 H1 顶级标题
+3. 必须引用真实代码证据（文件路径、类名、方法签名）
+4. 至少 1 个表格 + 1 个 Mermaid 图 + 1 个列表
+5. 禁止虚构代码——所有引用必须来自上方提供的真实片段
+6. 若代码不足以完整描述某方面，注明"未在代码中找到对应实现"
+7. 全部内容使用 {{languageDisplayName}}
+
+## 质量自查清单
+
+1. □ 所有类名、方法名是否来自真实代码片段？
+2. □ 是否包含至少 1 个 Mermaid 图表和 1 个表格？
+3. □ H2 小节是否在 3-6 个之间且有实质性内容？
+4. □ 源文件引用块是否列出了 ≥ 5 个文件？
+5. □ 是否与关联页面内容互补而非重复？
+6. □ JSON 格式是否正确（双引号、无尾逗号、括号配对）？
 """;
     }
 
@@ -263,24 +285,13 @@ Markdown 正文写作要求：
         return (contentDepthLevel?.ToLowerInvariant()) switch
         {
             "overview" =>
-                "This is an OVERVIEW page. " +
-                "Provide a high-level architectural view. Focus on purpose, key components, and relationships. " +
-                "Include a Mermaid architecture/flow diagram. Summarize each child topic in 2-3 sentences. " +
-                "Aim for 800-1200 words. Breadth over depth. DO NOT dive into implementation details.",
+                "这是 OVERVIEW（架构全景）页面。聚焦系统架构鸟瞰图、模块间关系、设计理念和技术决策。必须包含 Mermaid 架构图。不要深入任何实现细节——留给子页面完成。目标 800-1200 字。",
             "section" =>
-                "This is a SECTION page. " +
-                "Cover key classes/modules, their responsibilities, and interactions with moderate detail. " +
-                "Include at least one Mermaid sequence/class diagram and a table of key interfaces or config. " +
-                "Reference specific files and code patterns. Aim for 1200-2000 words. Balance breadth and depth.",
+                "这是 SECTION（模块分析）页面。介绍模块职责和边界、数据流分析、关键类/接口概述、配置说明。必须包含至少 1 个 Mermaid 时序/类图 + 1 个接口或配置表格。引用具体文件和代码模式。目标 1200-2000 字。",
             "article" =>
-                "This is an ARTICLE page (deepest level). " +
-                "Provide full implementation-level detail. Include actual code snippets from source files. " +
-                "Document function signatures, parameters, return values, and error handling. " +
-                "Explain algorithms, data flows, and edge cases. Include Mermaid diagrams for complex flows. " +
-                "Aim for 2000-3000+ words. Maximum depth and precision. Every claim must cite file evidence.",
+                "这是 ARTICLE（实现细节）页面。提供完整的实现级别分析。必须直接引用源代码片段（方法签名、参数、返回值、异常处理）。解释算法逻辑、数据流转和边界条件。逐方法/逐类深挖。必须包含 Mermaid 时序图展示调用流程。目标 2000-3000+ 字。每一个断言都必须有代码证据。",
             _ =>
-                "Provide comprehensive coverage appropriate for this page's role in the wiki. " +
-                "Include code references, diagrams where helpful, and sufficient detail for developers."
+                "根据页面在 Wiki 中的角色提供适当深度的内容。引用代码证据、插入合适的图表、提供开发者所需的足够细节信息。"
         };
     }
 

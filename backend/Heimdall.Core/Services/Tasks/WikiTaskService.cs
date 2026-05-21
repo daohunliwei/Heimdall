@@ -357,7 +357,14 @@ public sealed class WikiTaskService
                 {
                     structureAttemptCount++;
                     var structureSw = Stopwatch.StartNew();
-                    structureRawResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
+                    var structureResponse = await _taskLlm.GenerateWithMetricsAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
+                    structureRawResponse = structureResponse.Content;
+                    try
+                    {
+                        var obs = execScope.ServiceProvider.GetRequiredService<ILlmObservabilityService>();
+                        await obs.RecordCallAsync(task.Id, "structure_planning", effectiveProvider, model ?? customModel ?? "", structureResponse, execToken);
+                    }
+                    catch { /* 指标记录失败不影响主流程 */ }
                     await LogLlmCallAsync(task.Id, 0, "structure_generation", effectiveProvider, model ?? customModel,
                         structurePrompt, structureRawResponse, (int)structureSw.ElapsedMilliseconds, false);
 
@@ -671,9 +678,15 @@ public sealed class WikiTaskService
 
                     try
                     {
-                        var regenerated = await _taskLlm.GenerateTextAsync(
+                        var regenResponse = await _taskLlm.GenerateWithMetricsAsync(
                             effectiveProvider, model, customModel, regenerationPrompt, execToken);
-                        var newDraft = _wikiParser.ParsePageDraft(weakPage, regenerated);
+                        try
+                        {
+                            var obs = execScope.ServiceProvider.GetRequiredService<ILlmObservabilityService>();
+                            await obs.RecordCallAsync(task.Id, "quality_assurance", effectiveProvider, model ?? customModel ?? "", regenResponse, execToken);
+                        }
+                        catch { }
+                        var newDraft = _wikiParser.ParsePageDraft(weakPage, regenResponse.Content);
                         if (!string.IsNullOrWhiteSpace(newDraft.Content))
                         {
                             ApplyGeneratedPageDraft(weakPage, newDraft);

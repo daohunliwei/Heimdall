@@ -1,6 +1,7 @@
 using Heimdall.Api.Mappings;
 using Heimdall.Api.Models;
 using Heimdall.Core.Interfaces.Repositories;
+using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Services.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,11 +15,13 @@ public class TasksAdminController : ControllerBase
 {
     private readonly ITaskRepository _taskRepo;
     private readonly TaskQueueService _taskQueue;
+    private readonly ILlmObservabilityService _observability;
 
-    public TasksAdminController(ITaskRepository taskRepo, TaskQueueService taskQueue)
+    public TasksAdminController(ITaskRepository taskRepo, TaskQueueService taskQueue, ILlmObservabilityService observability)
     {
         _taskRepo = taskRepo;
         _taskQueue = taskQueue;
+        _observability = observability;
     }
 
     [HttpGet]
@@ -29,11 +32,32 @@ public class TasksAdminController : ControllerBase
         [FromQuery] int limit = 20)
     {
         var (items, total) = await _taskRepo.GetAllAsync(status, taskType, null, offset, limit);
-        return Ok(new TaskListResponse
+        var tasks = new List<object>();
+        foreach (var t in items)
         {
-            Tasks = items.Select(t => t.ToTaskStatusResponse()).ToList(),
-            Total = total
-        });
+            LlmTaskMetricsSummary? metrics = null;
+            try { metrics = await _observability.GetTaskSummaryAsync(t.Id); } catch { }
+
+            var basic = t.ToTaskStatusResponse();
+            tasks.Add(new
+            {
+                basic.Id,
+                task_type = basic.TaskType,
+                basic.Status,
+                progress_percent = basic.ProgressPercent,
+                progress_message = basic.ProgressMessage,
+                error_message = basic.ErrorMessage,
+                created_at = basic.CreatedAt,
+                started_at = (DateTime?)basic.StartedAt,
+                completed_at = (DateTime?)basic.CompletedAt,
+                input_tokens = metrics?.TotalInputTokens ?? 0L,
+                output_tokens = metrics?.TotalOutputTokens ?? 0L,
+                cache_hit_tokens = metrics?.TotalCacheHitTokens ?? 0L,
+                estimated_cost = metrics?.EstimatedCost ?? 0m,
+                total_calls = metrics?.TotalCalls ?? 0
+            });
+        }
+        return Ok(new { tasks, total = total });
     }
 
     [HttpPost("{id}/cancel")]
@@ -48,9 +72,27 @@ public class TasksAdminController : ControllerBase
     {
         var task = await _taskRepo.GetByIdAsync(id);
         if (task is null) return NotFound();
-
-        // 重置状态并重新入队
         await _taskQueue.RequeueWikiTaskAsync(id, HttpContext.RequestAborted);
         return Ok(new { status = "pending", message = "任务已重新排队，将按已落库工件恢复执行" });
+    }
+
+    [HttpGet("{id}/details")]
+    public async Task<IActionResult> GetDetails(Guid id, CancellationToken ct)
+    {
+        var metrics = await _observability.GetTaskMetricsAsync(id, ct);
+        var details = metrics.Select(m => new
+        {
+            stage = m.Stage,
+            provider = m.Provider,
+            model = m.Model,
+            inputTokens = m.InputTokens,
+            outputTokens = m.OutputTokens,
+            cacheHitTokens = m.CacheHitTokens,
+            latencyMs = m.LatencyMs,
+            success = m.Success,
+            errorType = m.ErrorType,
+            createdAt = m.CreatedAt
+        });
+        return Ok(details);
     }
 }

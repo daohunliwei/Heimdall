@@ -17,6 +17,7 @@ using Heimdall.Core.Services.Tasks;
 using Heimdall.Core.Services.Admin;
 using Heimdall.Core.Services.Prompt;
 using Heimdall.Core.Services.Repository;
+using Heimdall.Core.Interfaces;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Repository.Data;
@@ -160,6 +161,7 @@ builder.Services.AddScoped<IWikiSpaceRepository, WikiSpaceRepository>();
 builder.Services.AddScoped<IWikiVersionRepository, WikiVersionRepository>();
 builder.Services.AddScoped<IWikiPageRelationRepository, WikiPageRelationRepository>();
 builder.Services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
+builder.Services.AddScoped<IProviderMetadataRepository, ProviderMetadataRepository>();
 
 // Core Services (Scoped - 依赖 Repository)
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
@@ -193,6 +195,7 @@ builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IPromptMergeServ
 builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptSeedData>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeStructureIndexService>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeIndexService>();
+builder.Services.AddSingleton<Heimdall.Infrastructure.AstAnalysis.IAstAnalyzer, Heimdall.Infrastructure.AstAnalysis.RoslynCSharpAnalyzer>();
 builder.Services.AddSingleton<Heimdall.Infrastructure.Search.Bm25SearchService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IHybridSearchService, Heimdall.Core.Services.Search.HybridSearchService>();
 builder.Services.AddScoped<Heimdall.Core.Interfaces.Repositories.ICodeIndexRepository, Heimdall.Repository.Repositories.CodeIndexRepository>();
@@ -267,6 +270,8 @@ if (useJwt)
     });
 }
 
+builder.Services.AddHostedService<Heimdall.Api.Services.ProviderMetadataStartupLoader>();
+
 var app = builder.Build();
 app.UseCors();
 app.UseAuthentication();
@@ -279,6 +284,31 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.EnsureCreatedAsync();
+
+    // 确保 provider_model_metadata 表存在（迁移未通过 dotnet ef 执行时的回退）
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE TABLE IF NOT EXISTS provider_model_metadata (" +
+            "\"Id\" uuid NOT NULL PRIMARY KEY, " +
+            "\"ProviderKey\" varchar(64) NOT NULL, " +
+            "\"ModelName\" varchar(128) NOT NULL, " +
+            "\"BillingType\" varchar(32) NOT NULL DEFAULT 'TokenPlan', " +
+            "\"MaxContextTokens\" integer NOT NULL DEFAULT 128000, " +
+            "\"MaxOutputTokens\" integer NOT NULL DEFAULT 8192, " +
+            "\"RateLimitPerMinute\" integer NULL, " +
+            "\"InputTokenPrice\" numeric(10,6) NULL, " +
+            "\"OutputTokenPrice\" numeric(10,6) NULL, " +
+            "\"CallPrice\" numeric(10,6) NULL, " +
+            "\"SupportsCaching\" boolean NOT NULL DEFAULT FALSE, " +
+            "\"ContextFillRatio\" double precision NOT NULL DEFAULT 0.65, " +
+            "\"ContextWarningThreshold\" double precision NOT NULL DEFAULT 0.90, " +
+            "\"UpdatedAt\" timestamp with time zone NOT NULL DEFAULT NOW())");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_provider_model_metadata_key_model ON provider_model_metadata (\"ProviderKey\", \"ModelName\")");
+    }
+    catch { /* 表已存在则跳过 */ }
+
     var seedData = scope.ServiceProvider.GetRequiredService<Heimdall.Core.Services.Prompt.PromptSeedData>();
     await seedData.SeedAsync();
 }
