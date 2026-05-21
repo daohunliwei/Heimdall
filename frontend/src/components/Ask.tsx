@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useRef, useEffect, useMemo} from 'react';
+import React, {useState, useRef, useEffect, useMemo, useCallback} from 'react';
 import {FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import Markdown from './Markdown';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -121,6 +121,19 @@ const Ask: React.FC<AskProps> = ({
     return undefined;
   }, [repositoryVersionId, wikiVersionId]);
 
+  const clearConversation = useCallback(() => {
+    setQuestion('');
+    setResponse('');
+    setConversationHistory([]);
+    setResearchIteration(0);
+    setResearchComplete(false);
+    setResearchStages([]);
+    setCurrentStageIndex(0);
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, []);
+
   // Focus input on component mount
   useEffect(() => {
     if (inputRef.current) {
@@ -133,7 +146,7 @@ const Ask: React.FC<AskProps> = ({
     if (onRef) {
       onRef({ clearConversation });
     }
-  }, [onRef]);
+  }, [onRef, clearConversation]);
 
   // Scroll to bottom of response when it changes
   useEffect(() => {
@@ -183,18 +196,6 @@ const Ask: React.FC<AskProps> = ({
     }
   }, [provider, model]);
 
-  const clearConversation = () => {
-    setQuestion('');
-    setResponse('');
-    setConversationHistory([]);
-    setResearchIteration(0);
-    setResearchComplete(false);
-    setResearchStages([]);
-    setCurrentStageIndex(0);
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  };
   const downloadresponse = () =>{
   const blob = new Blob([response], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob);

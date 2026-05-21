@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { FaSync, FaCog, FaCodeBranch } from 'react-icons/fa';
 import UserSelector from '@/components/UserSelector';
 
@@ -70,48 +70,15 @@ export default function RefreshPanel({
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [customModel, setCustomModel] = useState('');
 
-  /**
-   * 当父组件的默认值更新时，同步刷新面板状态，
-   * 避免仓库页主状态与弹窗内选项出现割裂。
-   */
-  useEffect(() => {
-    setBranch(defaultBranch);
-  }, [defaultBranch]);
-
-  /**
-   * 同步默认刷新策略。
-   */
-  useEffect(() => {
-    setRefreshStrategy(defaultRefreshStrategy);
-  }, [defaultRefreshStrategy]);
-
-  /**
-   * 同步默认强制刷新状态。
-   */
-  useEffect(() => {
-    setForceRefresh(defaultForceRefresh);
-  }, [defaultForceRefresh]);
-
-  /**
-   * 同步默认生成档位。
-   */
-  useEffect(() => {
-    setGenerationProfile(defaultGenerationProfile);
-  }, [defaultGenerationProfile]);
-
-  /**
-   * 同步默认 Provider。
-   */
-  useEffect(() => {
-    setProvider(defaultProvider);
-  }, [defaultProvider]);
-
-  /**
-   * 同步默认模型。
-   */
-  useEffect(() => {
-    setModel(defaultModel);
-  }, [defaultModel]);
+  // 当父组件的默认值变化时，同步到本地状态（仅在面板关闭时）
+  if (!isOpen) {
+    if (branch !== defaultBranch) setBranch(defaultBranch);
+    if (refreshStrategy !== defaultRefreshStrategy) setRefreshStrategy(defaultRefreshStrategy);
+    if (forceRefresh !== defaultForceRefresh) setForceRefresh(defaultForceRefresh);
+    if (generationProfile !== defaultGenerationProfile) setGenerationProfile(defaultGenerationProfile);
+    if (provider !== defaultProvider) setProvider(defaultProvider);
+    if (model !== defaultModel) setModel(defaultModel);
+  }
 
   /**
    * 提交刷新表单。

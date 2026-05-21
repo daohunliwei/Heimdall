@@ -54,6 +54,7 @@ export default function PromptsPage() {
     }
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadPrompts(); }, []);
 
   async function handleCreate() {

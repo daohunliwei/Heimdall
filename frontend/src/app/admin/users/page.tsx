@@ -19,6 +19,7 @@ export default function UsersPage() {
     if (res.ok) setUsers(await res.json());
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadUsers(); }, []);
 
   async function handleCreate() {
