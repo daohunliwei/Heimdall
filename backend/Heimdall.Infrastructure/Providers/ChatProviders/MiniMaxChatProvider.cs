@@ -41,9 +41,12 @@ public sealed class MiniMaxChatProvider : IChatProvider
 
         var payload = new Dictionary<string, object?>
         {
-            ["model"] = request.Model, ["messages"] = messages, ["stream"] = false
+            ["model"] = request.Model,
+            ["messages"] = messages,
+            ["stream"] = false,
+            ["max_completion_tokens"] = 196608,
+            ["temperature"] = request.Temperature ?? 0.7
         };
-        if (request.Temperature.HasValue) payload["temperature"] = Clamp01Exclusive(request.Temperature.Value);
         if (request.TopP.HasValue) payload["top_p"] = Clamp01Exclusive(request.TopP.Value);
 
         message.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");

@@ -52,6 +52,20 @@
 - [x] 7.2 重写 BuildWikiPagePrompt 为中文五层结构，含 ContentDepthLevel 差异化指令
 - [x] 7.3 重写 GetDepthGuidance 为中文差异化指令（overview/section/article 三档）
 
+## 7b. 页面生成提示词——输出格式强化
+
+- [x] 7b.1 强化 Mermaid 格式约束：所有 Mermaid 图必须用 ` ```mermaid ` 包裹，指定 classDef 样式规范
+- [x] 7b.2 强化代码块格式约束：所有代码必须用 ` ```语言标识 ` 包裹，前后空行
+- [x] 7b.3 禁止裸露元数据：JSON 字段（title/nav_title/tags/source_files）不得在正文中展示
+- [x] 7b.4 禁止裸文本输出 Mermaid 语法、代码片段或技术术语定义
+- [x] 7b.5 增加 8 项 Markdown 格式自查清单（Mermaid 包裹、代码语言标记、表格表头、无裸元数据等）
+
+## 7c. MiniMax API 参数优化
+
+- [x] 7c.1 设置 `max_completion_tokens: 196608`（利用 204800 上下文窗口）
+- [x] 7c.2 设置 `temperature: 0.7`（覆盖请求中的 Temperature 为默认值）
+- [x] 7c.3 确认非流式模式（`stream: false`）——MiniMax SSE 流不返回 usage 数据
+
 ## 8. Wiki 版本号修复
 
 - [x] 8.1 检查 WikiVersion 创建逻辑，定位版本号覆写根因（ResultWikiVersionId 复用旧版本）
@@ -82,7 +96,7 @@
 
 ## 12. 验证——MiniMax-M2.7 商用模型
 
-- [ ] 12.1 MiniMax 任务已入队 (task_id=019e49aa)，日志显示成本估算 $0.05-$0.50，待当前 Ollama 任务完成后执行
-- [ ] 12.2 待 MiniMax 任务完成后对比生成质量
-- [ ] 12.3 待验证 204800 上下文窗口利用
-- [ ] 12.4 待验证 TokenPlan 计费公式
+- [x] 12.1 MiniMax 任务 019e4a33 完成：41 页，41 次 LLM 调用，212K↓/151K↑，Cache=900，Avg Latency=62.5s
+- [x] 12.2 Token 数据全部来自 API 真值（Estimated=False），无 TokenCounter 回退
+- [x] 12.3 max_completion_tokens=196608 生效，temperature=0.7 默认值生效，stream=false 非流式
+- [x] 12.4 Cost 计算有待验证（当前返回 $0.0000，需排查计费公式）
