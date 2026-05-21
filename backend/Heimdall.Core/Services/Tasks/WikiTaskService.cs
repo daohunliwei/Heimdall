@@ -541,7 +541,7 @@ public sealed class WikiTaskService
                     var contextBudget = new ContextPackingService(_configService)
                         .CalculateAvailableBudget(effectiveProvider, model ?? customModel ?? "");
                     var searchResults = await _hybridSearch.SearchAsync(
-                        searchIndexKey, searchQuery, keyFiles, topK: 15, maxTotalTokens: contextBudget, ct: execToken);
+                        searchIndexKey, searchQuery, keyFiles, topK: 100, maxTotalTokens: contextBudget, ct: execToken);
                     var fileContents = _hybridSearch.FormatForPrompt(searchResults);
 
                     var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
@@ -1354,10 +1354,12 @@ public sealed class WikiTaskService
                 if (!File.Exists(fullPath)) continue;
 
                 var content = File.ReadAllText(fullPath);
-                if (content.Length > 5000) content = content[..5000];
+                // 大文件完整保留（不再截断到 5000），让 ContextPackingService 按 Token 预算智能截断
+                if (content.Length > 200_000) content = content[..200_000];
 
                 var chunks = codeIndexService.ChunkFile(fullPath, entry.Language);
-                foreach (var (start, end, chunkContent) in chunks.Take(20))
+                var language = entry.Language ?? DetectLanguageFromExtension(entry.FilePath);
+                foreach (var (start, end, chunkContent) in chunks.Take(100))
                 {
                     snippets.Add(new CodeSnippetInput
                     {
@@ -1365,7 +1367,7 @@ public sealed class WikiTaskService
                         ModuleName = entry.ModuleName,
                         Content = chunkContent,
                         Symbols = string.Join(" ", entry.ExportedSymbols.Take(20)),
-                        Language = entry.Language,
+                        Language = language,
                         StartLine = start,
                         EndLine = end
                     });
@@ -1376,5 +1378,39 @@ public sealed class WikiTaskService
 
         await _hybridSearch.BuildIndexAsync(indexKey, snippets, ct);
         _logger.LogInformation("搜索索引构建完成：{Key}, {Count} 代码段", indexKey, snippets.Count);
+    }
+
+    private static string DetectLanguageFromExtension(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".cs" => "csharp",
+            ".csproj" => "xml",
+            ".sln" => "text",
+            ".json" => "json",
+            ".xml" => "xml",
+            ".config" => "xml",
+            ".targets" => "xml",
+            ".props" => "xml",
+            ".xaml" => "xml",
+            ".ts" => "typescript",
+            ".tsx" => "typescript",
+            ".js" => "javascript",
+            ".jsx" => "javascript",
+            ".py" => "python",
+            ".go" => "go",
+            ".java" => "java",
+            ".rs" => "rust",
+            ".rb" => "ruby",
+            ".md" => "markdown",
+            ".yml" or ".yaml" => "yaml",
+            ".sh" => "bash",
+            ".ps1" => "powershell",
+            ".sql" => "sql",
+            ".html" => "html",
+            ".css" => "css",
+            _ => "text"
+        };
     }
 }

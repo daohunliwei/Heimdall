@@ -274,7 +274,8 @@ public class WikiVersionController : ControllerBase
             depth = p.Depth,
             token_count = p.TokenCount,
             status = p.Status,
-            created_at = p.CreatedAt
+            created_at = p.CreatedAt,
+            summary = p.Summary ?? ""
         }));
     }
 

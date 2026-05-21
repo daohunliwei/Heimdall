@@ -39,6 +39,12 @@ export interface WikiPage {
   isSection?: boolean;
   /** 子页面 ID 列表。 */
   children?: string[];
+  /** Frontmatter 摘要 */
+  summary?: string;
+  /** Frontmatter 标签 */
+  tags?: string[];
+  /** 页面类型（overview/section/article/appendix） */
+  pageType?: string;
 }
 
 /**
@@ -143,6 +149,8 @@ export interface WikiVersionPagePayload {
   status?: string;
   /** 创建时间。 */
   created_at?: string;
+  /** Frontmatter 摘要。 */
+  summary?: string;
 }
 
 /**
@@ -215,6 +223,9 @@ export function buildWikiViewFromVersionPages(
     relatedPages: [],
     parentId: page.parent_page_id ?? undefined,
     children: childPageIdsByParent.get(page.id) ?? [],
+    pageType: page.page_type,
+    summary: page.summary ?? '',
+    tags: [],
   }));
 
   const generatedPages = Object.fromEntries(
