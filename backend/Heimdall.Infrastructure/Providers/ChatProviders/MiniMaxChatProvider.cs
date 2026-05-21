@@ -29,15 +29,14 @@ public sealed class MiniMaxChatProvider : IChatProvider
     public string ProviderId => "minimax";
 
     /// <summary>
-    /// 发起聊天补全请求。
+    /// 发起带指标和缓存命中提取的聊天补全请求。
     /// </summary>
-    public async Task<string> GenerateAsync(ProviderChatRequest request, CancellationToken cancellationToken)
+    public async Task<ChatCompletionResponse> GenerateWithMetricsAsync(ProviderChatRequest request, CancellationToken cancellationToken)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var apiKey = _configuration["MINIMAX_API_KEY"];
         if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            return "MINIMAX_API_KEY not configured. Please set this environment variable to use MiniMax.";
-        }
+            return new ChatCompletionResponse { Content = "MINIMAX_API_KEY not configured.", FinishReason = "error", LatencyMs = 0 };
 
         var endpoint = GetEndpoint();
         using var message = new HttpRequestMessage(HttpMethod.Post, endpoint);
@@ -46,18 +45,8 @@ public sealed class MiniMaxChatProvider : IChatProvider
 
         var messages = new List<Dictionary<string, string>>();
         if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
-        {
-            messages.Add(new Dictionary<string, string>
-            {
-                ["role"] = "system",
-                ["content"] = request.SystemPrompt
-            });
-        }
-        messages.Add(new Dictionary<string, string>
-        {
-            ["role"] = "user",
-            ["content"] = request.Prompt
-        });
+            messages.Add(new Dictionary<string, string> { ["role"] = "system", ["content"] = request.SystemPrompt });
+        messages.Add(new Dictionary<string, string> { ["role"] = "user", ["content"] = request.Prompt });
 
         var payload = new Dictionary<string, object?>
         {
@@ -65,39 +54,52 @@ public sealed class MiniMaxChatProvider : IChatProvider
             ["messages"] = messages,
             ["stream"] = false
         };
-
-        if (request.Temperature.HasValue)
-        {
-            payload["temperature"] = Clamp01Exclusive(request.Temperature.Value);
-        }
-
-        if (request.TopP.HasValue)
-        {
-            payload["top_p"] = Clamp01Exclusive(request.TopP.Value);
-        }
+        if (request.Temperature.HasValue) payload["temperature"] = Clamp01Exclusive(request.Temperature.Value);
+        if (request.TopP.HasValue) payload["top_p"] = Clamp01Exclusive(request.TopP.Value);
 
         message.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         using var response = await _httpClient.SendAsync(message, cancellationToken);
         var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
-        {
-            return $"minimax API error ({(int)response.StatusCode}): {responseText}";
-        }
+            return new ChatCompletionResponse { Content = $"minimax API error ({(int)response.StatusCode}): {responseText}", FinishReason = "error", LatencyMs = 0 };
 
         using var document = JsonDocument.Parse(responseText);
         var root = document.RootElement;
+
+        int cacheHitTokens = 0, inputTokens = 0, outputTokens = 0;
+        if (root.TryGetProperty("usage", out var usage))
+        {
+            if (usage.TryGetProperty("prompt_tokens", out var pt)) inputTokens = pt.GetInt32();
+            if (usage.TryGetProperty("completion_tokens", out var ct)) outputTokens = ct.GetInt32();
+            if (usage.TryGetProperty("cache_read_input_tokens", out var cache)) cacheHitTokens = cache.GetInt32();
+        }
+
+        string content = string.Empty;
         if (root.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
         {
             var choice = choices[0];
-            if (choice.TryGetProperty("message", out var messageElement) &&
-                messageElement.TryGetProperty("content", out var contentElement))
-            {
-                return contentElement.GetString() ?? string.Empty;
-            }
+            if (choice.TryGetProperty("message", out var msg) && msg.TryGetProperty("content", out var cnt))
+                content = cnt.GetString() ?? string.Empty;
         }
 
-        return responseText;
+        sw.Stop();
+        return new ChatCompletionResponse
+        {
+            Content = content,
+            LatencyMs = (int)sw.ElapsedMilliseconds,
+            FinishReason = "stop",
+            Usage = new TokenUsage { InputTokens = inputTokens, OutputTokens = outputTokens, CacheHitTokens = cacheHitTokens }
+        };
+    }
+
+    /// <summary>
+    /// 发起聊天补全请求（简单版，回退到 GenerateWithMetricsAsync）。
+    /// </summary>
+    public async Task<string> GenerateAsync(ProviderChatRequest request, CancellationToken cancellationToken)
+    {
+        var result = await GenerateWithMetricsAsync(request, cancellationToken);
+        return result.Content;
     }
 
     /// <summary>

@@ -1,17 +1,18 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Heimdall.Core.Models;
+using Heimdall.Infrastructure.AstAnalysis;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services.Repository;
 
 /// <summary>
-/// 代码结构索引服务——纯本地分析，不调用 LLM。
-/// 使用正则表达式提取多语言符号（类、函数、接口、导出等）。
+/// 代码结构索引服务——优先使用 AST 分析器，不支持的语言回退到正则表达式。
 /// </summary>
 public sealed partial class CodeIndexService
 {
     private readonly ILogger<CodeIndexService> _logger;
+    private readonly Dictionary<string, IAstAnalyzer> _astAnalyzers;
 
     // 优先按函数/类边界分块时最大行数
     private const int ChunkMaxLinesWithBoundary = 120;
@@ -20,9 +21,10 @@ public sealed partial class CodeIndexService
     // 块间重叠行数
     private const int ChunkOverlapLines = 10;
 
-    public CodeIndexService(ILogger<CodeIndexService> logger)
+    public CodeIndexService(ILogger<CodeIndexService> logger, IEnumerable<IAstAnalyzer>? astAnalyzers = null)
     {
         _logger = logger;
+        _astAnalyzers = (astAnalyzers ?? Enumerable.Empty<IAstAnalyzer>()).ToDictionary(a => a.Language, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -165,31 +167,38 @@ public sealed partial class CodeIndexService
 
     // ── 符号提取 ──
 
-    private static List<string> ExtractSymbols(string filePath, string language)
+    private List<string> ExtractSymbols(string filePath, string language)
     {
         var symbols = new List<string>();
         if (!File.Exists(filePath)) return symbols;
 
         try
         {
-            var content = File.ReadAllText(filePath);
-            if (content.Length > 50_000) content = content[..50_000];
+            // AST 优先
+            var ext = Path.GetExtension(filePath);
+            var analyzer = _astAnalyzers.Values.FirstOrDefault(a => a.CanAnalyze(ext));
+            if (analyzer != null)
+            {
+                var content = File.ReadAllText(filePath);
+                if (content.Length > 100_000) content = content[..100_000];
+                var result = analyzer.AnalyzeAsync(filePath, content).GetAwaiter().GetResult();
+                symbols.AddRange(result.Symbols.Select(s => s.FullSignature));
+                return symbols.Distinct().Take(100).ToList();
+            }
 
+            // 正则回退
+            var content2 = File.ReadAllText(filePath);
+            if (content2.Length > 50_000) content2 = content2[..50_000];
             switch (language)
             {
-                case "csharp":
-                    symbols.AddRange(RegexPatterns.ClassPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.MethodPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.InterfacePattern().Matches(content).Select(m => m.Groups[1].Value));
-                    break;
                 case "typescript" or "javascript":
-                    symbols.AddRange(RegexPatterns.TsClassPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.TsFunctionPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.TsExportPattern().Matches(content).Select(m => m.Groups[1].Value));
+                    symbols.AddRange(RegexPatterns.TsClassPattern().Matches(content2).Select(m => m.Groups[1].Value));
+                    symbols.AddRange(RegexPatterns.TsFunctionPattern().Matches(content2).Select(m => m.Groups[1].Value));
+                    symbols.AddRange(RegexPatterns.TsExportPattern().Matches(content2).Select(m => m.Groups[1].Value));
                     break;
                 case "python":
-                    symbols.AddRange(RegexPatterns.PyClassPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.PyDefPattern().Matches(content).Select(m => m.Groups[1].Value));
+                    symbols.AddRange(RegexPatterns.PyClassPattern().Matches(content2).Select(m => m.Groups[1].Value));
+                    symbols.AddRange(RegexPatterns.PyDefPattern().Matches(content2).Select(m => m.Groups[1].Value));
                     break;
             }
         }

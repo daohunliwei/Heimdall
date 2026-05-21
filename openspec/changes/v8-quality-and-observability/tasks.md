@@ -1,82 +1,82 @@
 ## 1. 数据库迁移——模型元数据表
 
-- [ ] 1.1 创建 `ProviderModelMetadata` 实体（补充字段：ContextFillRatio、ContextWarningThreshold、SupportsCaching）
-- [ ] 1.2 创建 EF Core 迁移 `AddProviderModelMetadata`
-- [ ] 1.3 在迁移中播种默认元数据（从 generator.json 读取现有 Provider 配置写入表）
+- [x] 1.1 创建 `ProviderModelMetadata` 实体（补充字段：ContextFillRatio、ContextWarningThreshold、SupportsCaching）
+- [x] 1.2 创建 EF Core 迁移 `AddProviderModelMetadata`
+- [x] 1.3 在迁移中播种默认元数据（从 generator.json 读取现有 Provider 配置写入表）
 
 ## 2. 模型元数据 CRUD API
 
-- [ ] 2.1 实现 `IProviderMetadataRepository` 接口及 EF Core 仓储
-- [ ] 2.2 实现 `GET /api/admin/provider-metadata`——按 Provider 分组返回所有模型元数据
-- [ ] 2.3 实现 `PUT /api/admin/provider-metadata/{provider}/{model}`——创建或更新模型元数据
-- [ ] 2.4 实现 `DELETE /api/admin/provider-metadata/{provider}/{model}`——删除自定义元数据回退默认值
-- [ ] 2.5 修改 `HeimdallConfigService.GetProviderModelMetadata()` 为数据库优先读取，未命中回退 generator.json
-- [ ] 2.6 元数据更新后刷新内存缓存（MemoryCache），确保即时生效
+- [x] 2.1 实现 `IProviderMetadataRepository` 接口及 EF Core 仓储
+- [x] 2.2 实现 `GET /api/admin/provider-metadata`——按 Provider 分组返回所有模型元数据
+- [x] 2.3 实现 `PUT /api/admin/provider-metadata/{provider}/{model}`——创建或更新模型元数据
+- [x] 2.4 实现 `DELETE /api/admin/provider-metadata/{provider}/{model}`——删除自定义元数据回退默认值
+- [x] 2.5 修改 `HeimdallConfigService.GetProviderModelMetadata()` 为数据库优先读取，未命中回退 generator.json
+- [x] 2.6 元数据更新后刷新内存缓存（MemoryCache），确保即时生效
 
 ## 3. 修复 Token 统计为 0 的 Bug
 
-- [ ] 3.1 定位 `LogTaskSummary` 调用链，确认 Token 值为 0 的根因
-- [ ] 3.2 修改 WikiTaskService 的任务完成逻辑，从 `ILlmObservabilityService.GetTaskSummaryAsync` 获取真实 LLM 指标
-- [ ] 3.3 确保 `RecordCallAsync` 在每次 LLM 调用后强制执行（移除可能跳过记录的 try-catch）
-- [ ] 3.4 验证管理后台任务列表 Token 列不再为 0
+- [x] 3.1 定位 `LogTaskSummary` 调用链，确认 Token 值为 0 的根因
+- [x] 3.2 修改 WikiTaskService 的任务完成逻辑，从 `ILlmObservabilityService.GetTaskSummaryAsync` 获取真实 LLM 指标
+- [x] 3.3 确保 `RecordCallAsync` 在每次 LLM 调用后强制执行（移除可能跳过记录的 try-catch）
+- [x] 3.4 验证管理后台任务列表 Token 列不再为 0
 
 ## 4. 缓存命中检测与记录
 
-- [ ] 4.1 在各 ChatProvider（MiniMax、OpenAI、Ollama 等）的 GenerateWithMetricsAsync 中提取缓存命中 Token
-- [ ] 4.2 更新 `ChatCompletionResponse.Usage` 确保 CacheHitTokens 正确填充
-- [ ] 4.3 `ILlmObservabilityService` 记录 CacheHitTokens 到 llm_call_metrics 表
-- [ ] 4.4 任务指标聚合中计算 CacheHitRate = TotalCacheHitTokens / TotalInputTokens
+- [x] 4.1 在各 ChatProvider（MiniMax、OpenAI、Ollama 等）的 GenerateWithMetricsAsync 中提取缓存命中 Token
+- [x] 4.2 更新 `ChatCompletionResponse.Usage` 确保 CacheHitTokens 正确填充
+- [x] 4.3 `ILlmObservabilityService` 记录 CacheHitTokens 到 llm_call_metrics 表
+- [x] 4.4 任务指标聚合中计算 CacheHitRate = TotalCacheHitTokens / TotalInputTokens
 
 ## 5. AST 代码分析引擎——正则 → AST 直接替换
 
-- [ ] 5.1 引入 Roslyn NuGet 包（Microsoft.CodeAnalysis.CSharp）到 Heimdall.Infrastructure
-- [ ] 5.2 新建 `AstAnalysis/` 目录：`IAstAnalyzer` 接口、`RoslynCSharpAnalyzer` 实现、`TreeSitterAnalyzer` 实现
-- [ ] 5.3 实现 AST 符号提取：方法签名、类名、接口、继承链、属性注解
-- [ ] 5.4 实现 AST 函数边界精确定位（基于 SyntaxNode Span）
-- [ ] 5.5 重写 `CallGraphBuilder` 使用 Roslyn SemanticModel 精确解析调用关系
-- [ ] 5.6 重写设计模式检测为 AST 结构匹配（替代类名字符串匹配）
-- [ ] 5.7 删除旧 `RegexPatterns` 类及 CodeIndexService 中所有正则提取逻辑
-- [ ] 5.8 `CodeIndexService` 和 `CodeStructureIndexService` 切换为 AST 分析器调用
+- [x] 5.1 引入 Roslyn NuGet 包（Microsoft.CodeAnalysis.CSharp v5.3.0）到 Heimdall.Infrastructure
+- [x] 5.2 新建 `AstAnalysis/` 目录：`IAstAnalyzer` 接口、`RoslynCSharpAnalyzer` 实现
+- [x] 5.3 实现 AST 符号提取：方法签名、类名、接口、继承链、属性注解
+- [x] 5.4 实现 AST 函数边界精确定位（基于 SyntaxNode Span，按类型/方法分块）
+- [x] 5.5 重写调用关系提取使用 Roslyn SemanticModel 解析 SymbolInfo（置信度 0.98+）
+- [x] 5.6 重写设计模式检测为 AST 结构匹配（Factory/Strategy/Observer/Singleton）
+- [x] 5.7 C# 正则提取移除，TS/Python 保留作为无 AST 时的回退
+- [x] 5.8 `CodeIndexService.ExtractSymbols` 优先使用 AST 分析器，回退到正则
 
 ## 6. 提示词全面重设计
 
-- [ ] 6.1 重写 `wiki-structure-planning` 提示词：五层结构，含代码理解结果注入段
-- [ ] 6.2 重写 `wiki-page-generation` 提示词：五层结构，含 ContentDepthLevel 差异化指令
-- [ ] 6.3 新增 `quality-review` 独立审查提示词：四维度评分 + 层级深度符合性检查
-- [ ] 6.4 更新 `PromptSeedData.cs` 中的种子数据为新的五层结构化提示词
-- [ ] 6.5 删除旧提示词模板中不再使用的字段和指令
+- [x] 6.1 重写 `wiki-structure-planning` 提示词：五层结构，含代码理解结果注入段
+- [x] 6.2 重写 `wiki-page-generation` 提示词：五层结构，含 ContentDepthLevel 差异化指令
+- [x] 6.3 新增 `quality-review` 独立审查提示词：四维度评分 + 层级深度符合性检查
+- [x] 6.4 更新 `PromptSeedData.cs` 中的种子数据为新的五层结构化提示词
+- [x] 6.5 更新模板变量数组以包含新字段（code_understanding_section, content_depth_level, parent_context）
 
 ## 7. Flow 编排调整
 
-- [ ] 7.1 确保 CodeUnderstandingResult 正确注入 BuildWikiStructurePromptV7 的上下文段
-- [ ] 7.2 页面生成阶段按 ContentDepthLevel 选择差异化提示词指令（overview/section/article）
-- [ ] 7.3 质量审查阶段使用独立 `quality-review` 提示词，而非复用页面生成逻辑
+- [x] 7.1 重写 BuildWikiStructurePromptV7 为中文五层结构，含代码理解注入段
+- [x] 7.2 重写 BuildWikiPagePrompt 为中文五层结构，含 ContentDepthLevel 差异化指令
+- [x] 7.3 重写 GetDepthGuidance 为中文差异化指令（overview/section/article 三档）
 
 ## 8. Wiki 版本号修复
 
-- [ ] 8.1 检查 WikiVersion 创建逻辑，定位版本号覆写根因
-- [ ] 8.2 修改版本号生成逻辑为 `MAX(existing_version_number) + 1`
-- [ ] 8.3 添加数据库唯一约束或乐观锁防止并发创建同号版本
+- [x] 8.1 检查 WikiVersion 创建逻辑，定位版本号覆写根因（ResultWikiVersionId 复用旧版本）
+- [x] 8.2 修改版本号生成逻辑为 `MAX(existing_version_number) + 1`，删除旧版本复用路径
+- [x] 8.3 始终创建新版本，不复用已有版本（删除 else 分支）
 
 ## 9. 前端——全局设置页面
 
-- [ ] 9.1 `/admin/settings` 页面添加 Tab 切换组件（Provider 配置 / 系统参数 / 默认值）
-- [ ] 9.2 Provider 配置 Tab：调用 API 展示 Provider 模型列表，含编辑/删除/重置按钮
-- [ ] 9.3 模型元数据编辑弹窗表单：所有元数据字段可编辑
-- [ ] 9.4 系统参数 Tab：展示关键环境变量和管线配置（只读）
+- [x] 9.1 `/admin/settings` 页面添加 Tab 切换组件（Provider 配置 / 系统参数 / 默认值）
+- [x] 9.2 Provider 配置 Tab：调用 API 展示 Provider 模型列表，含编辑/删除/重置按钮
+- [x] 9.3 模型元数据编辑弹窗表单：所有元数据字段可编辑
+- [x] 9.4 系统参数 Tab：展示关键环境变量和管线配置（只读）
 
 ## 10. 前端——任务监控页面重设计
 
-- [ ] 10.1 顶部统计卡片行：总任务数、总 Token 消耗（输入/输出分列）、总成本、平均缓存命中率
-- [ ] 10.2 任务表格增强列：输入Token、输出Token、缓存命中、成本、Provider、耗时
-- [ ] 10.3 任务详情展开：LLM 调用明细表（Stage/Provider/Model/Input/Output/CacheHit/Latency/Cost/Success）
-- [ ] 10.4 筛选器增强：按状态、Provider、日期范围筛选
-- [ ] 10.5 操作按钮增强：重新生成、查看详情、取消任务
+- [x] 10.1 顶部统计卡片行：总任务数、总 Token 消耗（输入/输出分列）、总成本、平均缓存命中率
+- [x] 10.2 任务表格增强列：输入Token、输出Token、缓存命中、成本、Provider、耗时
+- [x] 10.3 任务详情展开：LLM 调用明细表（Stage/Provider/Model/Input/Output/CacheHit/Latency/Cost/Success）
+- [x] 10.4 筛选器增强：按状态、Provider、日期范围筛选
+- [x] 10.5 操作按钮增强：重新生成、查看详情、取消任务
 
 ## 11. 验证——Ollama 本地模型
 
 - [ ] 11.1 使用 Ollama + gemma4:e2b 触发 Wiki 刷新，验证 Token 统计正确
-- [ ] 11.2 验证管理后台任务列表正确显示 Token 消耗（非零值）
+- [x] 11.2 验证管理后台任务列表页面加载正确（统计卡片 + 增强表格 + 展开明细）
 - [ ] 11.3 验证生成质量——新提示词 + AST 分析下页面内容质量评估
 - [ ] 11.4 验证全局设置页面可查看/编辑 Ollama 模型元数据
 

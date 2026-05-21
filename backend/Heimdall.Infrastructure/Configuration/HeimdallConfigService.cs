@@ -32,6 +32,27 @@ public sealed class HeimdallConfigService
     }
 
     /// <summary>
+    /// 内存缓存：Provider/Model → 元数据（由 Api 层通过 SetCachedMetadata 注入）。
+    /// </summary>
+    private Dictionary<string, ProviderModelMetadata>? _metadataOverrides;
+
+    /// <summary>
+    /// 由 Api 层注入数据库中的元数据覆盖值。调用后立即生效。
+    /// </summary>
+    public void SetMetadataOverrides(Dictionary<string, ProviderModelMetadata> overrides)
+    {
+        _metadataOverrides = overrides;
+    }
+
+    /// <summary>
+    /// 清除元数据覆盖缓存。
+    /// </summary>
+    public void InvalidateMetadataCache()
+    {
+        _metadataOverrides = null;
+    }
+
+    /// <summary>
     /// 读取生成器配置。
     /// </summary>
     public GeneratorConfig GetGeneratorConfig()
@@ -64,11 +85,33 @@ public sealed class HeimdallConfigService
     }
 
     /// <summary>
+    /// 获取默认 Provider。
+    /// </summary>
+    public string GetDefaultProvider()
+    {
+        return (GetConfigurationValue(HeimdallDefaultProviderKey) ?? "ollama").Trim().ToLowerInvariant();
+    }
+
     /// 获取当前嵌入器类型。
     /// </summary>
     public string GetEmbedderType()
     {
         return (GetConfigurationValue(HeimdallEmbedderTypeKey) ?? "ollama").Trim().ToLowerInvariant();
+    }
+
+    /// 获取认证模式。
+    /// </summary>
+    public string GetAuthMode()
+    {
+        return (GetConfigurationValue("HEIMDALL_AUTH_MODE") ?? "none").Trim().ToLowerInvariant();
+    }
+
+    /// 获取是否开放注册。
+    /// </summary>
+    public bool GetRegistrationOpen()
+    {
+        var v = GetConfigurationValue("HEIMDALL_REGISTRATION_OPEN");
+        return v is null || v.Trim().ToLowerInvariant() is "true" or "1" or "yes";
     }
 
     /// <summary>
@@ -205,33 +248,33 @@ public sealed class HeimdallConfigService
 
     /// <summary>
     /// 获取 Provider/Model 组合的计费与能力元数据。
-    /// 未配置时返回基于 Provider 类型推断的默认值。
+    /// 优先从内存覆盖（DB）读取，其次回退到 generator.json。
     /// </summary>
     public ProviderModelMetadata GetProviderModelMetadata(string provider, string model)
     {
-        var generatorConfig = GetGeneratorConfig();
-        if (generatorConfig.Providers.TryGetValue(provider, out var definition))
-        {
-            if (definition.Metadata != null)
-            {
-                return definition.Metadata;
-            }
-        }
+        if (_metadataOverrides != null && _metadataOverrides.TryGetValue($"{provider}/{model}", out var cached))
+            return cached;
 
-        // 未配置时根据 Provider 类型推断默认元数据
+        var generatorConfig = GetGeneratorConfig();
+        if (generatorConfig.Providers.TryGetValue(provider, out var definition) && definition.Metadata != null)
+            return definition.Metadata;
+
         return InferDefaultMetadata(provider);
     }
 
     /// <summary>
-    /// 获取上下文填充比例（默认 0.65）。
+    /// 获取上下文填充比例——优先使用模型元数据中的值，其次环境变量，最后默认 0.65。
     /// </summary>
-    public double GetContextFillRatio()
+    public double GetContextFillRatio(string? provider = null, string? model = null)
     {
+        if (!string.IsNullOrEmpty(provider) && !string.IsNullOrEmpty(model))
+        {
+            var meta = GetProviderModelMetadata(provider, model);
+            return meta.ContextFillRatio;
+        }
         var raw = GetConfigurationValue("HEIMDALL_CONTEXT_FILL_RATIO");
         if (!string.IsNullOrWhiteSpace(raw) && double.TryParse(raw.Trim(), out var ratio) && ratio is > 0.1 and <= 1.0)
-        {
             return ratio;
-        }
         return 0.65;
     }
 
