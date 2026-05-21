@@ -190,6 +190,106 @@ public sealed class WikiGenerationParserService
             catch { }
         }
 
+        // 修复 3: 组合修复——先截断再修正 bracket 错误
+        repaired = FixTruncatedEnd(json);
+        if (repaired is not null)
+        {
+            var combined = FixBracketTypeErrors(repaired);
+            if (combined is not null)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(combined);
+                    return combined;
+                }
+                catch { }
+            }
+        }
+
+        // 修复 4: 激进截断——从后向前逐步移除字符直到找到可解析的 JSON
+        repaired = AggressiveTruncateRepair(json);
+        if (repaired is not null)
+        {
+            return repaired;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 激进截断修复：从最后一个 "}" 向前查找，尝试在每个 "}" 位置补全括号使 JSON 可解析。
+    /// </summary>
+    private static string? AggressiveTruncateRepair(string json)
+    {
+        // 找到所有可能的截断点（"}" 位置），从后向前尝试
+        var candidates = new List<int>();
+        var inString = false;
+        for (var i = 0; i < json.Length; i++)
+        {
+            var c = json[i];
+            if (c == '"' && (i == 0 || json[i - 1] != '\\'))
+            {
+                inString = !inString;
+                continue;
+            }
+            if (!inString && c == '}')
+            {
+                candidates.Add(i);
+            }
+        }
+
+        // 从后向前，尝试在每个 } 之后截断并补全
+        for (var ci = candidates.Count - 1; ci >= 0; ci--)
+        {
+            var cutPoint = candidates[ci] + 1;
+            var truncated = json[..cutPoint];
+
+            // 计算未闭合括号
+            var stack = new Stack<char>();
+            inString = false;
+            for (var i = 0; i < truncated.Length; i++)
+            {
+                var ch = truncated[i];
+                if (ch == '"' && (i == 0 || truncated[i - 1] != '\\'))
+                {
+                    inString = !inString;
+                    continue;
+                }
+                if (inString) continue;
+                switch (ch)
+                {
+                    case '{': stack.Push('}'); break;
+                    case '[': stack.Push(']'); break;
+                    case '}' or ']' when stack.Count > 0: stack.Pop(); break;
+                }
+            }
+
+            if (stack.Count > 0 && stack.Count <= 3) // 只差少量括号
+            {
+                var sb = new StringBuilder(truncated);
+                while (stack.Count > 0) sb.Append(stack.Pop());
+                var attempt = sb.ToString();
+                try
+                {
+                    using var doc = JsonDocument.Parse(attempt);
+                    // 验证至少有 pages 属性
+                    if (doc.RootElement.TryGetProperty("pages", out _))
+                        return attempt;
+                }
+                catch { }
+            }
+            else if (stack.Count == 0)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(truncated);
+                    if (doc.RootElement.TryGetProperty("pages", out _))
+                        return truncated;
+                }
+                catch { }
+            }
+        }
+
         return null;
     }
 
@@ -250,38 +350,161 @@ public sealed class WikiGenerationParserService
 
     /// <summary>
     /// 修复被截断的 JSON 结尾。
+    /// 策略：找到最后一个完整的对象/数组边界，截断到该位置后补全所有未闭合的括号。
     /// </summary>
     private static string? FixTruncatedEnd(string json)
     {
-        // 尝试在最后一个完整对象/数组后补全
         var trimmed = json.TrimEnd();
+
+        // 策略 1：尝试回溯到最后一个完整的顶层数组元素
+        // 在 "pages" 数组中，找到最后一个完整的 "}," 或 "}" 边界
+        var repaired = TryTruncateToLastCompleteObject(trimmed);
+        if (repaired is not null) return repaired;
+
+        // 策略 2：移除尾部逗号后补全
         if (trimmed.EndsWith(','))
         {
-            // 移除尾部逗号
-            return trimmed.TrimEnd(',') + "\n}";
+            trimmed = trimmed.TrimEnd(',');
         }
-        // 如果最后是 } 后缺少整体闭合
-        if (trimmed.EndsWith('}'))
+
+        // 策略 3：计算未闭合的括号并补全
+        var openArrays = 0;
+        var openObjects = 0;
+        var inString = false;
+        for (var i = 0; i < trimmed.Length; i++)
         {
-            // 检查是否需要补 ]
-            var openArrays = 0;
-            var openObjects = 0;
+            var c = trimmed[i];
+            if (c == '"' && (i == 0 || trimmed[i - 1] != '\\'))
+            {
+                inString = !inString;
+                continue;
+            }
+            if (inString) continue;
+
+            switch (c)
+            {
+                case '[': openArrays++; break;
+                case ']': openArrays--; break;
+                case '{': openObjects++; break;
+                case '}': openObjects--; break;
+            }
+        }
+
+        if (openArrays > 0 || openObjects > 0)
+        {
+            // 按照嵌套顺序补全：先闭合对象，再闭合数组，最后闭合根对象
+            var suffix = new string('}', Math.Max(0, openObjects > openArrays ? openObjects - openArrays : 0))
+                + new string(']', Math.Max(0, openArrays))
+                + new string('}', Math.Max(0, openObjects > openArrays ? openArrays : openObjects));
+
+            // 更精确：直接按 open 数逐个闭合
+            var sb = new StringBuilder(trimmed);
+            // 需要 openObjects 个 } 和 openArrays 个 ]，顺序从内到外
+            // 简化：先补对象再补数组再补剩余对象
+            for (var i = 0; i < openObjects; i++) sb.Append('}');
+            for (var i = 0; i < openArrays; i++) sb.Append(']');
+            // 上面的简化可能不对，使用扫描法重新计算
+            sb.Clear();
+            sb.Append(trimmed);
+            // 重新用栈法精确补全
+            var stack = new Stack<char>();
+            inString = false;
             for (var i = 0; i < trimmed.Length; i++)
             {
-                if (trimmed[i] == '[') openArrays++;
-                else if (trimmed[i] == ']') openArrays--;
-                else if (trimmed[i] == '{') openObjects++;
-                else if (trimmed[i] == '}') openObjects--;
+                var c = trimmed[i];
+                if (c == '"' && (i == 0 || trimmed[i - 1] != '\\'))
+                {
+                    inString = !inString;
+                    continue;
+                }
+                if (inString) continue;
+                switch (c)
+                {
+                    case '{': stack.Push('}'); break;
+                    case '[': stack.Push(']'); break;
+                    case '}' or ']' when stack.Count > 0: stack.Pop(); break;
+                }
             }
-            if (openArrays > 0)
+            // 如果在字符串中截断，先加引号闭合
+            if (inString) sb.Append('"');
+            while (stack.Count > 0) sb.Append(stack.Pop());
+            return sb.ToString();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 尝试回溯到 JSON 中最后一个完整的对象边界，截断不完整部分后补全括号。
+    /// 这对于 "pages" 数组被截断的情况特别有效。
+    /// </summary>
+    private static string? TryTruncateToLastCompleteObject(string json)
+    {
+        // 从后往前找最后一个 "}," 或 "}" 后跟 "]" 的位置
+        // 这表示数组中最后一个完整对象的结束
+        var lastCompleteEnd = -1;
+        var depth = 0;
+        var inString = false;
+
+        for (var i = 0; i < json.Length; i++)
+        {
+            var c = json[i];
+            if (c == '"' && (i == 0 || json[i - 1] != '\\'))
             {
-                return trimmed + new string(']', openArrays) + new string('}', Math.Max(0, openObjects));
+                inString = !inString;
+                continue;
             }
-            if (openObjects > 1) // 需要额外闭合根对象
+            if (inString) continue;
+
+            switch (c)
             {
-                return trimmed + new string('}', openObjects);
+                case '{' or '[': depth++; break;
+                case '}' or ']': depth--; break;
+            }
+
+            // 当深度回到 2 且当前字符是 }，说明完成了一个 pages 数组内的对象
+            if (c == '}' && depth == 2)
+            {
+                lastCompleteEnd = i;
             }
         }
+
+        if (lastCompleteEnd <= 0 || lastCompleteEnd >= json.Length - 1)
+            return null;
+
+        // 检查是否确实被截断（最后部分不完整）
+        var remainder = json[(lastCompleteEnd + 1)..].TrimStart();
+        if (remainder.StartsWith(','))
+        {
+            // 后面还有不完整的对象
+            var truncated = json[..(lastCompleteEnd + 1)];
+            // 用栈法补全
+            var stack = new Stack<char>();
+            inString = false;
+            for (var i = 0; i < truncated.Length; i++)
+            {
+                var ch = truncated[i];
+                if (ch == '"' && (i == 0 || truncated[i - 1] != '\\'))
+                {
+                    inString = !inString;
+                    continue;
+                }
+                if (inString) continue;
+                switch (ch)
+                {
+                    case '{': stack.Push('}'); break;
+                    case '[': stack.Push(']'); break;
+                    case '}' or ']' when stack.Count > 0: stack.Pop(); break;
+                }
+            }
+            if (stack.Count > 0)
+            {
+                var sb = new StringBuilder(truncated);
+                while (stack.Count > 0) sb.Append(stack.Pop());
+                return sb.ToString();
+            }
+        }
+
         return null;
     }
 

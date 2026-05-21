@@ -20,6 +20,7 @@ export default function RepositoriesPage() {
     if (res.ok) setRepos(await res.json());
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadRepos(); }, []);
 
   async function handleDelete(id: string) {

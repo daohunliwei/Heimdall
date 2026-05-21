@@ -197,6 +197,20 @@ builder.Services.AddSingleton<Heimdall.Infrastructure.Search.Bm25SearchService>(
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IHybridSearchService, Heimdall.Core.Services.Search.HybridSearchService>();
 builder.Services.AddScoped<Heimdall.Core.Interfaces.Repositories.ICodeIndexRepository, Heimdall.Repository.Repositories.CodeIndexRepository>();
 
+// V7: LLM 可观测性与计费策略
+builder.Services.AddScoped<Heimdall.Core.Interfaces.Repositories.ILlmMetricsRepository, Heimdall.Repository.Repositories.LlmMetricsRepository>();
+builder.Services.AddScoped<Heimdall.Core.Interfaces.Services.ILlmObservabilityService, Heimdall.Core.Services.LlmObservabilityService>();
+builder.Services.AddSingleton<Heimdall.Infrastructure.Services.ContextPackingService>();
+builder.Services.AddSingleton<Heimdall.Infrastructure.Services.ProviderRateLimiter>();
+builder.Services.AddSingleton<Heimdall.Infrastructure.Services.LlmRetryPolicy>();
+builder.Services.AddSingleton<Heimdall.Infrastructure.Services.BillingStrategyService>();
+
+// V7: 深度代码理解
+builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CallGraphBuilder>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Repository.DependencyTopologyService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Repository.DesignPatternDetector>();
+builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.ICodeUnderstandingService, Heimdall.Core.Services.Repository.CodeUnderstandingService>();
+
 // Core Task Services (Singleton - 无状态或使用 IServiceScopeFactory)
 builder.Services.AddSingleton<Heimdall.Core.Services.Tasks.AgentOrchestratorService>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Tasks.CostEstimationService>();

@@ -72,7 +72,7 @@ export default function Home() {
 
   const t = (key: string, params: Record<string, string | number> = {}): string => {
     const keys = key.split('.');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     let value: any = messages;
     for (const k of keys) {
       if (value && typeof value === 'object' && k in value) {
@@ -90,6 +90,24 @@ export default function Home() {
   };
 
   const [repositoryInput, setRepositoryInput] = useState(DEFAULT_REPOSITORY_INPUT);
+  const [provider, setProvider] = useState<string>('');
+  const [model, setModel] = useState<string>('');
+  const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
+  const [customModel, setCustomModel] = useState<string>('');
+  const [isComprehensiveView, setIsComprehensiveView] = useState<boolean>(true);
+  const [excludedDirs, setExcludedDirs] = useState('');
+  const [excludedFiles, setExcludedFiles] = useState('');
+  const [includedDirs, setIncludedDirs] = useState('');
+  const [includedFiles, setIncludedFiles] = useState('');
+  const [selectedPlatform, setSelectedPlatform] = useState<'github' | 'gitlab' | 'bitbucket'>('github');
+  const [accessToken, setAccessToken] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(language);
+  const [authRequired, setAuthRequired] = useState<boolean>(false);
+  const [authCode, setAuthCode] = useState<string>('');
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
   const loadConfigFromCache = useCallback((repoUrl: string) => {
     if (!repoUrl) return;
@@ -124,28 +142,10 @@ export default function Home() {
 
   useEffect(() => {
     if (repositoryInput) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       loadConfigFromCache(repositoryInput);
     }
   }, [repositoryInput, loadConfigFromCache]);
-
-  const [provider, setProvider] = useState<string>('');
-  const [model, setModel] = useState<string>('');
-  const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
-  const [customModel, setCustomModel] = useState<string>('');
-  const [isComprehensiveView, setIsComprehensiveView] = useState<boolean>(true);
-  const [excludedDirs, setExcludedDirs] = useState('');
-  const [excludedFiles, setExcludedFiles] = useState('');
-  const [includedDirs, setIncludedDirs] = useState('');
-  const [includedFiles, setIncludedFiles] = useState('');
-  const [selectedPlatform, setSelectedPlatform] = useState<'github' | 'gitlab' | 'bitbucket'>('github');
-  const [accessToken, setAccessToken] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(language);
-  const [authRequired, setAuthRequired] = useState<boolean>(false);
-  const [authCode, setAuthCode] = useState<string>('');
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
-  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
   useEffect(() => {
     setLanguage(selectedLanguage);

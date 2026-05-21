@@ -144,15 +144,6 @@ function parseRefreshResponse(payload: Record<string, unknown>): WikiRefreshResp
   };
 }
 
-/**
- * 根据仓库类型选择图标。
- */
-function getRepositoryIcon(repoType: string) {
-  if (repoType === 'github') return FaGithub;
-  if (repoType === 'gitlab') return FaGitlab;
-  return FaBitbucket;
-}
-
 export default function RepositoryWikiPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -820,7 +811,6 @@ export default function RepositoryWikiPage() {
   }, [isComprehensiveParam, language, loadInitialData, repositoryId]);
 
   const currentPage = currentPageId ? generatedPages[currentPageId] : undefined;
-  const RepositoryIcon = getRepositoryIcon(effectiveRepoInfo.type);
 
   return (
     <div className="h-screen flex flex-col bg-[var(--background)]">
@@ -868,7 +858,13 @@ export default function RepositoryWikiPage() {
                     </>
                   ) : (
                     <>
-                      <RepositoryIcon className="flex-shrink-0" />
+                      {effectiveRepoInfo.type === 'github' ? (
+                        <FaGithub className="flex-shrink-0" />
+                      ) : effectiveRepoInfo.type === 'gitlab' ? (
+                        <FaGitlab className="flex-shrink-0" />
+                      ) : (
+                        <FaBitbucket className="flex-shrink-0" />
+                      )}
                       <a
                         href={effectiveRepoInfo.repoUrl ?? ''}
                         target="_blank"
