@@ -55,12 +55,19 @@ public sealed class WikiGenerationParserService
     /// </summary>
     public WikiPageDto ParsePageDraft(WikiPageDto requestedPage, string response)
     {
+        // 优先尝试 YAML frontmatter 格式
+        if (TryParsePageDraftFrontmatter(response, out var fmDraft))
+        {
+            return NormalizePageDraft(requestedPage, fmDraft!);
+        }
+
+        // 回退到 JSON 格式
         if (TryParsePageDraftJson(response, out var draft))
         {
             return NormalizePageDraft(requestedPage, draft!);
         }
 
-        _logger.LogWarning("页面草案 JSON 解析失败，使用 Markdown 兜底草案 PageId={PageId}", requestedPage.Id);
+        _logger.LogWarning("页面草案解析失败（frontmatter/JSON 均不匹配），使用 Markdown 兜底草案 PageId={PageId}", requestedPage.Id);
         return BuildFallbackPageDraft(requestedPage, response);
     }
 
@@ -117,6 +124,135 @@ public sealed class WikiGenerationParserService
         {
             _logger.LogWarning(ex, "页面草案 JSON 反序列化失败，回退到 Markdown 兜底解析 ResponseLen={ResponseLen}", response.Length);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// 尝试将模型输出解析为 YAML frontmatter + Markdown 格式。
+    /// 格式：---\nkey: value\n---\nMarkdown正文
+    /// </summary>
+    private bool TryParsePageDraftFrontmatter(string response, out WikiPageDto? page)
+    {
+        page = null;
+        var trimmed = response.TrimStart();
+        if (!trimmed.StartsWith("---")) return false;
+
+        // 找到第二个 ---（frontmatter 结束标记）
+        var endIdx = trimmed.IndexOf("\n---", 3);
+        if (endIdx < 0) endIdx = trimmed.IndexOf("---\n", 3);
+        if (endIdx < 0) return false;
+
+        var yamlBlock = trimmed[3..endIdx].Trim();
+        var markdownContent = trimmed[(endIdx + 4)..].Trim(); // 跳过 \n---
+
+        try
+        {
+            page = new WikiPageDto();
+            var lines = yamlBlock.Split('\n');
+            string? currentListKey = null;
+            var listValues = new List<string>();
+
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.TrimEnd('\r');
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                // YAML 列表项: "  - value"
+                if (line.TrimStart().StartsWith("- ") && currentListKey != null)
+                {
+                    listValues.Add(line.TrimStart()[2..].Trim().Trim('"'));
+                    continue;
+                }
+
+                // 保存之前的列表
+                if (currentListKey != null && listValues.Count > 0)
+                {
+                    ApplyFrontmatterList(page, currentListKey, listValues);
+                    listValues.Clear();
+                    currentListKey = null;
+                }
+
+                // YAML 键值对: "key: value"
+                var colonIdx = line.IndexOf(':');
+                if (colonIdx < 0) continue;
+
+                var key = line[..colonIdx].Trim();
+                var value = line[(colonIdx + 1)..].Trim().Trim('"');
+
+                switch (key.ToLowerInvariant())
+                {
+                    case "id": page.Id = value; break;
+                    case "title": page.Title = value; break;
+                    case "navtitle": page.NavTitle = value; break;
+                    case "pagetype": page.PageType = value; break;
+                    case "importance": page.Importance = value; break;
+                    case "description": page.Description = value; break;
+                    case "parentid": page.ParentId = value; break;
+                    case "depth": if (int.TryParse(value, out var d)) page.Depth = d; break;
+                    case "contentdepthlevel": page.ContentDepthLevel = value; break;
+                    case "summary":
+                        if (page.FrontMatter is null) page.FrontMatter = new();
+                        page.FrontMatter.Summary = value;
+                        break;
+                    case "sourcefiles":
+                    case "tags":
+                    case "relatedpages":
+                    case "prerequisitepages":
+                    case "searchkeywords":
+                    case "filepaths":
+                        currentListKey = key;
+                        break;
+                    // 跳过未知键
+                }
+            }
+
+            // 保存最后的列表
+            if (currentListKey != null && listValues.Count > 0)
+            {
+                ApplyFrontmatterList(page, currentListKey, listValues);
+            }
+
+            if (string.IsNullOrWhiteSpace(page.Title) && !string.IsNullOrWhiteSpace(markdownContent))
+            {
+                // 从 Markdown 的 # 标题提取标题
+                var h1Match = Regex.Match(markdownContent, @"^#\s+(.+)$", RegexOptions.Multiline);
+                if (h1Match.Success) page.Title = h1Match.Groups[1].Value.Trim();
+            }
+
+            page.Content = markdownContent;
+            return !string.IsNullOrWhiteSpace(page.Content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Frontmatter 解析异常");
+            return false;
+        }
+    }
+
+    private static void ApplyFrontmatterList(WikiPageDto page, string key, List<string> values)
+    {
+        var arr = values.ToArray();
+        switch (key.ToLowerInvariant())
+        {
+            case "sourcefiles":
+            case "filepaths":
+                page.FilePaths = values;
+                if (page.FrontMatter is null) page.FrontMatter = new();
+                page.FrontMatter.SourceFiles = values;
+                break;
+            case "tags":
+                if (page.FrontMatter is null) page.FrontMatter = new();
+                page.FrontMatter.Tags = values;
+                break;
+            case "relatedpages":
+                page.RelatedPages = values;
+                break;
+            case "prerequisitepages":
+                page.PrerequisitePages = values;
+                break;
+            case "searchkeywords":
+                page.SearchKeywords = values;
+                break;
         }
     }
 
