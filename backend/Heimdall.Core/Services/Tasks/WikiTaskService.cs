@@ -253,75 +253,64 @@ public sealed class WikiTaskService
             var searchIndexKey = $"repo-{executingTask.Id}";
             await BuildSearchIndexAsync(repoPath, codeIndexResult, searchIndexKey, execToken);
 
-            // 基于代码索引计算建议页面数量
+            // 深度代码理解阶段（调用图 + 依赖拓扑 + 设计模式 + LLM 架构洞察）
+            CodeUnderstandingResult? codeUnderstanding = null;
+            var codeUnderstandingRecovery = await TryLoadArtifactByTypeAsync(
+                artifactRepo, executingTask.Id, "code_understanding", execToken);
+            if (codeUnderstandingRecovery is not null)
+            {
+                try
+                {
+                    codeUnderstanding = System.Text.Json.JsonSerializer.Deserialize<CodeUnderstandingResult>(
+                        codeUnderstandingRecovery, ArtifactJsonOptions);
+                    _logger.LogInformation("从工件恢复深度代码理解 TaskId={TaskId}", task.Id);
+                }
+                catch { /* 恢复失败，重新执行 */ }
+            }
+
+            if (codeUnderstanding is null)
+            {
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_understanding", "running", 28,
+                    "正在执行深度代码理解分析...", execToken);
+
+                var codeUnderstandingService = execScope.ServiceProvider
+                    .GetRequiredService<ICodeUnderstandingService>();
+                codeUnderstanding = await codeUnderstandingService.AnalyzeAsync(
+                    Guid.Empty,
+                    repoPath, effectiveProvider, model ?? customModel, execToken);
+
+                await UpsertTaskArtifactAsync(artifactRepo, taskRepo, executingTask,
+                    "code_understanding", "analysis", "code_understanding", 0,
+                    System.Text.Json.JsonSerializer.Serialize(codeUnderstanding, ArtifactJsonOptions),
+                    $"深度代码理解完成：{codeUnderstanding.CallGraph.NodeCount} 方法节点，{codeUnderstanding.DesignPatterns.Count} 设计模式",
+                    execToken);
+
+                await MarkTaskStageAsync(taskRepo, executingTask, "code_understanding", "completed", 32,
+                    $"深度代码理解完成：{codeUnderstanding.CallGraph.NodeCount} 节点，{codeUnderstanding.DependencyTopology.Modules.Count} 模块",
+                    execToken, markStageAsSuccessful: true);
+            }
+
+            _logger.LogInformation(
+                "[Wiki] 深度理解结果 TaskId={TaskId} CallGraphNodes={Nodes} CallGraphEdges={Edges} MaxDepth={Depth} Modules={Modules} Patterns={Patterns}",
+                task.Id,
+                codeUnderstanding.CallGraph.NodeCount,
+                codeUnderstanding.CallGraph.Edges.Count,
+                codeUnderstanding.CallGraph.MaxDepth,
+                codeUnderstanding.DependencyTopology.Modules.Count,
+                codeUnderstanding.DesignPatterns.Count);
+
+            var callGraphDepth = codeUnderstanding.CallGraph.MaxDepth;
+            var patternCount = codeUnderstanding.DesignPatterns.Count;
             var recommendedPageCount = CodeStructureIndexService.CalculateRecommendedPageCount(
                 codeIndexResult.ModuleNames.Count,
-                codeIndexResult.EntryPointFiles.Count);
-
-            // V7: 深度代码理解阶段（调用图 + 依赖拓扑 + 设计模式 + LLM 架构洞察）
-            CodeUnderstandingResult? codeUnderstanding = null;
-            var isV7Pipeline = _configService.GetWikiPipelineVersion() == "v7";
-            if (isV7Pipeline)
-            {
-                var codeUnderstandingRecovery = await TryLoadArtifactByTypeAsync(
-                    artifactRepo, executingTask.Id, "code_understanding", execToken);
-                if (codeUnderstandingRecovery is not null)
-                {
-                    try
-                    {
-                        codeUnderstanding = System.Text.Json.JsonSerializer.Deserialize<CodeUnderstandingResult>(
-                            codeUnderstandingRecovery, ArtifactJsonOptions);
-                        _logger.LogInformation("从工件恢复深度代码理解 TaskId={TaskId}", task.Id);
-                    }
-                    catch { /* 恢复失败，重新执行 */ }
-                }
-
-                if (codeUnderstanding is null)
-                {
-                    await MarkTaskStageAsync(taskRepo, executingTask, "code_understanding", "running", 28,
-                        "正在执行深度代码理解分析...", execToken);
-
-                    var codeUnderstandingService = execScope.ServiceProvider
-                        .GetRequiredService<ICodeUnderstandingService>();
-                    codeUnderstanding = await codeUnderstandingService.AnalyzeAsync(
-                        Guid.Empty,
-                        repoPath, effectiveProvider, model ?? customModel, execToken);
-
-                    await UpsertTaskArtifactAsync(artifactRepo, taskRepo, executingTask,
-                        "code_understanding", "analysis", "code_understanding", 0,
-                        System.Text.Json.JsonSerializer.Serialize(codeUnderstanding, ArtifactJsonOptions),
-                        $"深度代码理解完成：{codeUnderstanding.CallGraph.NodeCount} 方法节点，{codeUnderstanding.DesignPatterns.Count} 设计模式",
-                        execToken);
-
-                    await MarkTaskStageAsync(taskRepo, executingTask, "code_understanding", "completed", 32,
-                        $"深度代码理解完成：{codeUnderstanding.CallGraph.NodeCount} 节点，{codeUnderstanding.DependencyTopology.Modules.Count} 模块",
-                        execToken, markStageAsSuccessful: true);
-                }
-
-                // Task 9.2: 深度理解阶段详细日志
-                _logger.LogInformation(
-                    "[Wiki] 深度理解结果 TaskId={TaskId} CallGraphNodes={Nodes} CallGraphEdges={Edges} MaxDepth={Depth} Modules={Modules} Patterns={Patterns}",
-                    task.Id,
-                    codeUnderstanding.CallGraph.NodeCount,
-                    codeUnderstanding.CallGraph.Edges.Count,
-                    codeUnderstanding.CallGraph.MaxDepth,
-                    codeUnderstanding.DependencyTopology.Modules.Count,
-                    codeUnderstanding.DesignPatterns.Count);
-
-                // V7: 使用增强公式重新计算页面数和最大深度
-                var callGraphDepth = codeUnderstanding.CallGraph.MaxDepth;
-                var patternCount = codeUnderstanding.DesignPatterns.Count;
-                recommendedPageCount = CodeStructureIndexService.CalculateRecommendedPageCountV7(
-                    codeIndexResult.ModuleNames.Count,
-                    codeIndexResult.EntryPointFiles.Count,
-                    patternCount,
-                    callGraphDepth);
-                var maxDepthLevel = CodeStructureIndexService.CalculateMaxDepth(codeIndexResult.TotalFileCount);
-                _logger.LogInformation(
-                    "[Wiki] V7 页面规划：推荐 {PageCount} 页，最大深度 {MaxDepth} 层 (files={Files}, modules={Modules}, patterns={Patterns}, graphDepth={GraphDepth})",
-                    recommendedPageCount, maxDepthLevel, codeIndexResult.TotalFileCount,
-                    codeIndexResult.ModuleNames.Count, patternCount, callGraphDepth);
-            }
+                codeIndexResult.EntryPointFiles.Count,
+                patternCount,
+                callGraphDepth);
+            var maxDepthLevel = CodeStructureIndexService.CalculateMaxDepth(codeIndexResult.TotalFileCount);
+            _logger.LogInformation(
+                "[Wiki] 页面规划：推荐 {PageCount} 页，最大深度 {MaxDepth} 层 (files={Files}, modules={Modules}, patterns={Patterns}, graphDepth={GraphDepth})",
+                recommendedPageCount, maxDepthLevel, codeIndexResult.TotalFileCount,
+                codeIndexResult.ModuleNames.Count, patternCount, callGraphDepth);
 
             var (execOwner, execRepo) = repoAccess.FindSource(repoType, repoUrl).ParseOwnerRepo(repoUrl);
             var structureRecovery = await TryLoadPlanningArtifactAsync(artifactRepo, executingTask.Id, execToken);
@@ -346,14 +335,9 @@ public sealed class WikiTaskService
             }
             else
             {
-                // V7: 使用增强版结构规划提示词（传入 CodeUnderstandingResult）
-                var structurePrompt = isV7Pipeline
-                    ? _taskPrompt.BuildWikiStructurePromptV7(
-                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
-                        langDisplay, comprehensive, codeUnderstanding, generationProfile)
-                    : _taskPrompt.BuildWikiStructurePrompt(
-                        execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
-                        langDisplay, comprehensive, generationProfile);
+                var structurePrompt = _taskPrompt.BuildWikiStructurePromptV7(
+                    execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
+                    langDisplay, comprehensive, codeUnderstanding, generationProfile);
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -439,34 +423,28 @@ public sealed class WikiTaskService
 
             var completedBatchKeys = await RestoreCompletedPageBatchesAsync(artifactRepo, executingTask.Id, wikiStructure, execToken);
 
-            // V7: 拓扑序排列——按 depth 分层生成（先生成 L1-2 概览页，再 L3 中层页，最后 L4-5 详细页）
+            // 拓扑序排列——按 depth 分层生成（先生成 L1-2 概览页，再 L3 中层页，最后 L4-5 详细页）
             // 这确保子页面生成时可以注入父页面摘要
-            if (isV7Pipeline)
-            {
-                wikiStructure.Pages = wikiStructure.Pages
-                    .OrderBy(p => p.Depth)
-                    .ThenBy(p => p.ContentDepthLevel switch
-                    {
-                        "overview" => 0,
-                        "section" => 1,
-                        "article" => 2,
-                        _ => 1
-                    })
-                    .ToList();
-            }
+            wikiStructure.Pages = wikiStructure.Pages
+                .OrderBy(p => p.Depth)
+                .ThenBy(p => p.ContentDepthLevel switch
+                {
+                    "overview" => 0,
+                    "section" => 1,
+                    "article" => 2,
+                    _ => 1
+                })
+                .ToList();
 
             var totalPages = wikiStructure.Pages.Count;
 
-            // V7: CodingPlan 模型使用更大的批次（减少调用次数）
+            // CodingPlan 模型使用更大的批次（减少调用次数）
             var effectiveBatchSize = PageBatchSize;
-            if (isV7Pipeline)
+            var providerMeta = _configService.GetProviderModelMetadata(effectiveProvider, model ?? customModel ?? "");
+            if (providerMeta.BillingType == BillingType.CodingPlan)
             {
-                var providerMeta = _configService.GetProviderModelMetadata(effectiveProvider, model ?? customModel ?? "");
-                if (providerMeta.BillingType == BillingType.CodingPlan)
-                {
-                    effectiveBatchSize = Math.Min(10, totalPages); // CodingPlan: 更大批次
-                    _logger.LogInformation("[Wiki] CodingPlan 模式：使用批次大小 {BatchSize} 以减少调用次数", effectiveBatchSize);
-                }
+                effectiveBatchSize = Math.Min(10, totalPages);
+                _logger.LogInformation("[Wiki] CodingPlan 模式：使用批次大小 {BatchSize} 以减少调用次数", effectiveBatchSize);
             }
 
             var totalBatchCount = Math.Max(1, (int)Math.Ceiling(totalPages / (double)effectiveBatchSize));
@@ -519,9 +497,9 @@ public sealed class WikiTaskService
                 {
                     execToken.ThrowIfCancellationRequested();
 
-                    // V7: 注入父页面摘要（拓扑序确保父页面已生成）
+                    // 注入父页面摘要（拓扑序确保父页面已生成）
                     string? parentContext = null;
-                    if (isV7Pipeline && !string.IsNullOrEmpty(page.ParentId))
+                    if (!string.IsNullOrEmpty(page.ParentId))
                     {
                         var parentPage = wikiStructure.Pages.FirstOrDefault(p => p.Id == page.ParentId);
                         if (parentPage is not null && !string.IsNullOrWhiteSpace(parentPage.Content))
@@ -553,11 +531,8 @@ public sealed class WikiTaskService
                     var keyFiles = (page.KeyFilePaths?.Count > 0 ? page.KeyFilePaths : null)
                         ?? (page.FilePaths?.Count > 0 ? page.FilePaths : null);
 
-                    // V7: 动态 Token 预算替代硬编码 20_000
-                    var contextBudget = isV7Pipeline
-                        ? new ContextPackingService(_configService)
-                            .CalculateAvailableBudget(effectiveProvider, model ?? customModel ?? "")
-                        : 20_000;
+                    var contextBudget = new ContextPackingService(_configService)
+                        .CalculateAvailableBudget(effectiveProvider, model ?? customModel ?? "");
                     var searchResults = await _hybridSearch.SearchAsync(
                         searchIndexKey, searchQuery, keyFiles, topK: 15, maxTotalTokens: contextBudget, ct: execToken);
                     var fileContents = _hybridSearch.FormatForPrompt(searchResults);
@@ -570,22 +545,19 @@ public sealed class WikiTaskService
                     var stepOrder = wikiStructure.Pages.FindIndex(p => p.Id == page.Id) + 1;
                     try
                     {
-                        // V7: 使用带指标的调用，记录 Token 消耗
+                        // 使用带指标的调用，记录 Token 消耗
                         var pageResponseObj = await _taskLlm.GenerateWithMetricsAsync(
                             effectiveProvider, model, customModel, pagePrompt, execToken);
                         var pageResponse = pageResponseObj.Content;
 
-                        if (isV7Pipeline)
+                        try
                         {
-                            try
-                            {
-                                var observability = execScope.ServiceProvider
-                                    .GetRequiredService<ILlmObservabilityService>();
-                                await observability.RecordCallAsync(task.Id, "page_generation",
-                                    effectiveProvider, model ?? customModel ?? "", pageResponseObj, execToken);
-                            }
-                            catch { /* 指标记录失败不应中断主流程 */ }
+                            var observability = execScope.ServiceProvider
+                                .GetRequiredService<ILlmObservabilityService>();
+                            await observability.RecordCallAsync(task.Id, "page_generation",
+                                effectiveProvider, model ?? customModel ?? "", pageResponseObj, execToken);
                         }
+                        catch { /* 指标记录失败不应中断主流程 */ }
 
                         try { await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
                             pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false); } catch { }
@@ -868,41 +840,36 @@ public sealed class WikiTaskService
                 wikiChunkCount);
             await taskRepo.UpdateAsync(executingTask);
 
-            // V7: 增强任务完成汇总日志
             var maxDepth = wikiStructure.Pages.Any() ? wikiStructure.Pages.Max(p => p.Depth) : 0;
             _logger.LogInformation(
-                "[Wiki] 生成完成 TaskId={TaskId} Pages={Pages} MaxDepth={Depth} Elapsed={Elapsed:F1}s Pipeline={Pipeline}",
-                task.Id, totalPages, maxDepth, totalStopwatch.Elapsed.TotalSeconds,
-                isV7Pipeline ? "v7" : "v6");
+                "[Wiki] 生成完成 TaskId={TaskId} Pages={Pages} MaxDepth={Depth} Elapsed={Elapsed:F1}s",
+                task.Id, totalPages, maxDepth, totalStopwatch.Elapsed.TotalSeconds);
 
             var llmCalls = 0;
             var llmInputTokens = 0;
             var llmOutputTokens = 0;
-            if (isV7Pipeline)
+            try
             {
-                try
+                using var metricScope = _scopeFactory.CreateScope();
+                var obsService = metricScope.ServiceProvider
+                    .GetService<ILlmObservabilityService>();
+                if (obsService != null)
                 {
-                    using var metricScope = _scopeFactory.CreateScope();
-                    var obsService = metricScope.ServiceProvider
-                        .GetService<ILlmObservabilityService>();
-                    if (obsService != null)
-                    {
-                        var summary = await obsService.GetTaskSummaryAsync(task.Id);
-                        llmCalls = summary.TotalCalls;
-                        llmInputTokens = (int)summary.TotalInputTokens;
-                        llmOutputTokens = (int)summary.TotalOutputTokens;
-                        _logger.LogInformation(
-                            "[Wiki] LLM汇总 TaskId={TaskId} Calls={Calls} InputTokens={In} OutputTokens={Out} CacheHitTokens={Cache} TotalCost≈${Cost:F4} CacheRate={Rate:P0}",
-                            task.Id, summary.TotalCalls, summary.TotalInputTokens,
-                            summary.TotalOutputTokens, summary.TotalCacheHitTokens,
-                            summary.EstimatedCost,
-                            summary.TotalInputTokens > 0
-                                ? (double)summary.TotalCacheHitTokens / summary.TotalInputTokens
-                                : 0.0);
-                    }
+                    var summary = await obsService.GetTaskSummaryAsync(task.Id);
+                    llmCalls = summary.TotalCalls;
+                    llmInputTokens = (int)summary.TotalInputTokens;
+                    llmOutputTokens = (int)summary.TotalOutputTokens;
+                    _logger.LogInformation(
+                        "[Wiki] LLM汇总 TaskId={TaskId} Calls={Calls} InputTokens={In} OutputTokens={Out} CacheHitTokens={Cache} TotalCost≈${Cost:F4} CacheRate={Rate:P0}",
+                        task.Id, summary.TotalCalls, summary.TotalInputTokens,
+                        summary.TotalOutputTokens, summary.TotalCacheHitTokens,
+                        summary.EstimatedCost,
+                        summary.TotalInputTokens > 0
+                            ? (double)summary.TotalCacheHitTokens / summary.TotalInputTokens
+                            : 0.0);
                 }
-                catch { /* 日志失败不影响主流程 */ }
             }
+            catch { /* 日志失败不影响主流程 */ }
             _structuredLogger.LogTaskSummary(task.Id, totalPages,
                 totalStopwatch.Elapsed.TotalSeconds, llmCalls, llmInputTokens, llmOutputTokens);
         }
@@ -1254,7 +1221,7 @@ public sealed class WikiTaskService
             _ => "原始内容有一定基础但仍需改进，请增强结构化程度和具体代码引用。"
         };
 
-        // V7: 根据 ContentDepthLevel 附加层级深度符合性要求
+        // 根据 ContentDepthLevel 附加层级深度符合性要求
         var depthCompliance = page.ContentDepthLevel?.ToLowerInvariant() switch
         {
             "article" => "\n特别要求：这是 Article 级别的深度页面，必须包含代码引用、函数签名和实现细节。缺少代码引用会严重扣分。",

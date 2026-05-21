@@ -236,14 +236,6 @@ public sealed class HeimdallConfigService
     }
 
     /// <summary>
-    /// 获取 Wiki 管线版本（v6 或 v7）。
-    /// </summary>
-    public string GetWikiPipelineVersion()
-    {
-        return (GetConfigurationValue("HEIMDALL_WIKI_PIPELINE_VERSION") ?? "v7").Trim().ToLowerInvariant();
-    }
-
-    /// <summary>
     /// 根据 Provider 类型推断默认元数据。
     /// </summary>
     private static ProviderModelMetadata InferDefaultMetadata(string provider)

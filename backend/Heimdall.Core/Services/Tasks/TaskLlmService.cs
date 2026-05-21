@@ -42,7 +42,7 @@ public sealed class TaskLlmService
     }
 
     /// <summary>
-    /// V7: 带完整指标的 LLM 调用——返回 Token 用量、延迟等元数据。
+    /// 带完整指标的 LLM 调用——返回 Token 用量、延迟等元数据。
     /// </summary>
     public async Task<ChatCompletionResponse> GenerateWithMetricsAsync(
         string provider, string? model, string? customModel, string prompt,
@@ -95,7 +95,7 @@ public sealed class TaskLlmService
             }, token);
         }, $"GenerateText:{resolvedProviderId}/{resolvedModel}", ct);
 
-        // V7: 增强调用后日志——Token 消耗、缓存命中、延迟、估算成本
+        // 调用后日志——Token 消耗、缓存命中、延迟、估算成本
         var estimatedCost = EstimateCallCost(resolvedProviderId, response.Usage);
         _logger.LogInformation(
             "[LLM] 调用完成 Provider={Provider} Model={Model} Latency={Ms}ms InputTokens={In} OutputTokens={Out} CacheHit={Cache} Estimated={Est} Cost≈${Cost:F4}",
