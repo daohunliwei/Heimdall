@@ -34,15 +34,39 @@
 - **THEN** 提示词上下文段列出所有模式及其参与类，要求为每个模式创建独立 article 页面或归入相关 section
 
 ### Requirement: 输出格式与质量硬约束
-所有提示词 SHALL 包含明确的输出格式约束和质量自查清单。约束 SHALL 包括：禁止虚构代码（只能用提供的代码片段）、禁止空泛描述（每个断言必须有代码证据）、Markdown 语法规范（表格、代码块、Mermaid 图）。
+所有提示词 SHALL 包含明确的输出格式约束和质量自查清单。约束 SHALL 包括：禁止虚构代码、禁止空泛描述、禁止裸露元数据（JSON 字段不可在正文中展示）、**强制 Markdown 语法规范**——Mermaid 图必须用 ` ```mermaid ` 包裹、代码必须用 ` ```语言标识 ` 包裹。
 
 #### Scenario: 代码真实性约束
 - **WHEN** LLM 生成页面内容
 - **THEN** 提示词明确："代码引用必须来自下方提供的代码片段，禁止编造类名、方法名或 API。若某概念在提供的代码中无对应实现，请标注「未在代码中找到对应实现」而非猜测。"
 
+#### Scenario: Mermaid 图表强制包裹
+- **WHEN** LLM 需要在页面中插入架构图、时序图或类图
+- **THEN** 图表必须放在独立的 ` ```mermaid ` 代码围栏中，语法节点文字 ≤ 4 个词，使用 autonumber 和 classDef 样式定义
+- **AND** 禁止将 Mermaid 语法作为裸文本直接输出
+
+#### Scenario: 代码块强制语言标记
+- **WHEN** LLM 需要在页面中引用源代码片段
+- **THEN** 代码必须放在 ` ```csharp ` 或 ` ```json ` 等带语言标识的围栏代码块中
+- **AND** 代码块前后必须有空行
+- **AND** 禁止内联裸文本输出方法签名或代码语句
+
+#### Scenario: 禁止裸露元数据
+- **WHEN** LLM 生成页面正文
+- **THEN** JSON 元数据字段（title、nav_title、page_type、tags、source_files、summary、related_pages、prerequisite_pages）**不得**出现在正文 Markdown 中
+- **AND** 正文以 `<details><summary>📁 源文件参考</summary>` 开头，不是以元数据文本开头
+
 #### Scenario: 质量自查清单执行
 - **WHEN** LLM 完成页面生成
-- **THEN** 提示词最后一段为自查清单："1. □ 所有代码引用是否来自提供的片段？2. □ 是否有至少一个 Mermaid 图？3. □ 技术深度是否符合页面级别要求？..."
+- **THEN** 提示词最后一段为 8 项自查清单：
+  1. □ 所有代码引用是否来自提供的片段？
+  2. □ 所有 Mermaid 图是否用 \`\`\`mermaid 包裹？
+  3. □ 所有代码块是否标注了语言类型？
+  4. □ 正文开头是否为 `<details>` 折叠块（非裸露元数据）？
+  5. □ 是否有至少 1 个 Mermaid 图和 1 个 Markdown 表格？
+  6. □ Mermaid 节点文字是否 ≤ 4 词？
+  7. □ 是否存在裸文本的代码、配置或 JSON？
+  8. □ H2/H3 标题是否有实质性内容？
 
 ### Requirement: 提示词模板可替换机制
 系统 SHALL 支持通过 Prompt 管理界面（/admin/prompts）查看和编辑预设提示词模板，编辑后实时生效无需重启。提示词模板 SHALL 从数据库加载，数据库无记录时回退到代码中的默认模板。

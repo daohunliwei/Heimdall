@@ -246,7 +246,7 @@ public sealed class TaskPromptService
 
 ## 输出约束
 
-返回纯 JSON（不要用代码围栏包裹），格式：
+返回纯 JSON，格式：
 {
   "id": "{{page.Id}}",
   "title": "{{page.Title}}",
@@ -254,26 +254,48 @@ public sealed class TaskPromptService
   "parentId": "父页面 id 或 null",
   "relatedPages": ["page-id"],
   "frontMatter": { "summary": "...", "tags": [...] },
-  "content": "Markdown 正文（以 <details><summary>📁 源文件参考</summary> 开头，随后是 H2/H3 正文、表格、Mermaid 图）"
+  "content": "Markdown 正文"
 }
 
-内容约束：
-1. 以 `<details><summary>📁 源文件参考</summary>` 折叠块开头
-2. 使用 H2/H3 组织正文，不包含 H1 顶级标题
-3. 必须引用真实代码证据（文件路径、类名、方法签名）
-4. 至少 1 个表格 + 1 个 Mermaid 图 + 1 个列表
-5. 禁止虚构代码——所有引用必须来自上方提供的真实片段
-6. 若代码不足以完整描述某方面，注明"未在代码中找到对应实现"
-7. 全部内容使用 {{languageDisplayName}}
+### 内容格式强制规则（违反任何一条即视为不合格）
 
-## 质量自查清单
+**Markdown 结构**：
+1. 正文第一行必须是 `<details><summary>📁 源文件参考</summary>`，列出 ≥ 5 个源文件路径和行号，以 `</details>` 闭合
+2. 随后是 H2/H3 正文，不包含 H1 顶级标题
+3. 全部内容使用 {{languageDisplayName}}
 
-1. □ 所有类名、方法名是否来自真实代码片段？
-2. □ 是否包含至少 1 个 Mermaid 图表和 1 个表格？
-3. □ H2 小节是否在 3-6 个之间且有实质性内容？
-4. □ 源文件引用块是否列出了 ≥ 5 个文件？
-5. □ 是否与关联页面内容互补而非重复？
-6. □ JSON 格式是否正确（双引号、无尾逗号、括号配对）？
+**Mermaid 图表（必须）**：
+4. 所有 Mermaid 图必须放在独立的 ` ```mermaid ` 代码围栏中
+5. 架构图使用 `graph TD`，图表节点文字 ≤ 4 个词
+6. 时序图使用 `sequenceDiagram` + `autonumber` 自动编号
+7. 使用 `classDef` 为不同层级节点定义样式
+8. **绝对禁止**将 Mermaid 语法作为裸文本直接输出——用户看到 `graph TD` 裸文本即为不合格
+
+**代码引用（必须）**：
+9. 所有代码片段必须放在 ` ```csharp ` 或 ` ```json ` 等带语言标识的围栏代码块中
+10. 代码块前后必须有空行
+11. 代码引用必须标注 `文件路径:起始行-结束行` 格式的来源注释
+12. **绝对禁止**裸文本输出方法签名、代码语句、配置内容——用户看到 `public static void` 裸文本即为不合格
+
+**元数据隐藏（必须）**：
+13. JSON 元数据字段（title、nav_title、page_type、tags、source_files、summary、related_pages、prerequisite_pages 等）**不得**出现在 `content` 正文中
+14. 正文只包含 Markdown 文档内容，不含任何 JSON 结构或元数据格式文本
+
+**技术准确性**：
+15. 禁止虚构代码——所有引用必须来自上方提供的真实片段
+16. 若代码不足以完整描述某方面，注明"未在代码中找到对应实现"
+17. 至少 1 个表格 + 1 个 Mermaid 图 + 1 个列表
+
+## 质量自查清单（输出前逐项自检）
+
+1. □ 所有 Mermaid 图是否用 ` ```mermaid ` 包裹（非裸文本 graph TD）？
+2. □ 所有代码块是否标注了语言类型并前后空行？
+3. □ 正文开头是否为 `<details>`（非裸露 title/nav_title/tags 元数据文本）？
+4. □ 是否存在裸文本的代码语句（如 `public class X`）或 Mermaid 语法（如 `graph TD`）？
+5. □ 所有类名、方法名是否来自上方提供的代码片段（非编造）？
+6. □ 是否有至少 1 个 Mermaid 图 + 1 个表格？
+7. □ Mermaid 节点文字是否 ≤ 4 词？
+8. □ JSON 格式是否正确（双引号、无尾逗号、content 内引号转义）？
 """;
     }
 
