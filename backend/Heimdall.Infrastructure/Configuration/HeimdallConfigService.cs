@@ -357,6 +357,16 @@ public sealed class HeimdallConfigService
                 OutputTokenPrice = 10.00m,
                 SupportsCaching = false
             },
+            "deepseek" => new ProviderModelMetadata
+            {
+                BillingType = BillingType.TokenPlan,
+                MaxContextTokens = 1048576,
+                MaxOutputTokens = 384000,
+                ContextFillRatio = 0.85,
+                InputTokenPrice = 0.28m,
+                OutputTokenPrice = 1.10m,
+                SupportsCaching = true
+            },
             _ => new ProviderModelMetadata()
         };
     }
@@ -426,6 +436,7 @@ public sealed class HeimdallConfigService
             "bedrock" => "AWS Bedrock",
             "azure" => "Azure AI",
             "dashscope" => "DashScope",
+            "deepseek" => "DeepSeek",
             _ => providerId
         };
     }

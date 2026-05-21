@@ -61,7 +61,7 @@ public sealed class TaskLlmService
             Messages = [new ChatMessage { Role = "user", Content = prompt }]
         };
 
-        var (resolvedProviderId, resolvedModel, parameters, chatProvider) = _providerRegistry.ResolveChatProvider(request);
+        var (resolvedProviderId, resolvedModel, parameters, metadata, chatProvider) = _providerRegistry.ResolveChatProviderWithMetadata(request);
 
         if (string.IsNullOrWhiteSpace(resolvedModel))
         {
@@ -70,16 +70,18 @@ public sealed class TaskLlmService
         }
 
         _logger.LogInformation(
-            "[LLM] 调用开始 Provider={Provider} Model={Model} BillingType={Billing} PromptTokens(est)={PromptTokens} Strategy={Strategy}",
+            "[LLM] 调用开始 Provider={Provider} Model={Model} BillingType={Billing} ContextBudget={ContextBudget} MaxOutput={MaxOutput} PromptTokens(est)={PromptTokens} Strategy={Strategy}",
             resolvedProviderId, resolvedModel,
-            _configService.GetProviderModelMetadata(effectiveProvider, effectiveModel ?? "").BillingType,
+            metadata.BillingType,
+            metadata.MaxContextTokens,
+            metadata.MaxOutputTokens,
             TokenCounter.EstimateTokenCount(prompt),
-            _configService.GetProviderModelMetadata(effectiveProvider, effectiveModel ?? "").BillingType == BillingType.CodingPlan ? "BatchMerge" : "PerItem");
+            metadata.BillingType == BillingType.CodingPlan ? "BatchMerge" : "PerItem");
 
         // 速率限制等待
         await _rateLimiter.AcquireAsync(resolvedProviderId, resolvedModel, ct);
 
-        // 带重试的调用
+        // 带重试的调用，传入 MaxOutputTokens 作为 max_tokens
         var response = await _retryPolicy.ExecuteAsync(async token =>
         {
             return await chatProvider.GenerateWithMetricsAsync(new ProviderChatRequest
@@ -91,6 +93,7 @@ public sealed class TaskLlmService
                 Temperature = parameters.Temperature,
                 TopP = parameters.TopP,
                 TopK = parameters.TopK,
+                MaxOutputTokens = metadata.MaxOutputTokens,
                 Options = parameters.Options
             }, token);
         }, $"GenerateText:{resolvedProviderId}/{resolvedModel}", ct);

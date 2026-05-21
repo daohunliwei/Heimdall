@@ -232,6 +232,26 @@
         }
       }
     },
+    "deepseek": {
+      "default_model": "deepseek-v4-flash",
+      "supportsCustomModel": true,
+      "metadata": {
+        "billingType": "TokenPlan",
+        "maxContextTokens": 1048576,
+        "maxOutputTokens": 384000,
+        "contextFillRatio": 0.85
+      },
+      "models": {
+        "deepseek-v4-flash": {
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "deepseek-v4-pro": {
+          "temperature": 1.0,
+          "top_p": 1.0
+        }
+      }
+    },
     "azure": {
       "default_model": "gpt-4o",
       "supportsCustomModel": true,

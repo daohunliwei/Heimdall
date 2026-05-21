@@ -205,6 +205,14 @@ public sealed class WikiTaskService
             _logger.LogInformation("仓库准备完成 TaskId={TaskId} Files={Count} Path={Path}", task.Id, fileCount, repoPath);
             _structuredLogger.LogTaskProgress(task.Id, "仓库准备", null, null, $"共 {fileCount} 个文件");
 
+            // ── 仓库文档收集 ──
+            var repositoryDocs = CollectRepositoryDocuments(repoPath);
+            if (repositoryDocs.Count > 0)
+            {
+                _logger.LogInformation("仓库文档收集完成 TaskId={TaskId} DocCount={Count}", task.Id, repositoryDocs.Count);
+                _structuredLogger.LogTaskProgress(task.Id, "文档收集", null, null, $"已收集 {repositoryDocs.Count} 个仓库文档");
+            }
+
             var langDisplay = language == "zh" ? "中文" : "English";
 
             // ── V6: 本地代码索引阶段（无 LLM 摘要）──
@@ -335,9 +343,11 @@ public sealed class WikiTaskService
             }
             else
             {
+                var repositoryDocsSection = BuildRepositoryDocsSection(repositoryDocs);
                 var structurePrompt = _taskPrompt.BuildWikiStructurePromptV7(
                     execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
-                    langDisplay, comprehensive, codeUnderstanding, generationProfile);
+                    langDisplay, comprehensive, codeUnderstanding, generationProfile,
+                    repositoryDocsSection);
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -430,18 +440,9 @@ public sealed class WikiTaskService
 
             var completedBatchKeys = await RestoreCompletedPageBatchesAsync(artifactRepo, executingTask.Id, wikiStructure, execToken);
 
-            // 拓扑序排列——按 depth 分层生成（先生成 L1-2 概览页，再 L3 中层页，最后 L4-5 详细页）
-            // 这确保子页面生成时可以注入父页面摘要
-            wikiStructure.Pages = wikiStructure.Pages
-                .OrderBy(p => p.Depth)
-                .ThenBy(p => p.ContentDepthLevel switch
-                {
-                    "overview" => 0,
-                    "section" => 1,
-                    "article" => 2,
-                    _ => 1
-                })
-                .ToList();
+            // BFS 树形拓扑序遍历——根节点 (parentId=null) 优先，逐层展开子节点
+            // 确保父页面先于子页面生成，使子页面可注入父页面摘要
+            wikiStructure.Pages = OrderPagesByTreeBfs(wikiStructure.Pages);
 
             var totalPages = wikiStructure.Pages.Count;
 
@@ -544,9 +545,14 @@ public sealed class WikiTaskService
                         searchIndexKey, searchQuery, keyFiles, topK: 100, maxTotalTokens: contextBudget, ct: execToken);
                     var fileContents = _hybridSearch.FormatForPrompt(searchResults);
 
+                    // 根据页面主题有选择地注入仓库文档内容
+                    var docContext = IsArchitectureOrOverviewPage(page)
+                        ? BuildRepositoryDocsSection(repositoryDocs, maxChars: 3000)
+                        : null;
+
                     var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
                         page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay, fileContents,
-                        combinedContext);
+                        combinedContext, docContext);
 
                     var pageSw = Stopwatch.StartNew();
                     var stepOrder = wikiStructure.Pages.FindIndex(p => p.Id == page.Id) + 1;
@@ -1192,6 +1198,62 @@ public sealed class WikiTaskService
     }
 
     /// <summary>
+    /// 按 BFS 树形拓扑序遍历页面：根节点 (parentId=null) 优先，随后逐层展开子节点。
+    /// 确保父页面始终在子页面之前生成。
+    /// </summary>
+    private static List<WikiPageDto> OrderPagesByTreeBfs(List<WikiPageDto> pages)
+    {
+        var pageMap = pages.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+        var childrenMap = new Dictionary<string, List<WikiPageDto>>(StringComparer.OrdinalIgnoreCase);
+        const string rootKey = "__root__";
+
+        foreach (var page in pages)
+        {
+            var parentKey = string.IsNullOrWhiteSpace(page.ParentId) ? rootKey : page.ParentId;
+            if (!childrenMap.ContainsKey(parentKey))
+                childrenMap[parentKey] = new List<WikiPageDto>();
+            childrenMap[parentKey].Add(page);
+        }
+
+        var result = new List<WikiPageDto>();
+        var queue = new Queue<string>();
+        queue.Enqueue(rootKey); // 从根节点开始
+
+        while (queue.Count > 0)
+        {
+            var parentId = queue.Dequeue();
+            if (!childrenMap.TryGetValue(parentId, out var siblings)) continue;
+
+            // 同层页面按 contentDepthLevel 排序
+            var ordered = siblings
+                .OrderBy(p => p.ContentDepthLevel switch
+                {
+                    "overview" => 0,
+                    "section" => 1,
+                    "article" => 2,
+                    _ => 1
+                })
+                .ToList();
+
+            foreach (var page in ordered)
+            {
+                result.Add(page);
+                queue.Enqueue(page.Id);
+            }
+        }
+
+        // 确保所有页面都被包含（孤岛页面兜底）
+        var includedIds = result.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in pages)
+        {
+            if (!includedIds.Contains(page.Id))
+                result.Add(page);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 将单页草案结果合并回结构规划中的页面对象。
     /// </summary>
     private static void ApplyGeneratedPageDraft(WikiPageDto target, WikiPageDto draft)
@@ -1413,4 +1475,129 @@ public sealed class WikiTaskService
             _ => "text"
         };
     }
+
+    /// <summary>
+    /// 收集仓库根目录及 docs/、.github/ 目录下的 Markdown 文档文件。
+    /// 按优先级排序：AGENTS.md > CLAUDE.md > README.md > CONTRIBUTING.md > 其他。
+    /// </summary>
+    private static List<RepositoryDoc> CollectRepositoryDocuments(string repoPath)
+    {
+        var result = new List<RepositoryDoc>();
+        var scanDirs = new[] { repoPath, Path.Combine(repoPath, "docs"), Path.Combine(repoPath, ".github") };
+
+        var targetFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "AGENTS.md", "CLAUDE.md", "README.md", "CONTRIBUTING.md",
+            "CODE_OF_CONDUCT.md", "CHANGELOG.md", "SECURITY.md", "GOVERNANCE.md"
+        };
+
+        foreach (var dir in scanDirs)
+        {
+            if (!Directory.Exists(dir)) continue;
+
+            foreach (var filePath in Directory.EnumerateFiles(dir, "*.md", SearchOption.TopDirectoryOnly))
+            {
+                var fileName = Path.GetFileName(filePath);
+
+                // 优先匹配已知的高价值文档，否则需在根目录才收集
+                if (!targetFiles.Contains(fileName) && dir != repoPath) continue;
+
+                try
+                {
+                    var content = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
+                    var priority = GetDocumentPriority(fileName);
+                    result.Add(new RepositoryDoc
+                    {
+                        FileName = fileName,
+                        FilePath = filePath,
+                        Content = content,
+                        Priority = priority
+                    });
+                }
+                catch (Exception)
+                {
+                    // 文件读取失败不阻塞主流程
+                }
+            }
+        }
+
+        return result
+            .OrderBy(d => d.Priority)
+            .ThenBy(d => d.FileName)
+            .ToList();
+    }
+
+    private static int GetDocumentPriority(string fileName)
+    {
+        return fileName.ToLowerInvariant() switch
+        {
+            "agents.md" => 1,
+            "claude.md" => 2,
+            "readme.md" => 3,
+            "contributing.md" => 4,
+            _ => 5
+        };
+    }
+
+    /// <summary>
+    /// 判断页面是否为架构/概览类型，适合注入仓库文档内容。
+    /// </summary>
+    private static bool IsArchitectureOrOverviewPage(WikiPageDto page)
+    {
+        if (string.Equals(page.ContentDepthLevel, "overview", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var titleAndDesc = $"{page.Title} {page.Description}".ToLowerInvariant();
+        var architectureKeywords = new[] { "架构", "architecture", "模块", "module", "设计", "design",
+            "概述", "overview", "总览", "结构", "structure", "分层", "layer", "依赖", "dependency" };
+
+        return architectureKeywords.Any(k => titleAndDesc.Contains(k));
+    }
+
+    /// <summary>
+    /// 构建注入提示词的仓库文档文本，按优先级排序并在超出预算时裁剪。
+    /// </summary>
+    private static string BuildRepositoryDocsSection(List<RepositoryDoc> docs, int maxChars = 8000)
+    {
+        if (docs.Count == 0) return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## 仓库文档参考");
+        sb.AppendLine("以下为仓库根目录文档内容，请据此理解项目架构和组织方式：");
+        sb.AppendLine();
+
+        var remaining = maxChars;
+
+        foreach (var doc in docs.OrderBy(d => d.Priority))
+        {
+            var content = doc.Content;
+            if (content.Length > 5000)
+            {
+                content = content[..3000] + "\n\n…（文档过长，已截断）";
+            }
+
+            var entry = $"### {doc.FileName}\n{content}\n\n";
+            if (entry.Length > remaining && sb.Length > 0)
+            {
+                sb.AppendLine("…（后续文档因预算不足已省略）");
+                break;
+            }
+
+            sb.Append(entry);
+            remaining -= entry.Length;
+        }
+
+        return sb.ToString();
+    }
+}
+
+/// <summary>
+/// 仓库根目录文档记录。
+/// </summary>
+public record RepositoryDoc
+{
+    public string FileName { get; init; } = string.Empty;
+    public string FilePath { get; init; } = string.Empty;
+    public string Content { get; init; } = string.Empty;
+    public int Priority { get; init; } = 5;
 }

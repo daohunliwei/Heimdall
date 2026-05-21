@@ -132,6 +132,8 @@ builder.Services.AddSingleton<IChatProvider>(sp =>
 builder.Services.AddSingleton<IChatProvider>(sp =>
     new AzureChatProvider(sp.GetRequiredService<IHttpClientFactory>().CreateClient(), sp.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton<IChatProvider, BedrockChatProvider>();
+builder.Services.AddSingleton<IChatProvider>(sp =>
+    new DeepSeekChatProvider(sp.GetRequiredService<IHttpClientFactory>().CreateClient(), sp.GetRequiredService<IConfiguration>()));
 
 // Embedding Providers
 builder.Services.AddSingleton<IEmbeddingProvider>(sp =>

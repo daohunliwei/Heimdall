@@ -119,5 +119,6 @@ public class ProviderChatRequest
     public double? Temperature { get; set; }
     public double? TopP { get; set; }
     public int? TopK { get; set; }
+    public int MaxOutputTokens { get; set; }
     public Dictionary<string, JsonElement>? Options { get; set; }
 }

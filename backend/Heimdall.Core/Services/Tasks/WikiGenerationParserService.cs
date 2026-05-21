@@ -708,9 +708,13 @@ public sealed class WikiGenerationParserService
 
             if (!string.IsNullOrWhiteSpace(page.ParentId) && !pageIdSet.Contains(page.ParentId))
             {
+                _logger.LogWarning("结构规划 parentId 无效引用 PageId={PageId} ParentId={ParentId}，已提升为根节点", page.Id, page.ParentId);
                 page.ParentId = null;
             }
         }
+
+        // 层级修复：depth > 1 且无 parentId 的页面尝试推断父页面
+        ValidateAndFixHierarchy(structure, pageIdSet);
 
         if (structure.Sections.Count == 0)
         {
@@ -748,6 +752,87 @@ public sealed class WikiGenerationParserService
         }
 
         return structure;
+    }
+
+    /// <summary>
+    /// 验证并修复页面层级结构：缺失 parentId 的深层页面尝试推断父页面，
+    /// 检测循环引用并断开。
+    /// </summary>
+    private void ValidateAndFixHierarchy(WikiStructureDto structure, HashSet<string> pageIdSet)
+    {
+        var depthGroups = structure.Pages
+            .Where(p => p.Depth > 1 && string.IsNullOrWhiteSpace(p.ParentId))
+            .GroupBy(p => p.Depth)
+            .OrderBy(g => g.Key);
+
+        foreach (var group in depthGroups)
+        {
+            foreach (var page in group)
+            {
+                // 查找同 depth-1 的页面作为候选父页面
+                var candidateParents = structure.Pages
+                    .Where(p => p.Depth == page.Depth - 1)
+                    .ToList();
+
+                if (candidateParents.Count > 0)
+                {
+                    // 优先选择描述或标题与当前页面主题相关的父页面
+                    var bestParent = candidateParents
+                        .OrderByDescending(p =>
+                        {
+                            var score = 0;
+                            if (!string.IsNullOrWhiteSpace(page.Description)
+                                && !string.IsNullOrWhiteSpace(p.Title)
+                                && page.Description.Contains(p.Title[..Math.Min(p.Title.Length, 10)]))
+                                score += 10;
+                            if (page.FilePaths?.Count > 0 && p.FilePaths?.Count > 0
+                                && page.FilePaths.Any(f => p.FilePaths.Any(pf => f.Contains(pf[..Math.Min(pf.Length, 5)]))))
+                                score += 5;
+                            return score;
+                        })
+                        .First();
+
+                    page.ParentId = bestParent.Id;
+                    _logger.LogInformation(
+                        "层级修复：页面 {PageId} (depth={Depth}) 自动指定父页面 {ParentId} ({ParentTitle})",
+                        page.Id, page.Depth, bestParent.Id, bestParent.Title);
+                }
+                else
+                {
+                    page.Depth = 1;
+                    _logger.LogWarning(
+                        "层级修复：页面 {PageId} depth={Depth} 无候选父页面，已降为根节点",
+                        page.Id, page.Depth);
+                }
+            }
+        }
+
+        // 检测并断开循环引用
+        foreach (var page in structure.Pages)
+        {
+            if (string.IsNullOrWhiteSpace(page.ParentId)) continue;
+
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { page.Id };
+            var current = page.ParentId;
+            var hasCycle = false;
+
+            while (!string.IsNullOrWhiteSpace(current) && pageIdSet.Contains(current))
+            {
+                if (!visited.Add(current))
+                {
+                    hasCycle = true;
+                    break;
+                }
+                var parent = structure.Pages.FirstOrDefault(p => p.Id == current);
+                current = parent?.ParentId;
+            }
+
+            if (hasCycle)
+            {
+                _logger.LogWarning("层级修复：页面 {PageId} 存在循环引用（ParentId={ParentId}），已断开", page.Id, page.ParentId);
+                page.ParentId = null;
+            }
+        }
     }
 
     /// <summary>

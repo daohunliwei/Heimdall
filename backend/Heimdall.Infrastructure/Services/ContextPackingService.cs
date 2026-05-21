@@ -18,19 +18,19 @@ public sealed class ContextPackingService
     }
 
     /// <summary>
-    /// 计算给定 Provider/Model 组合下可用于内容的 Token 预算。
-    /// 公式：MaxContextTokens × FillRatio - SystemPromptTokens - OutputReserve
+    /// 计算给定 Provider/Model 组合下可用于内容的输入 Token 预算。
+    /// 公式：MaxContextTokens × FillRatio - SystemPromptTokens
+    /// 输入上下文与输出 max_tokens 独立计算，不再从输入预算中扣除输出预留。
     /// </summary>
-    public int CalculateAvailableBudget(string provider, string model, string? systemPrompt = null, int? outputReserve = null)
+    public int CalculateAvailableBudget(string provider, string model, string? systemPrompt = null)
     {
         var metadata = _configService.GetProviderModelMetadata(provider, model);
-        var fillRatio = _configService.GetContextFillRatio();
+        var fillRatio = _configService.GetContextFillRatio(provider, model);
 
         var totalBudget = (int)(metadata.MaxContextTokens * fillRatio);
         var systemTokens = TokenCounter.EstimateTokenCount(systemPrompt);
-        var reserve = outputReserve ?? metadata.MaxOutputTokens;
 
-        return Math.Max(0, totalBudget - systemTokens - reserve);
+        return Math.Max(0, totalBudget - systemTokens);
     }
 
     /// <summary>

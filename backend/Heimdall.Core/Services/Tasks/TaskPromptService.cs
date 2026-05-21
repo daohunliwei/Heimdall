@@ -35,13 +35,14 @@ public sealed class TaskPromptService
         return await promptManagement.ResolveTemplateAsync(slug, repositoryId, variables);
     }
     /// <summary>
-    /// 构建增强版结构规划提示词——集成 CodeUnderstandingResult 以实现深层嵌套结构。
+    /// 构建增强版结构规划提示词——集成 CodeUnderstandingResult 和仓库文档以实现深层嵌套结构。
     /// </summary>
     public string BuildWikiStructurePromptV7(
         string owner, string repo, string fileTree, string readme,
         string languageDisplayName, bool isComprehensiveView,
         CodeUnderstandingResult? codeUnderstanding,
-        string generationProfile = "comprehensive")
+        string generationProfile = "comprehensive",
+        string? repositoryDocsSection = null)
     {
         var codeInsightSection = "";
         if (codeUnderstanding != null)
@@ -105,6 +106,7 @@ public sealed class TaskPromptService
 <readme>
 {{readme}}
 </readme>
+{{repositoryDocsSection}}
 {{codeInsightSection}}
 
 目标语言：{{languageDisplayName}}
@@ -178,7 +180,8 @@ public sealed class TaskPromptService
         WikiPageDto page, IEnumerable<WikiPageDto> allPages,
         string repoOwner, string repoName, string repoType, string? repoUrl,
         string languageDisplayName, string fileContents,
-        string? previousPageContext = null)
+        string? previousPageContext = null,
+        string? repositoryDocsSection = null)
     {
         var relatedPagesContext = string.Join('\n',
             page.RelatedPages
@@ -210,6 +213,9 @@ public sealed class TaskPromptService
 
 ### 已生成页面上下文（跨页面一致性）
 {{(string.IsNullOrWhiteSpace(previousPageContext) ? "无" : previousPageContext)}}
+
+### 仓库文档参考
+{{(string.IsNullOrWhiteSpace(repositoryDocsSection) ? "无" : repositoryDocsSection)}}
 
 ### 真实源代码片段
 以下是从仓库中检索到的与当前主题最相关的真实代码。**你只能使用这些片段中的代码作为依据**：

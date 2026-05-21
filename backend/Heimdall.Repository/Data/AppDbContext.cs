@@ -10,6 +10,13 @@ public class AppDbContext : DbContext
     {
     }
 
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        // 抑制待定模型变更警告——数据库初始化时表结构可能通过其他方式补齐
+        optionsBuilder.ConfigureWarnings(w => w.Ignore(
+            Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+    }
+
     public DbSet<User> Users => Set<User>();
     public DbSet<Core.Entities.Repository> Repositories => Set<Core.Entities.Repository>();
     public DbSet<TaskRecord> Tasks => Set<TaskRecord>();
