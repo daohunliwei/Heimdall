@@ -131,9 +131,10 @@ public sealed class Bm25SearchService
         if (string.IsNullOrWhiteSpace(text)) return new List<string>();
 
         var tokens = new List<string>();
+        var lowerText = text.ToLowerInvariant();
 
         // 按空格/标点分割
-        var parts = Regex.Split(text.ToLowerInvariant(), @"[\s.,;:!?()\[\]{}<>""'`/\\|@#$%^&*+=~-]+");
+        var parts = Regex.Split(lowerText, @"[\s.,;:!?()\[\]{}<>""'`/\\|@#$%^&*+=~-]+");
         foreach (var part in parts)
         {
             if (part.Length >= 2)
@@ -153,6 +154,33 @@ public sealed class Bm25SearchService
             }
         }
         tokens.AddRange(camelTokens);
+
+        // V7: snake_case 变体展开：hello_world -> hello, world
+        foreach (var part in parts.Where(p => p.Contains('_')))
+        {
+            var snakeParts = part.Split('_', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var sp in snakeParts)
+            {
+                if (sp.Length >= 2)
+                    tokens.Add(sp);
+            }
+        }
+
+        // V7: 中文 bigram 索引
+        var chineseChars = Regex.Matches(lowerText, @"[\u4e00-\u9fff]");
+        if (chineseChars.Count >= 2)
+        {
+            var chars = chineseChars.Select(m => m.Value).ToList();
+            for (var i = 0; i < chars.Count - 1; i++)
+            {
+                tokens.Add(chars[i] + chars[i + 1]);
+            }
+            // 单字也加入（用于精确匹配）
+            foreach (var c in chars)
+            {
+                tokens.Add(c);
+            }
+        }
 
         return tokens.Distinct().ToList();
     }

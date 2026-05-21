@@ -29,6 +29,7 @@ public class AppDbContext : DbContext
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<CodeIndexEntry> CodeIndexEntries => Set<CodeIndexEntry>();
     public DbSet<CodeIndexChunk> CodeIndexChunks => Set<CodeIndexChunk>();
+    public DbSet<LlmCallMetric> LlmCallMetrics => Set<LlmCallMetric>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,5 +51,6 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new SystemSettingConfiguration());
         modelBuilder.ApplyConfiguration(new CodeIndexEntryConfiguration());
         modelBuilder.ApplyConfiguration(new CodeIndexChunkConfiguration());
+        modelBuilder.ApplyConfiguration(new LlmCallMetricConfiguration());
     }
 }

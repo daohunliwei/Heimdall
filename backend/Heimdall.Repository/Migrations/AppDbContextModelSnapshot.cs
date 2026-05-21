@@ -108,6 +108,183 @@ namespace Heimdall.Repository.Migrations
                     b.ToTable("code_embedding_chunks", (string)null);
                 });
 
+            modelBuilder.Entity("Heimdall.Core.Entities.CodeIndexChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CodeIndexEntryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<byte[]>("Embedding")
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("EndLine")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("StartLine")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeIndexEntryId");
+
+                    b.ToTable("code_index_chunks", (string)null);
+                });
+
+            modelBuilder.Entity("Heimdall.Core.Entities.CodeIndexEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CallGraphJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DependencyEdgesJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DependencyHintsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("dependency_hints");
+
+                    b.Property<string>("DesignPatternHints")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExportedSymbolsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("exported_symbols");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("FileType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("ImportanceScore")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ModuleName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("RepositoryVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ModuleName");
+
+                    b.HasIndex("RepositoryVersionId");
+
+                    b.HasIndex("RepositoryVersionId", "FilePath")
+                        .IsUnique();
+
+                    b.ToTable("code_index_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Heimdall.Core.Entities.LlmCallMetric", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CacheHitTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("InputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<bool>("IsEstimated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<int>("LatencyMs")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("OutputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Stage")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("Success")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("idx_llm_call_metrics_created");
+
+                    b.HasIndex("TaskId")
+                        .HasDatabaseName("idx_llm_call_metrics_task");
+
+                    b.HasIndex("Provider", "Model")
+                        .HasDatabaseName("idx_llm_call_metrics_provider_model");
+
+                    b.ToTable("llm_call_metrics", (string)null);
+                });
+
             modelBuilder.Entity("Heimdall.Core.Entities.PromptTemplate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1200,6 +1377,39 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("RepositoryVersion");
                 });
 
+            modelBuilder.Entity("Heimdall.Core.Entities.CodeIndexChunk", b =>
+                {
+                    b.HasOne("Heimdall.Core.Entities.CodeIndexEntry", "CodeIndexEntry")
+                        .WithMany("Chunks")
+                        .HasForeignKey("CodeIndexEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CodeIndexEntry");
+                });
+
+            modelBuilder.Entity("Heimdall.Core.Entities.CodeIndexEntry", b =>
+                {
+                    b.HasOne("Heimdall.Core.Entities.RepositoryVersion", "RepositoryVersion")
+                        .WithMany()
+                        .HasForeignKey("RepositoryVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("RepositoryVersion");
+                });
+
+            modelBuilder.Entity("Heimdall.Core.Entities.LlmCallMetric", b =>
+                {
+                    b.HasOne("Heimdall.Core.Entities.TaskRecord", "Task")
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Task");
+                });
+
             modelBuilder.Entity("Heimdall.Core.Entities.PromptTemplateHistory", b =>
                 {
                     b.HasOne("Heimdall.Core.Entities.PromptTemplate", "PromptTemplate")
@@ -1394,6 +1604,11 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("RepositoryVersion");
 
                     b.Navigation("WikiSpace");
+                });
+
+            modelBuilder.Entity("Heimdall.Core.Entities.CodeIndexEntry", b =>
+                {
+                    b.Navigation("Chunks");
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.PromptTemplate", b =>

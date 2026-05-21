@@ -34,16 +34,62 @@ public sealed class TaskPromptService
         var promptManagement = scope.ServiceProvider.GetRequiredService<PromptManagementService>();
         return await promptManagement.ResolveTemplateAsync(slug, repositoryId, variables);
     }
-    public string BuildWikiStructurePrompt(
+    /// <summary>
+    /// 构建增强版结构规划提示词——集成 CodeUnderstandingResult 以实现深层嵌套结构。
+    /// </summary>
+    public string BuildWikiStructurePromptV7(
         string owner, string repo, string fileTree, string readme,
         string languageDisplayName, bool isComprehensiveView,
+        CodeUnderstandingResult? codeUnderstanding,
         string generationProfile = "comprehensive")
     {
+        var codeInsightSection = "";
+        if (codeUnderstanding != null)
+        {
+            var modules = string.Join("\n", codeUnderstanding.DependencyTopology.Modules.Take(20)
+                .Select(m => $"- {m.Name} ({m.ModuleType}, {m.FileCount} files)"));
+
+            var deps = string.Join("\n", codeUnderstanding.DependencyTopology.Edges.Take(20)
+                .Select(e => $"- {e.FromModule} → {e.ToModule}"));
+
+            var patterns = string.Join("\n", codeUnderstanding.DesignPatterns.Take(10)
+                .Select(p => $"- {p.PatternName} ({p.Confidence:P0}): {string.Join(", ", p.Participants.Select(pp => pp.SymbolName))}"));
+
+            var archInsight = codeUnderstanding.ArchitectureInsight;
+            var archSection = !string.IsNullOrEmpty(archInsight.ArchitecturePattern)
+                ? $"架构模式：{archInsight.ArchitecturePattern}\n描述：{archInsight.PatternDescription}"
+                : "";
+
+            var layers = string.Join("\n", archInsight.Layers.Select(l =>
+                $"- {l.Name}: {l.Responsibility}"));
+
+            codeInsightSection = $"""
+
+            DEEP CODE UNDERSTANDING RESULTS (from automated analysis):
+
+            Architecture Pattern: {archSection}
+
+            Module Dependencies:
+            {modules}
+
+            Key Dependency Edges:
+            {deps}
+
+            Detected Design Patterns:
+            {patterns}
+
+            Architecture Layers:
+            {layers}
+
+            Call Graph Summary: {codeUnderstanding.CallGraph.NodeCount} methods, {codeUnderstanding.CallGraph.Edges.Count} call edges, max depth {codeUnderstanding.CallGraph.MaxDepth}
+            """;
+        }
+
         return $$"""
-You are an expert software architect and technical documentation specialist. Your task is to analyze this repository and create a logical, comprehensive wiki structure.
+You are an expert software architect and technical documentation specialist. Your task is to create a DEEPLY STRUCTURED, multi-layered wiki for this repository.
 
 STEP 1: REPOSITORY ANALYSIS
-Analyze this {{owner}}/{{repo}} repository to understand its architecture, purpose, and key components:
+Analyze this {{owner}}/{{repo}} repository:
 
 1. Complete file tree:
 <file_tree>
@@ -54,105 +100,58 @@ Analyze this {{owner}}/{{repo}} repository to understand its architecture, purpo
 <readme>
 {{readme}}
 </readme>
+{{codeInsightSection}}
 
-STEP 2: ARCHITECTURAL UNDERSTANDING
-Based on the file structure and README, identify:
+STEP 2: DEEP WIKI STRUCTURE DESIGN
 
-1. **Project Type & Architecture**:
-   - Is this a web application, library, CLI tool, mobile app, etc.?
-   - What's the primary technology stack (React, Python, Java, etc.)?
-   - What architectural patterns are used (MVC, microservices, monolith, etc.)?
+CRITICAL: You must create a MULTI-LAYERED wiki with NESTED SECTIONS AND PAGES.
+Target: {{(isComprehensiveView ? "50+ pages" : "20+ pages")}} organized in a 3-4 level deep hierarchy.
 
-2. **Core System Components**:
-   - Main application entry points
-   - Key modules/packages and their responsibilities
-   - Data layer (databases, APIs, storage)
-   - User interface components (if applicable)
-   - Configuration and deployment files
-   - Testing and build infrastructure
+Structure Requirements:
+- Level 0: Root overview page (1 page)
+- Level 1: Major sections (5-8 sections, each with overview page)
+- Level 2: Sub-sections per major section (3-5 per section)
+- Level 3: Detailed implementation pages (2-4 per sub-section)
 
-3. **Key Relationships & Dependencies**:
-   - How do different modules interact?
-   - What are the main data flows?
-   - What external dependencies exist?
+Each page MUST have:
+- `depth`: 0-3 indicating its level in the hierarchy
+- `contentDepthLevel`: "overview" | "module" | "component" | "implementation"
+- `parentId`: reference to parent page (null for root)
 
-4. **Development & Deployment Workflow**:
-   - How is the project built and deployed?
-   - What development tools are used?
-   - How is testing structured?
+Content Depth Mapping:
+- depth=0 → contentDepthLevel="overview" (高层架构概述)
+- depth=1 → contentDepthLevel="module" (模块级介绍)
+- depth=2 → contentDepthLevel="component" (组件级详解)
+- depth=3 → contentDepthLevel="implementation" (实现细节)
 
-STEP 3: WIKI STRUCTURE DESIGN
-Create a wiki structure that provides deep technical insight rather than surface-level descriptions. Focus on:
-
-- **System Architecture**: Deep dive into how components interact
-- **Implementation Details**: Key algorithms, data structures, and design patterns
-- **Integration Points**: APIs, databases, external services
-- **Development Workflow**: Setup, testing, deployment processes
-- **Extensibility**: How to extend or modify the system
-
-I want to create a wiki for this repository. Determine the most logical structure for a wiki based on the repository's content and architectural analysis.
-
-IMPORTANT: The wiki content will be generated in {{languageDisplayName}} language.
-
-When designing the wiki structure, include pages that would benefit from visual diagrams, such as:
-- Architecture overviews
-- Data flow descriptions
-- Component relationships
-- Process workflows
-- State machines
-- Class hierarchies
-
-STEP 4: INTELLIGENT FILE MAPPING
-For each page you create, you MUST identify the most relevant source files by analyzing:
-
-1. **File Purpose Analysis**: Look at file names, extensions, and directory structure to understand what each file does
-2. **Dependency Relationships**: Identify which files import/require others
-3. **Functional Grouping**: Group files that work together to implement specific features
-4. **Entry Points**: Identify main files, configuration files, and key implementation files
-
-CRITICAL REQUIREMENTS for relevant_files:
-- Each page MUST have AT LEAST 8-10 relevant source files
-- Files should be directly related to the page topic, not just randomly selected
-- Include a mix of: main implementation files, configuration files, and supporting modules
-- Prioritize files that contain the core logic for the page's topic
-- Avoid including only test files or documentation files unless the page is specifically about testing/docs
-
-Examples of good file selection:
-- For "Authentication System" page: auth.js, login.component.tsx, auth.config.js, user.model.js, auth.middleware.js
-- For "Database Layer" page: database.js, models/*, migrations/*, db.config.js, schema.sql
-- For "API Endpoints" page: routes/*, controllers/*, middleware/*, api.config.js, swagger.yaml
+STEP 3: FILE MAPPING
+For each page, map relevant source files:
+- depth=0 pages: 3-5 key entry point files
+- depth=1 pages: 5-8 module-level files
+- depth=2 pages: 8-12 component files
+- depth=3 pages: 10-15 implementation files (maximum detail)
 
 {{GetWikiStructureFormatInstructions(isComprehensiveView)}}
 
-IMPORTANT FORMATTING INSTRUCTIONS:
+IMPORTANT: The wiki content will be generated in {{languageDisplayName}} language.
+
+CRITICAL FORMATTING:
 - Return ONLY the valid JSON object specified above
-- DO NOT wrap the JSON in markdown code blocks
-- DO NOT include any explanation text before or after the JSON
+- DO NOT wrap in markdown code blocks
 - Start directly with { and end with }
-- All arrays must contain only string IDs or objects matching the schema
-- `parentId` MUST reference another page id or be null; do not use section id in `parentId`
+- `parentId` MUST reference another page id or be null
+- Every non-root page MUST have a valid parentId
+- `sections` should form a tree structure via `children` (recursive WikiSectionDto)
+- Each section's `pages` array contains page ids that belong to that section
 
-CRITICAL REQUIREMENTS:
-1. Create {{(isComprehensiveView ? "8-12" : "4-6")}} pages that provide DEEP TECHNICAL INSIGHT into this repository
-2. Each page should focus on a specific aspect with COMPREHENSIVE ANALYSIS (not surface-level descriptions)
-3. The relevant_files MUST be carefully selected actual files that contain the core implementation for each page topic
-4. Ensure MINIMAL OVERLAP between pages - each should cover distinct aspects of the system
-5. Page descriptions should be SPECIFIC and TECHNICAL, indicating what implementation details will be covered
-6. Prioritize pages that will include:
-   - Detailed code analysis and architectural patterns
-   - System integration points and data flows
-   - Performance considerations and optimizations
-   - Extensibility mechanisms and design decisions
-7. Return ONLY valid JSON with the structure specified above, with no markdown code block delimiters
-8. `sections.pages` should contain page ids already defined in `pages`
-9. Prefer `pageType=overview` for repository-level entry pages, `section` for topic landing pages, `article` for deep technical pages
-10. Provide at least 1-3 `relatedPages` for each page whenever there is a meaningful cross-reference
-
-QUALITY CHECKLIST before generating JSON:
-- Does each page have a clear, non-overlapping technical focus?
-- Are the relevant_files directly related to the page's core functionality?
-- Will this page structure enable deep technical documentation rather than superficial overviews?
-- Are the page descriptions specific enough to guide comprehensive content generation?
+QUALITY REQUIREMENTS:
+1. MINIMUM {{(isComprehensiveView ? "50" : "20")}} pages total
+2. Every page must have a clear parentId establishing hierarchy
+3. Mix of pageTypes: overview (root), section (level 1-2), article (level 2-3)
+4. Each page description must be SPECIFIC and TECHNICAL
+5. Include pages for: architecture, modules, APIs, data models, workflows, configuration, testing, deployment
+6. Provide `relatedPages` cross-references between related topics
+7. Use `searchKeywords` for each page to enable retrieval-augmented generation
 """;
     }
 
@@ -183,6 +182,9 @@ QUALITY CHECKLIST before generating JSON:
         var fileLinks = string.Join('\n', page.FilePaths.Select(path =>
             $"- [{path}]({BuildRepositoryFileUrl(repoType, repoUrl, repoOwner, repoName, path)})"));
 
+        // 根据 ContentDepthLevel 构建差异化深度要求
+        var depthGuidance = GetDepthGuidance(page.ContentDepthLevel);
+
         return $$"""
 You are an expert technical writer and software architect.
 Your task is to generate a comprehensive and accurate technical wiki page in Markdown format about a specific feature, system, or module within a given software project.
@@ -194,6 +196,9 @@ CONTEXT AWARENESS: This wiki has multiple pages. You are generating content for 
 ## [WIKI_PAGE_TOPIC]
 Title: {{page.Title}}
 Description: {{page.Description}}
+
+## [CONTENT_DEPTH_INSTRUCTIONS]
+{{depthGuidance}}
 
 ## [RELEVANT_SOURCE_FILES]
 The following are the ACTUAL source file contents from the repository. You MUST use these as the sole basis for your analysis. Do NOT invent or infer anything not present in these files.
@@ -248,6 +253,35 @@ Markdown 正文写作要求：
 6. 如果信息不足，需在 Markdown 中明确说明“当前源文件未提供足够证据”。
 7. 所有内容必须使用 {{languageDisplayName}}。
 """;
+    }
+
+    /// <summary>
+    /// 根据页面深度级别返回差异化的内容深度要求。
+    /// </summary>
+    private static string GetDepthGuidance(string? contentDepthLevel)
+    {
+        return (contentDepthLevel?.ToLowerInvariant()) switch
+        {
+            "overview" =>
+                "This is an OVERVIEW page. " +
+                "Provide a high-level architectural view. Focus on purpose, key components, and relationships. " +
+                "Include a Mermaid architecture/flow diagram. Summarize each child topic in 2-3 sentences. " +
+                "Aim for 800-1200 words. Breadth over depth. DO NOT dive into implementation details.",
+            "section" =>
+                "This is a SECTION page. " +
+                "Cover key classes/modules, their responsibilities, and interactions with moderate detail. " +
+                "Include at least one Mermaid sequence/class diagram and a table of key interfaces or config. " +
+                "Reference specific files and code patterns. Aim for 1200-2000 words. Balance breadth and depth.",
+            "article" =>
+                "This is an ARTICLE page (deepest level). " +
+                "Provide full implementation-level detail. Include actual code snippets from source files. " +
+                "Document function signatures, parameters, return values, and error handling. " +
+                "Explain algorithms, data flows, and edge cases. Include Mermaid diagrams for complex flows. " +
+                "Aim for 2000-3000+ words. Maximum depth and precision. Every claim must cite file evidence.",
+            _ =>
+                "Provide comprehensive coverage appropriate for this page's role in the wiki. " +
+                "Include code references, diagrams where helpful, and sufficient detail for developers."
+        };
     }
 
     public string BuildSlidesPlanPrompt(string owner, string repo, string wikiContent, string languageDisplayName)
@@ -534,7 +568,9 @@ Return your analysis in the following JSON format:
       "id": "section-1",
       "title": "[Section title]",
       "pages": ["page-1"],
-      "subsections": ["section-2"]
+      "subsections": ["section-2"],
+      "children": [],
+      "depth": 0
     }
   ],
   "pages": [
@@ -545,7 +581,11 @@ Return your analysis in the following JSON format:
       "navTitle": "[Short nav title]",
       "pageType": "overview|section|article|appendix",
       "importance": "high|medium|low",
+      "depth": 0,
+      "contentDepthLevel": "overview|module|component|implementation",
       "filePaths": ["[Path to a relevant file]"],
+      "searchKeywords": ["keyword1", "keyword2"],
+      "keyFilePaths": ["[Must-include file path]"],
       "relatedPages": ["page-2"],
       "prerequisitePages": ["page-0"],
       "parentId": null
@@ -568,7 +608,10 @@ Return your analysis in the following JSON format:
       "navTitle": "[Short nav title]",
       "pageType": "overview|section|article|appendix",
       "importance": "high|medium|low",
+      "depth": 0,
+      "contentDepthLevel": "overview|module|component|implementation",
       "filePaths": ["[Path to a relevant file]"],
+      "searchKeywords": ["keyword1", "keyword2"],
       "relatedPages": ["page-2"],
       "prerequisitePages": ["page-0"],
       "parentId": null
