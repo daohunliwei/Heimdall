@@ -49,7 +49,7 @@ public sealed class HybridSearchService : IHybridSearchService
         _bm25.BuildIndex(indexKey, documents);
         _searchCache.Clear();
 
-        // V7: 标记向量索引尚不可用（嵌入需异步完成后才可用）
+        // 标记向量索引尚不可用（嵌入需异步完成后才可用）
         _vectorAvailable[indexKey] = false;
 
         _logger.LogInformation("混合检索引擎索引构建完成：{Key}, {Count} 文档", indexKey, documents.Count);
@@ -57,7 +57,7 @@ public sealed class HybridSearchService : IHybridSearchService
     }
 
     /// <summary>
-    /// V7: 标记向量索引已可用（嵌入完成后调用）。
+    /// 标记向量索引已可用（嵌入完成后调用）。
     /// </summary>
     public void MarkVectorIndexAvailable(string indexKey)
     {
@@ -66,7 +66,7 @@ public sealed class HybridSearchService : IHybridSearchService
     }
 
     /// <summary>
-    /// V7: 注册向量搜索结果（供 RRF 融合使用）。
+    /// 注册向量搜索结果（供 RRF 融合使用）。
     /// 实际生产环境应直接查询 pgvector，此处为集成接口。
     /// </summary>
     public void RegisterVectorResults(string indexKey, string query, List<VectorSearchResult> results)
@@ -95,7 +95,7 @@ public sealed class HybridSearchService : IHybridSearchService
         var bm25Results = _bm25.Search(indexKey, query, topK * 2);
         _logger.LogDebug("BM25 命中 {Count} 条：{Query}", bm25Results.Count, query);
 
-        // V7: 向量搜索（如果可用）
+        // 向量搜索（如果可用）
         List<VectorSearchResult>? vectorResults = null;
         if (_vectorAvailable.TryGetValue(indexKey, out var available) && available)
         {
@@ -144,7 +144,7 @@ public sealed class HybridSearchService : IHybridSearchService
     // ── RRF 融合算法 ──
 
     /// <summary>
-    /// V7: RRF (Reciprocal Rank Fusion) 算法融合 BM25 + 向量搜索结果。
+    /// RRF (Reciprocal Rank Fusion) 算法融合 BM25 + 向量搜索结果。
     /// score = sum(1/(K + rank_i))，K = 60
     /// </summary>
     private List<HybridSearchResult> MergeResultsWithRrf(
@@ -183,7 +183,7 @@ public sealed class HybridSearchService : IHybridSearchService
             }
         }
 
-        // V7: 向量结果 RRF 评分
+        // 向量结果 RRF 评分
         if (vectorResults is { Count: > 0 })
         {
             for (var i = 0; i < vectorResults.Count; i++)
@@ -251,7 +251,7 @@ public sealed class HybridSearchService : IHybridSearchService
 }
 
 /// <summary>
-/// V7: 向量搜索结果。
+/// 向量搜索结果。
 /// </summary>
 public class VectorSearchResult
 {

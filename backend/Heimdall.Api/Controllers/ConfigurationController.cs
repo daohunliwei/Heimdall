@@ -32,7 +32,6 @@ public class ConfigurationController : ControllerBase
     {
         var config = _configService.GetGeneratorConfig();
         var fillRatio = _configService.GetContextFillRatio();
-        var pipelineVersion = _configService.GetWikiPipelineVersion();
 
         var result = new Dictionary<string, object>();
         foreach (var (providerKey, providerDef) in config.Providers)
@@ -52,7 +51,6 @@ public class ConfigurationController : ControllerBase
 
         return Ok(new
         {
-            pipelineVersion,
             contextFillRatio = fillRatio,
             providers = result
         });

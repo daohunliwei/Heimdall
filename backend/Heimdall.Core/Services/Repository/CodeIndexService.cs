@@ -13,7 +13,7 @@ public sealed partial class CodeIndexService
 {
     private readonly ILogger<CodeIndexService> _logger;
 
-    // V7: 优先按函数/类边界分块时最大行数（120 行）
+    // 优先按函数/类边界分块时最大行数
     private const int ChunkMaxLinesWithBoundary = 120;
     // 无边界时回退最大行数
     private const int ChunkMaxLines = 80;
@@ -114,7 +114,7 @@ public sealed partial class CodeIndexService
         for (var i = 0; i < boundaries.Count; i++)
         {
             var start = boundaries[i];
-            // V7: 如果有明确的下一个边界，允许最多 120 行；否则回退 80 行
+            // 如果有明确的下一个边界，允许最多 120 行；否则回退 80 行
             var hasNextBoundary = i + 1 < boundaries.Count;
             var maxLines = hasNextBoundary ? ChunkMaxLinesWithBoundary : ChunkMaxLines;
             var end = Math.Min(start + maxLines - 1, lines.Length);
@@ -343,9 +343,6 @@ public sealed partial class CodeIndexService
         if (paths.Any(p => p.EndsWith(".go"))) parts.Add("Go");
         return parts.Count > 0 ? string.Join("/", parts) : "未知";
     }
-
-    public static int CalculateRecommendedPageCount(int moduleCount, int entryPointCount)
-        => Math.Max(4, Math.Min(60, moduleCount * 2 + entryPointCount));
 }
 
 /// <summary>

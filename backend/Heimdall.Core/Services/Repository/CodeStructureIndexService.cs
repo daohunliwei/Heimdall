@@ -127,17 +127,9 @@ public sealed class CodeStructureIndexService
     }
 
     /// <summary>
-    /// 计算推荐页面数量：max(8, min(60, moduleCount*2 + entryPointCount))
+    /// 计算推荐页面数量——综合模块数、入口点、设计模式数量和调用图深度。范围 15-80 页。
     /// </summary>
-    public static int CalculateRecommendedPageCount(int moduleCount, int entryPointCount)
-    {
-        return Math.Max(8, Math.Min(60, moduleCount * 2 + entryPointCount));
-    }
-
-    /// <summary>
-    /// V7: 增强页面数量计算——综合模块数、入口点、设计模式和调用图深度。
-    /// </summary>
-    public static int CalculateRecommendedPageCountV7(
+    public static int CalculateRecommendedPageCount(
         int moduleCount, int entryPointCount, int patternCount, int callGraphDepth)
     {
         var rawCount = moduleCount * 3 + entryPointCount * 2 + patternCount * 2 + callGraphDepth * 3;
@@ -145,7 +137,7 @@ public sealed class CodeStructureIndexService
     }
 
     /// <summary>
-    /// V7: 根据文件数量计算最大层深。
+    /// 根据文件数量计算最大层深。
     /// files &lt; 50 → 2 层；50-200 → 3 层；200-500 → 4 层；&gt; 500 → 5 层。
     /// </summary>
     public static int CalculateMaxDepth(int totalFileCount)

@@ -34,130 +34,8 @@ public sealed class TaskPromptService
         var promptManagement = scope.ServiceProvider.GetRequiredService<PromptManagementService>();
         return await promptManagement.ResolveTemplateAsync(slug, repositoryId, variables);
     }
-    public string BuildWikiStructurePrompt(
-        string owner, string repo, string fileTree, string readme,
-        string languageDisplayName, bool isComprehensiveView,
-        string generationProfile = "comprehensive")
-    {
-        return $$"""
-You are an expert software architect and technical documentation specialist. Your task is to analyze this repository and create a logical, comprehensive wiki structure.
-
-STEP 1: REPOSITORY ANALYSIS
-Analyze this {{owner}}/{{repo}} repository to understand its architecture, purpose, and key components:
-
-1. Complete file tree:
-<file_tree>
-{{fileTree}}
-</file_tree>
-
-2. README content:
-<readme>
-{{readme}}
-</readme>
-
-STEP 2: ARCHITECTURAL UNDERSTANDING
-Based on the file structure and README, identify:
-
-1. **Project Type & Architecture**:
-   - Is this a web application, library, CLI tool, mobile app, etc.?
-   - What's the primary technology stack (React, Python, Java, etc.)?
-   - What architectural patterns are used (MVC, microservices, monolith, etc.)?
-
-2. **Core System Components**:
-   - Main application entry points
-   - Key modules/packages and their responsibilities
-   - Data layer (databases, APIs, storage)
-   - User interface components (if applicable)
-   - Configuration and deployment files
-   - Testing and build infrastructure
-
-3. **Key Relationships & Dependencies**:
-   - How do different modules interact?
-   - What are the main data flows?
-   - What external dependencies exist?
-
-4. **Development & Deployment Workflow**:
-   - How is the project built and deployed?
-   - What development tools are used?
-   - How is testing structured?
-
-STEP 3: WIKI STRUCTURE DESIGN
-Create a wiki structure that provides deep technical insight rather than surface-level descriptions. Focus on:
-
-- **System Architecture**: Deep dive into how components interact
-- **Implementation Details**: Key algorithms, data structures, and design patterns
-- **Integration Points**: APIs, databases, external services
-- **Development Workflow**: Setup, testing, deployment processes
-- **Extensibility**: How to extend or modify the system
-
-I want to create a wiki for this repository. Determine the most logical structure for a wiki based on the repository's content and architectural analysis.
-
-IMPORTANT: The wiki content will be generated in {{languageDisplayName}} language.
-
-When designing the wiki structure, include pages that would benefit from visual diagrams, such as:
-- Architecture overviews
-- Data flow descriptions
-- Component relationships
-- Process workflows
-- State machines
-- Class hierarchies
-
-STEP 4: INTELLIGENT FILE MAPPING
-For each page you create, you MUST identify the most relevant source files by analyzing:
-
-1. **File Purpose Analysis**: Look at file names, extensions, and directory structure to understand what each file does
-2. **Dependency Relationships**: Identify which files import/require others
-3. **Functional Grouping**: Group files that work together to implement specific features
-4. **Entry Points**: Identify main files, configuration files, and key implementation files
-
-CRITICAL REQUIREMENTS for relevant_files:
-- Each page MUST have AT LEAST 8-10 relevant source files
-- Files should be directly related to the page topic, not just randomly selected
-- Include a mix of: main implementation files, configuration files, and supporting modules
-- Prioritize files that contain the core logic for the page's topic
-- Avoid including only test files or documentation files unless the page is specifically about testing/docs
-
-Examples of good file selection:
-- For "Authentication System" page: auth.js, login.component.tsx, auth.config.js, user.model.js, auth.middleware.js
-- For "Database Layer" page: database.js, models/*, migrations/*, db.config.js, schema.sql
-- For "API Endpoints" page: routes/*, controllers/*, middleware/*, api.config.js, swagger.yaml
-
-{{GetWikiStructureFormatInstructions(isComprehensiveView)}}
-
-IMPORTANT FORMATTING INSTRUCTIONS:
-- Return ONLY the valid JSON object specified above
-- DO NOT wrap the JSON in markdown code blocks
-- DO NOT include any explanation text before or after the JSON
-- Start directly with { and end with }
-- All arrays must contain only string IDs or objects matching the schema
-- `parentId` MUST reference another page id or be null; do not use section id in `parentId`
-
-CRITICAL REQUIREMENTS:
-1. Create {{(isComprehensiveView ? "8-12" : "4-6")}} pages that provide DEEP TECHNICAL INSIGHT into this repository
-2. Each page should focus on a specific aspect with COMPREHENSIVE ANALYSIS (not surface-level descriptions)
-3. The relevant_files MUST be carefully selected actual files that contain the core implementation for each page topic
-4. Ensure MINIMAL OVERLAP between pages - each should cover distinct aspects of the system
-5. Page descriptions should be SPECIFIC and TECHNICAL, indicating what implementation details will be covered
-6. Prioritize pages that will include:
-   - Detailed code analysis and architectural patterns
-   - System integration points and data flows
-   - Performance considerations and optimizations
-   - Extensibility mechanisms and design decisions
-7. Return ONLY valid JSON with the structure specified above, with no markdown code block delimiters
-8. `sections.pages` should contain page ids already defined in `pages`
-9. Prefer `pageType=overview` for repository-level entry pages, `section` for topic landing pages, `article` for deep technical pages
-10. Provide at least 1-3 `relatedPages` for each page whenever there is a meaningful cross-reference
-
-QUALITY CHECKLIST before generating JSON:
-- Does each page have a clear, non-overlapping technical focus?
-- Are the relevant_files directly related to the page's core functionality?
-- Will this page structure enable deep technical documentation rather than superficial overviews?
-- Are the page descriptions specific enough to guide comprehensive content generation?
-""";
-    }
-
     /// <summary>
-    /// V7: 构建增强版结构规划提示词——集成 CodeUnderstandingResult 以实现深层嵌套结构。
+    /// 构建增强版结构规划提示词——集成 CodeUnderstandingResult 以实现深层嵌套结构。
     /// </summary>
     public string BuildWikiStructurePromptV7(
         string owner, string repo, string fileTree, string readme,
@@ -304,7 +182,7 @@ QUALITY REQUIREMENTS:
         var fileLinks = string.Join('\n', page.FilePaths.Select(path =>
             $"- [{path}]({BuildRepositoryFileUrl(repoType, repoUrl, repoOwner, repoName, path)})"));
 
-        // V7: 根据 ContentDepthLevel 构建差异化深度要求
+        // 根据 ContentDepthLevel 构建差异化深度要求
         var depthGuidance = GetDepthGuidance(page.ContentDepthLevel);
 
         return $$"""
@@ -378,7 +256,7 @@ Markdown 正文写作要求：
     }
 
     /// <summary>
-    /// V7: 根据页面深度级别返回差异化的内容深度要求。
+    /// 根据页面深度级别返回差异化的内容深度要求。
     /// </summary>
     private static string GetDepthGuidance(string? contentDepthLevel)
     {
