@@ -10,6 +10,13 @@ public class AppDbContext : DbContext
     {
     }
 
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        // 抑制待定模型变更警告——数据库初始化时表结构可能通过其他方式补齐
+        optionsBuilder.ConfigureWarnings(w => w.Ignore(
+            Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+    }
+
     public DbSet<User> Users => Set<User>();
     public DbSet<Core.Entities.Repository> Repositories => Set<Core.Entities.Repository>();
     public DbSet<TaskRecord> Tasks => Set<TaskRecord>();
@@ -21,8 +28,7 @@ public class AppDbContext : DbContext
     public DbSet<WikiSpace> WikiSpaces => Set<WikiSpace>();
     public DbSet<WikiVersion> WikiVersions => Set<WikiVersion>();
     public DbSet<WikiPageRelation> WikiPageRelations => Set<WikiPageRelation>();
-    public DbSet<CodeEmbeddingChunk> CodeEmbeddingChunks => Set<CodeEmbeddingChunk>();
-    public DbSet<WikiEmbeddingChunk> WikiEmbeddingChunks => Set<WikiEmbeddingChunk>();
+    // V8: code_embedding_chunks / wiki_embedding_chunks 已移除——BM25 检索不再依赖预计算向量
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<RepositoryPromptOverride> RepositoryPromptOverrides => Set<RepositoryPromptOverride>();
     public DbSet<PromptTemplateHistory> PromptTemplateHistories => Set<PromptTemplateHistory>();
@@ -30,6 +36,7 @@ public class AppDbContext : DbContext
     public DbSet<CodeIndexEntry> CodeIndexEntries => Set<CodeIndexEntry>();
     public DbSet<CodeIndexChunk> CodeIndexChunks => Set<CodeIndexChunk>();
     public DbSet<LlmCallMetric> LlmCallMetrics => Set<LlmCallMetric>();
+    public DbSet<ProviderModelMetadataEntity> ProviderModelMetadata => Set<ProviderModelMetadataEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,8 +50,7 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new WikiSpaceConfiguration());
         modelBuilder.ApplyConfiguration(new WikiVersionConfiguration());
         modelBuilder.ApplyConfiguration(new WikiPageRelationConfiguration());
-        modelBuilder.ApplyConfiguration(new CodeEmbeddingChunkConfiguration());
-        modelBuilder.ApplyConfiguration(new WikiEmbeddingChunkConfiguration());
+        // code_embedding_chunks / wiki_embedding_chunks 配置已移除
         modelBuilder.ApplyConfiguration(new PromptTemplateConfiguration());
         modelBuilder.ApplyConfiguration(new RepositoryPromptOverrideConfiguration());
         modelBuilder.ApplyConfiguration(new PromptTemplateHistoryConfiguration());
@@ -52,5 +58,6 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfiguration(new CodeIndexEntryConfiguration());
         modelBuilder.ApplyConfiguration(new CodeIndexChunkConfiguration());
         modelBuilder.ApplyConfiguration(new LlmCallMetricConfiguration());
+        modelBuilder.ApplyConfiguration(new ProviderModelMetadataConfiguration());
     }
 }

@@ -5,7 +5,6 @@ using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
 using Heimdall.Core.Interfaces.Services;
-using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Services.Search;
 using Heimdall.Infrastructure.Models;
@@ -159,7 +158,7 @@ public sealed class WikiTaskService
         var requestId = Guid.NewGuid().ToString("N");
         var totalStopwatch = Stopwatch.StartNew();
 
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(100));
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             timeoutCts.Token, _appLifetime.ApplicationStopping, ct);
         var execToken = linkedCts.Token;
@@ -171,8 +170,6 @@ public sealed class WikiTaskService
             var taskRepo = execScope.ServiceProvider.GetRequiredService<ITaskRepository>();
             var artifactRepo = execScope.ServiceProvider.GetRequiredService<ITaskArtifactRepository>();
             var executionRepo = execScope.ServiceProvider.GetRequiredService<IWikiTaskExecutionRepository>();
-            var codeEmbedService = execScope.ServiceProvider.GetRequiredService<ICodeEmbeddingService>();
-            var wikiEmbedService = execScope.ServiceProvider.GetRequiredService<IWikiEmbeddingService>();
             var executingTask = await taskRepo.GetByIdAsync(task.Id)
                 ?? throw new InvalidOperationException($"任务不存在：{task.Id}");
             var effectiveProvider = string.IsNullOrWhiteSpace(provider) ? "ollama" : provider;
@@ -204,6 +201,14 @@ public sealed class WikiTaskService
 
             _logger.LogInformation("仓库准备完成 TaskId={TaskId} Files={Count} Path={Path}", task.Id, fileCount, repoPath);
             _structuredLogger.LogTaskProgress(task.Id, "仓库准备", null, null, $"共 {fileCount} 个文件");
+
+            // ── 仓库文档收集 ──
+            var repositoryDocs = CollectRepositoryDocuments(repoPath);
+            if (repositoryDocs.Count > 0)
+            {
+                _logger.LogInformation("仓库文档收集完成 TaskId={TaskId} DocCount={Count}", task.Id, repositoryDocs.Count);
+                _structuredLogger.LogTaskProgress(task.Id, "文档收集", null, null, $"已收集 {repositoryDocs.Count} 个仓库文档");
+            }
 
             var langDisplay = language == "zh" ? "中文" : "English";
 
@@ -335,9 +340,11 @@ public sealed class WikiTaskService
             }
             else
             {
+                var repositoryDocsSection = BuildRepositoryDocsSection(repositoryDocs);
                 var structurePrompt = _taskPrompt.BuildWikiStructurePromptV7(
                     execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
-                    langDisplay, comprehensive, codeUnderstanding, generationProfile);
+                    langDisplay, comprehensive, codeUnderstanding, generationProfile,
+                    repositoryDocsSection);
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -357,7 +364,14 @@ public sealed class WikiTaskService
                 {
                     structureAttemptCount++;
                     var structureSw = Stopwatch.StartNew();
-                    structureRawResponse = await _taskLlm.GenerateTextAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
+                    var structureResponse = await _taskLlm.GenerateWithMetricsAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
+                    structureRawResponse = structureResponse.Content;
+                    try
+                    {
+                        var obs = execScope.ServiceProvider.GetRequiredService<ILlmObservabilityService>();
+                        await obs.RecordCallAsync(task.Id, "structure_planning", effectiveProvider, model ?? customModel ?? "", structureResponse, execToken);
+                    }
+                    catch { /* 指标记录失败不影响主流程 */ }
                     await LogLlmCallAsync(task.Id, 0, "structure_generation", effectiveProvider, model ?? customModel,
                         structurePrompt, structureRawResponse, (int)structureSw.ElapsedMilliseconds, false);
 
@@ -423,20 +437,38 @@ public sealed class WikiTaskService
 
             var completedBatchKeys = await RestoreCompletedPageBatchesAsync(artifactRepo, executingTask.Id, wikiStructure, execToken);
 
-            // 拓扑序排列——按 depth 分层生成（先生成 L1-2 概览页，再 L3 中层页，最后 L4-5 详细页）
-            // 这确保子页面生成时可以注入父页面摘要
-            wikiStructure.Pages = wikiStructure.Pages
-                .OrderBy(p => p.Depth)
-                .ThenBy(p => p.ContentDepthLevel switch
-                {
-                    "overview" => 0,
-                    "section" => 1,
-                    "article" => 2,
-                    _ => 1
-                })
-                .ToList();
+            // BFS 树形拓扑序遍历——根节点 (parentId=null) 优先，逐层展开子节点
+            // 确保父页面先于子页面生成，使子页面可注入父页面摘要
+            wikiStructure.Pages = OrderPagesByTreeBfs(wikiStructure.Pages);
 
             var totalPages = wikiStructure.Pages.Count;
+            var debugTruncated = false;
+            var debugOriginalPageCount = totalPages;
+
+            // ── Debug Mode 页数截断 ──
+            var settingRepo = execScope.ServiceProvider.GetService<ISystemSettingRepository>();
+            if (settingRepo != null)
+            {
+                var debugEnabled = await settingRepo.GetByKeyAsync("DebugMode.Enabled");
+                if (debugEnabled?.Value == "true")
+                {
+                    var maxPagesSetting = await settingRepo.GetByKeyAsync("DebugMode.MaxPages");
+                    var maxPages = int.TryParse(maxPagesSetting?.Value, out var mp) ? mp : 5;
+                    if (totalPages > maxPages)
+                    {
+                        var skippedPages = wikiStructure.Pages.Skip(maxPages).Select(p => p.Title).ToList();
+                        wikiStructure.Pages = wikiStructure.Pages.Take(maxPages).ToList();
+                        totalPages = wikiStructure.Pages.Count;
+                        debugTruncated = true;
+                        _logger.LogWarning(
+                            "[Wiki] 调试模式：页面已截断 TaskId={TaskId} Original={Orig} Truncated={Now} Max={Max} Skipped={Skipped}",
+                            task.Id, debugOriginalPageCount, totalPages, maxPages,
+                            string.Join(", ", skippedPages));
+                        _structuredLogger.LogTaskProgress(task.Id, "调试模式截断", null, totalPages,
+                            $"已截断页面列表：{debugOriginalPageCount} → {totalPages}（上限 {maxPages} 页）");
+                    }
+                }
+            }
 
             // CodingPlan 模型使用更大的批次（减少调用次数）
             var effectiveBatchSize = PageBatchSize;
@@ -534,12 +566,17 @@ public sealed class WikiTaskService
                     var contextBudget = new ContextPackingService(_configService)
                         .CalculateAvailableBudget(effectiveProvider, model ?? customModel ?? "");
                     var searchResults = await _hybridSearch.SearchAsync(
-                        searchIndexKey, searchQuery, keyFiles, topK: 15, maxTotalTokens: contextBudget, ct: execToken);
+                        searchIndexKey, searchQuery, keyFiles, topK: 100, maxTotalTokens: contextBudget, ct: execToken);
                     var fileContents = _hybridSearch.FormatForPrompt(searchResults);
+
+                    // 根据页面主题有选择地注入仓库文档内容
+                    var docContext = IsArchitectureOrOverviewPage(page)
+                        ? BuildRepositoryDocsSection(repositoryDocs, maxChars: 3000)
+                        : null;
 
                     var pagePrompt = _taskPrompt.BuildWikiPagePrompt(
                         page, wikiStructure.Pages, execOwner, execRepo, repoType, repoUrl, langDisplay, fileContents,
-                        combinedContext);
+                        combinedContext, docContext);
 
                     var pageSw = Stopwatch.StartNew();
                     var stepOrder = wikiStructure.Pages.FindIndex(p => p.Id == page.Id) + 1;
@@ -671,9 +708,15 @@ public sealed class WikiTaskService
 
                     try
                     {
-                        var regenerated = await _taskLlm.GenerateTextAsync(
+                        var regenResponse = await _taskLlm.GenerateWithMetricsAsync(
                             effectiveProvider, model, customModel, regenerationPrompt, execToken);
-                        var newDraft = _wikiParser.ParsePageDraft(weakPage, regenerated);
+                        try
+                        {
+                            var obs = execScope.ServiceProvider.GetRequiredService<ILlmObservabilityService>();
+                            await obs.RecordCallAsync(task.Id, "quality_assurance", effectiveProvider, model ?? customModel ?? "", regenResponse, execToken);
+                        }
+                        catch { }
+                        var newDraft = _wikiParser.ParsePageDraft(weakPage, regenResponse.Content);
                         if (!string.IsNullOrWhiteSpace(newDraft.Content))
                         {
                             ApplyGeneratedPageDraft(weakPage, newDraft);
@@ -760,75 +803,12 @@ public sealed class WikiTaskService
                 execToken,
                 markStageAsSuccessful: true);
 
-            await MarkTaskStageAsync(
-                taskRepo,
-                executingTask,
-                "code_embedding",
-                "running",
-                90,
-                "正在写入代码向量...",
-                execToken);
-
-            var documents = await repoAccess.ReadRepositoryDocumentsAsync(repoPath, new(), new(), new(), new(), execToken);
-            var codeChunkCount = await codeEmbedService.EmbedRepositoryAsync(persistenceResult.RepositoryVersionId, documents, execToken);
-            await UpsertTaskArtifactAsync(
-                artifactRepo,
-                taskRepo,
-                executingTask,
-                "code_embedding_artifact",
-                "code-embedding",
-                "code_embedding",
-                0,
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    repository_version_id = persistenceResult.RepositoryVersionId,
-                    document_count = documents.Count,
-                    chunk_count = codeChunkCount
-                }, ArtifactJsonOptions),
-                $"代码向量写入完成，共 {codeChunkCount} 个分块",
-                execToken);
-
-            await MarkTaskStageAsync(
-                taskRepo,
-                executingTask,
-                "code_embedding",
-                "completed",
-                94,
-                $"代码向量写入完成，共 {codeChunkCount} 个分块",
-                execToken,
-                markStageAsSuccessful: true);
-
-            await MarkTaskStageAsync(
-                taskRepo,
-                executingTask,
-                "wiki_embedding",
-                "running",
-                95,
-                "正在写入 Wiki 向量...",
-                execToken);
-
-            var wikiChunkCount = await wikiEmbedService.EmbedWikiPagesAsync(persistenceResult.WikiVersionId, persistenceResult.Pages, execToken);
-            await UpsertTaskArtifactAsync(
-                artifactRepo,
-                taskRepo,
-                executingTask,
-                "wiki_embedding_artifact",
-                "wiki-embedding",
-                "wiki_embedding",
-                0,
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    wiki_version_id = persistenceResult.WikiVersionId,
-                    page_count = persistenceResult.Pages.Count,
-                    chunk_count = wikiChunkCount
-                }, ArtifactJsonOptions),
-                $"Wiki 向量写入完成，共 {wikiChunkCount} 个分块",
-                execToken);
+            // V8: BM25 检索引擎不再需要预计算向量，移除 code_embedding / wiki_embedding 阶段
 
             executingTask.Status = "completed";
             executingTask.CurrentStage = "completed";
             executingTask.CurrentStageStatus = "completed";
-            executingTask.LastSuccessfulStage = "wiki_embedding";
+            executingTask.LastSuccessfulStage = "persistence";
             executingTask.ProgressPercent = 100;
             executingTask.ProgressMessage = $"Wiki 生成完成，共 {totalPages} 个页面";
             executingTask.CompletedAt = DateTime.UtcNow;
@@ -836,8 +816,8 @@ public sealed class WikiTaskService
                 wikiStructure,
                 persistenceResult.RepositoryVersionId,
                 persistenceResult.WikiVersionId,
-                codeChunkCount,
-                wikiChunkCount);
+                debugTruncated,
+                debugOriginalPageCount);
             await taskRepo.UpdateAsync(executingTask);
 
             var maxDepth = wikiStructure.Pages.Any() ? wikiStructure.Pages.Max(p => p.Depth) : 0;
@@ -1122,8 +1102,8 @@ public sealed class WikiTaskService
         WikiStructureDto structure,
         Guid repositoryVersionId,
         Guid wikiVersionId,
-        int? codeChunkCount,
-        int? wikiChunkCount)
+        bool debugTruncated = false,
+        int debugOriginalPageCount = 0)
     {
         return System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -1132,8 +1112,8 @@ public sealed class WikiTaskService
             page_count = structure.Pages.Count,
             repository_version_id = repositoryVersionId,
             wiki_version_id = wikiVersionId,
-            code_chunk_count = codeChunkCount,
-            wiki_chunk_count = wikiChunkCount,
+            debug_truncated = debugTruncated ? true : (bool?)null,
+            debug_original_page_count = debugTruncated ? debugOriginalPageCount : (int?)null,
             pages = structure.Pages.Select(p => new
             {
                 p.Id,
@@ -1176,6 +1156,62 @@ public sealed class WikiTaskService
 
         // 使用原子 SQL 更新累计 token，避免跨 scope 并发冲突
         await taskRepo.IncrementTokensAsync(taskId, promptTokens, completionTokens);
+    }
+
+    /// <summary>
+    /// 按 BFS 树形拓扑序遍历页面：根节点 (parentId=null) 优先，随后逐层展开子节点。
+    /// 确保父页面始终在子页面之前生成。
+    /// </summary>
+    private static List<WikiPageDto> OrderPagesByTreeBfs(List<WikiPageDto> pages)
+    {
+        var pageMap = pages.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+        var childrenMap = new Dictionary<string, List<WikiPageDto>>(StringComparer.OrdinalIgnoreCase);
+        const string rootKey = "__root__";
+
+        foreach (var page in pages)
+        {
+            var parentKey = string.IsNullOrWhiteSpace(page.ParentId) ? rootKey : page.ParentId;
+            if (!childrenMap.ContainsKey(parentKey))
+                childrenMap[parentKey] = new List<WikiPageDto>();
+            childrenMap[parentKey].Add(page);
+        }
+
+        var result = new List<WikiPageDto>();
+        var queue = new Queue<string>();
+        queue.Enqueue(rootKey); // 从根节点开始
+
+        while (queue.Count > 0)
+        {
+            var parentId = queue.Dequeue();
+            if (!childrenMap.TryGetValue(parentId, out var siblings)) continue;
+
+            // 同层页面按 contentDepthLevel 排序
+            var ordered = siblings
+                .OrderBy(p => p.ContentDepthLevel switch
+                {
+                    "overview" => 0,
+                    "section" => 1,
+                    "article" => 2,
+                    _ => 1
+                })
+                .ToList();
+
+            foreach (var page in ordered)
+            {
+                result.Add(page);
+                queue.Enqueue(page.Id);
+            }
+        }
+
+        // 确保所有页面都被包含（孤岛页面兜底）
+        var includedIds = result.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in pages)
+        {
+            if (!includedIds.Contains(page.Id))
+                result.Add(page);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -1341,10 +1377,12 @@ public sealed class WikiTaskService
                 if (!File.Exists(fullPath)) continue;
 
                 var content = File.ReadAllText(fullPath);
-                if (content.Length > 5000) content = content[..5000];
+                // 大文件完整保留（不再截断到 5000），让 ContextPackingService 按 Token 预算智能截断
+                if (content.Length > 200_000) content = content[..200_000];
 
                 var chunks = codeIndexService.ChunkFile(fullPath, entry.Language);
-                foreach (var (start, end, chunkContent) in chunks.Take(20))
+                var language = entry.Language ?? DetectLanguageFromExtension(entry.FilePath);
+                foreach (var (start, end, chunkContent) in chunks.Take(100))
                 {
                     snippets.Add(new CodeSnippetInput
                     {
@@ -1352,7 +1390,7 @@ public sealed class WikiTaskService
                         ModuleName = entry.ModuleName,
                         Content = chunkContent,
                         Symbols = string.Join(" ", entry.ExportedSymbols.Take(20)),
-                        Language = entry.Language,
+                        Language = language,
                         StartLine = start,
                         EndLine = end
                     });
@@ -1364,4 +1402,163 @@ public sealed class WikiTaskService
         await _hybridSearch.BuildIndexAsync(indexKey, snippets, ct);
         _logger.LogInformation("搜索索引构建完成：{Key}, {Count} 代码段", indexKey, snippets.Count);
     }
+
+    private static string DetectLanguageFromExtension(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".cs" => "csharp",
+            ".csproj" => "xml",
+            ".sln" => "text",
+            ".json" => "json",
+            ".xml" => "xml",
+            ".config" => "xml",
+            ".targets" => "xml",
+            ".props" => "xml",
+            ".xaml" => "xml",
+            ".ts" => "typescript",
+            ".tsx" => "typescript",
+            ".js" => "javascript",
+            ".jsx" => "javascript",
+            ".py" => "python",
+            ".go" => "go",
+            ".java" => "java",
+            ".rs" => "rust",
+            ".rb" => "ruby",
+            ".md" => "markdown",
+            ".yml" or ".yaml" => "yaml",
+            ".sh" => "bash",
+            ".ps1" => "powershell",
+            ".sql" => "sql",
+            ".html" => "html",
+            ".css" => "css",
+            _ => "text"
+        };
+    }
+
+    /// <summary>
+    /// 收集仓库根目录及 docs/、.github/ 目录下的 Markdown 文档文件。
+    /// 按优先级排序：AGENTS.md > CLAUDE.md > README.md > CONTRIBUTING.md > 其他。
+    /// </summary>
+    private static List<RepositoryDoc> CollectRepositoryDocuments(string repoPath)
+    {
+        var result = new List<RepositoryDoc>();
+        var scanDirs = new[] { repoPath, Path.Combine(repoPath, "docs"), Path.Combine(repoPath, ".github") };
+
+        var targetFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "AGENTS.md", "CLAUDE.md", "README.md", "CONTRIBUTING.md",
+            "CODE_OF_CONDUCT.md", "CHANGELOG.md", "SECURITY.md", "GOVERNANCE.md"
+        };
+
+        foreach (var dir in scanDirs)
+        {
+            if (!Directory.Exists(dir)) continue;
+
+            foreach (var filePath in Directory.EnumerateFiles(dir, "*.md", SearchOption.TopDirectoryOnly))
+            {
+                var fileName = Path.GetFileName(filePath);
+
+                // 优先匹配已知的高价值文档，否则需在根目录才收集
+                if (!targetFiles.Contains(fileName) && dir != repoPath) continue;
+
+                try
+                {
+                    var content = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
+                    var priority = GetDocumentPriority(fileName);
+                    result.Add(new RepositoryDoc
+                    {
+                        FileName = fileName,
+                        FilePath = filePath,
+                        Content = content,
+                        Priority = priority
+                    });
+                }
+                catch (Exception)
+                {
+                    // 文件读取失败不阻塞主流程
+                }
+            }
+        }
+
+        return result
+            .OrderBy(d => d.Priority)
+            .ThenBy(d => d.FileName)
+            .ToList();
+    }
+
+    private static int GetDocumentPriority(string fileName)
+    {
+        return fileName.ToLowerInvariant() switch
+        {
+            "agents.md" => 1,
+            "claude.md" => 2,
+            "readme.md" => 3,
+            "contributing.md" => 4,
+            _ => 5
+        };
+    }
+
+    /// <summary>
+    /// 判断页面是否为架构/概览类型，适合注入仓库文档内容。
+    /// </summary>
+    private static bool IsArchitectureOrOverviewPage(WikiPageDto page)
+    {
+        if (string.Equals(page.ContentDepthLevel, "overview", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var titleAndDesc = $"{page.Title} {page.Description}".ToLowerInvariant();
+        var architectureKeywords = new[] { "架构", "architecture", "模块", "module", "设计", "design",
+            "概述", "overview", "总览", "结构", "structure", "分层", "layer", "依赖", "dependency" };
+
+        return architectureKeywords.Any(k => titleAndDesc.Contains(k));
+    }
+
+    /// <summary>
+    /// 构建注入提示词的仓库文档文本，按优先级排序并在超出预算时裁剪。
+    /// </summary>
+    private static string BuildRepositoryDocsSection(List<RepositoryDoc> docs, int maxChars = 8000)
+    {
+        if (docs.Count == 0) return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## 仓库文档参考");
+        sb.AppendLine("以下为仓库根目录文档内容，请据此理解项目架构和组织方式：");
+        sb.AppendLine();
+
+        var remaining = maxChars;
+
+        foreach (var doc in docs.OrderBy(d => d.Priority))
+        {
+            var content = doc.Content;
+            if (content.Length > 5000)
+            {
+                content = content[..3000] + "\n\n…（文档过长，已截断）";
+            }
+
+            var entry = $"### {doc.FileName}\n{content}\n\n";
+            if (entry.Length > remaining && sb.Length > 0)
+            {
+                sb.AppendLine("…（后续文档因预算不足已省略）");
+                break;
+            }
+
+            sb.Append(entry);
+            remaining -= entry.Length;
+        }
+
+        return sb.ToString();
+    }
+}
+
+/// <summary>
+/// 仓库根目录文档记录。
+/// </summary>
+public record RepositoryDoc
+{
+    public string FileName { get; init; } = string.Empty;
+    public string FilePath { get; init; } = string.Empty;
+    public string Content { get; init; } = string.Empty;
+    public int Priority { get; init; } = 5;
 }

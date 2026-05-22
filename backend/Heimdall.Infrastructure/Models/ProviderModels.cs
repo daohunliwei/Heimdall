@@ -43,6 +43,12 @@ public class ProviderModelMetadata
 
     /// <summary>是否支持 prompt 缓存（如 OpenAI cached_tokens）。</summary>
     public bool SupportsCaching { get; set; }
+
+    /// <summary>上下文填充比例（0-1），默认 0.65。决定单次调用最多使用上下文窗口的多少。</summary>
+    public double ContextFillRatio { get; set; } = 0.65;
+
+    /// <summary>上下文警戒阈值（0-1），默认 0.90。超过此比例时输出警告并截断低优先级内容。</summary>
+    public double ContextWarningThreshold { get; set; } = 0.90;
 }
 
 /// <summary>
@@ -113,5 +119,6 @@ public class ProviderChatRequest
     public double? Temperature { get; set; }
     public double? TopP { get; set; }
     public int? TopK { get; set; }
+    public int MaxOutputTokens { get; set; }
     public Dictionary<string, JsonElement>? Options { get; set; }
 }

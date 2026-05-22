@@ -22,92 +22,6 @@ namespace Heimdall.Repository.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Heimdall.Core.Entities.CodeEmbeddingChunk", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ChunkIndex")
-                        .HasColumnType("integer")
-                        .HasColumnName("chunk_index");
-
-                    b.Property<string>("ChunkType")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasDefaultValue("code_block")
-                        .HasColumnName("chunk_type");
-
-                    b.Property<string>("ContentHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("content_hash");
-
-                    b.Property<string>("ContentNormalized")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content_normalized");
-
-                    b.Property<string>("ContentRaw")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content_raw");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("EmbeddingModel")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("embedding_model");
-
-                    b.Property<byte[]>("EmbeddingVector")
-                        .HasColumnType("bytea")
-                        .HasColumnName("embedding_vector");
-
-                    b.Property<int>("EndLine")
-                        .HasColumnType("integer")
-                        .HasColumnName("end_line");
-
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("file_path");
-
-                    b.Property<string>("Language")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("language");
-
-                    b.Property<Guid>("RepositoryVersionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("StartLine")
-                        .HasColumnType("integer")
-                        .HasColumnName("start_line");
-
-                    b.Property<string>("SymbolPath")
-                        .HasColumnType("text")
-                        .HasColumnName("symbol_path");
-
-                    b.Property<int?>("TokenCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("token_count");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryVersionId", "FilePath", "ChunkIndex")
-                        .IsUnique()
-                        .HasDatabaseName("ix_code_embedding_chunks_version_file_chunk");
-
-                    b.ToTable("code_embedding_chunks", (string)null);
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.CodeIndexChunk", b =>
                 {
                     b.Property<Guid>("Id")
@@ -403,6 +317,65 @@ namespace Heimdall.Repository.Migrations
                         .IsUnique();
 
                     b.ToTable("prompt_template_history", (string)null);
+                });
+
+            modelBuilder.Entity("Heimdall.Core.Entities.ProviderModelMetadataEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BillingType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<decimal?>("CallPrice")
+                        .HasColumnType("decimal(10,6)");
+
+                    b.Property<double>("ContextFillRatio")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("ContextWarningThreshold")
+                        .HasColumnType("double precision");
+
+                    b.Property<decimal?>("InputTokenPrice")
+                        .HasColumnType("decimal(10,6)");
+
+                    b.Property<int>("MaxContextTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxOutputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<decimal?>("OutputTokenPrice")
+                        .HasColumnType("decimal(10,6)");
+
+                    b.Property<string>("ProviderKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int?>("RateLimitPerMinute")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("SupportsCaching")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProviderKey", "ModelName")
+                        .IsUnique();
+
+                    b.ToTable("provider_model_metadata", (string)null);
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.Repository", b =>
@@ -802,6 +775,12 @@ namespace Heimdall.Repository.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("attempt_count");
 
+                    b.Property<int>("AutoResumeFailCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("auto_resume_fail_count");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -890,6 +869,12 @@ namespace Heimdall.Repository.Migrations
                     b.Property<Guid?>("ResultWikiVersionId")
                         .HasColumnType("uuid")
                         .HasColumnName("result_wiki_version_id");
+
+                    b.Property<int>("ResumeCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("resume_count");
 
                     b.Property<string>("SourceBranch")
                         .IsRequired()
@@ -1007,69 +992,6 @@ namespace Heimdall.Repository.Migrations
                         .IsUnique();
 
                     b.ToTable("users", (string)null);
-                });
-
-            modelBuilder.Entity("Heimdall.Core.Entities.WikiEmbeddingChunk", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("ChunkIndex")
-                        .HasColumnType("integer")
-                        .HasColumnName("chunk_index");
-
-                    b.Property<string>("ChunkType")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasDefaultValue("section")
-                        .HasColumnName("chunk_type");
-
-                    b.Property<string>("ContentHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("content_hash");
-
-                    b.Property<string>("ContentRaw")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("content_raw");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("EmbeddingModel")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("embedding_model");
-
-                    b.Property<byte[]>("EmbeddingVector")
-                        .HasColumnType("bytea")
-                        .HasColumnName("embedding_vector");
-
-                    b.Property<int?>("TokenCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("token_count");
-
-                    b.Property<Guid>("WikiPageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("WikiVersionId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("WikiPageId");
-
-                    b.HasIndex("WikiVersionId", "WikiPageId", "ChunkIndex")
-                        .IsUnique()
-                        .HasDatabaseName("ix_wiki_embedding_chunks_version_page_chunk");
-
-                    b.ToTable("wiki_embedding_chunks", (string)null);
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.WikiPage", b =>
@@ -1366,17 +1288,6 @@ namespace Heimdall.Repository.Migrations
                     b.ToTable("wiki_versions", (string)null);
                 });
 
-            modelBuilder.Entity("Heimdall.Core.Entities.CodeEmbeddingChunk", b =>
-                {
-                    b.HasOne("Heimdall.Core.Entities.RepositoryVersion", "RepositoryVersion")
-                        .WithMany()
-                        .HasForeignKey("RepositoryVersionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("RepositoryVersion");
-                });
-
             modelBuilder.Entity("Heimdall.Core.Entities.CodeIndexChunk", b =>
                 {
                     b.HasOne("Heimdall.Core.Entities.CodeIndexEntry", "CodeIndexEntry")
@@ -1505,25 +1416,6 @@ namespace Heimdall.Repository.Migrations
                     b.Navigation("ResultWikiVersion");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Heimdall.Core.Entities.WikiEmbeddingChunk", b =>
-                {
-                    b.HasOne("Heimdall.Core.Entities.WikiPage", "WikiPage")
-                        .WithMany()
-                        .HasForeignKey("WikiPageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Heimdall.Core.Entities.WikiVersion", "WikiVersion")
-                        .WithMany()
-                        .HasForeignKey("WikiVersionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("WikiPage");
-
-                    b.Navigation("WikiVersion");
                 });
 
             modelBuilder.Entity("Heimdall.Core.Entities.WikiPage", b =>
