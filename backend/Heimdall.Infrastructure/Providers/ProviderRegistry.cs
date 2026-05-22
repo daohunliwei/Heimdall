@@ -7,16 +7,13 @@ public sealed class ProviderRegistry
 {
     private readonly HeimdallConfigService _configService;
     private readonly IEnumerable<IChatProvider> _chatProviders;
-    private readonly IEnumerable<IEmbeddingProvider> _embeddingProviders;
 
     public ProviderRegistry(
         HeimdallConfigService configService,
-        IEnumerable<IChatProvider> chatProviders,
-        IEnumerable<IEmbeddingProvider> embeddingProviders)
+        IEnumerable<IChatProvider> chatProviders)
     {
         _configService = configService;
         _chatProviders = chatProviders;
-        _embeddingProviders = embeddingProviders;
     }
 
     public (string ProviderId, string Model, ProviderModelParameters Parameters, IChatProvider Provider) ResolveChatProvider(ChatCompletionRequest request)
@@ -55,10 +52,4 @@ public sealed class ProviderRegistry
         return (parameters, metadata, provider);
     }
 
-    public IEmbeddingProvider ResolveEmbeddingProvider()
-    {
-        var embedderType = _configService.GetEmbedderType();
-        return _embeddingProviders.FirstOrDefault(item => item.EmbedderType == embedderType)
-            ?? throw new InvalidOperationException($"未找到嵌入器 `{embedderType}` 的适配器。");
-    }
 }

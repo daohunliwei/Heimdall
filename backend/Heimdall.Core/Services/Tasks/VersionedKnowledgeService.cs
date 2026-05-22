@@ -20,9 +20,7 @@ public sealed class VersionedKnowledgeService : IVersionedKnowledgeService
         "quality_report_artifact",
         "render_postprocess_artifact",
         "render_artifact",
-        "relation_artifact",
-        "code_embedding_artifact",
-        "wiki_embedding_artifact"
+        "relation_artifact"
     ];
 
     private readonly IRepositoryConfigRepository _repositoryRepository;
