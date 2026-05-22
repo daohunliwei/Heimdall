@@ -50,7 +50,8 @@ public sealed class LlmRetryPolicy
                     "LLM 调用失败，准备重试 Operation={Op} Attempt={Attempt}/{Max} Delay={Delay}ms Error={Error}",
                     operationName, attempt, MaxRetries, delay, ex.Message);
 
-                await Task.Delay(delay, ct);
+                // 延迟不使用原始 ct——超时 Token 已取消时，不应阻止重试的退避等待
+                await Task.Delay(delay, CancellationToken.None);
             }
         }
     }

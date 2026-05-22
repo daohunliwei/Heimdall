@@ -90,7 +90,7 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 
 优先修改：
 
-- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 8 阶段管线编排
+- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 10 阶段管线编排
 - `backend/Heimdall.Core/Services/Repository/CodeIndexService.cs` — 本地代码索引（正则符号提取，无 LLM）
 - `backend/Heimdall.Core/Services/Search/HybridSearchService.cs` — BM25 + 向量混合检索
 - `backend/Heimdall.Infrastructure/Search/Bm25SearchService.cs` — BM25 精确匹配引擎

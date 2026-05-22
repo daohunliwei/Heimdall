@@ -9,22 +9,13 @@ namespace Heimdall.Core.Services.Repository;
 public class RepositoryService : IRepositoryService
 {
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly ICodeEmbeddingRepository _codeEmbeddingRepo;
-    private readonly IWikiEmbeddingRepository _wikiEmbeddingRepo;
     private readonly ILogger<RepositoryService> _logger;
 
-    /// <summary>
-    /// 初始化仓库服务。V4 已移除 IWikiRepository 依赖，旧 Wiki 数据清理由 DB 级联删除处理。
-    /// </summary>
     public RepositoryService(
         IRepositoryConfigRepository repoRepo,
-        ICodeEmbeddingRepository codeEmbeddingRepo,
-        IWikiEmbeddingRepository wikiEmbeddingRepo,
         ILogger<RepositoryService> logger)
     {
         _repoRepo = repoRepo;
-        _codeEmbeddingRepo = codeEmbeddingRepo;
-        _wikiEmbeddingRepo = wikiEmbeddingRepo;
         _logger = logger;
     }
 

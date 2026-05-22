@@ -9,16 +9,13 @@ namespace Heimdall.Api.Controllers;
 public class RepositoriesController : ControllerBase
 {
     private readonly IRepositoryService _repoService;
-    private readonly IDualVectorSearchService _dualSearch;
     private readonly IVersionDiscoveryService _versionDiscovery;
 
     public RepositoriesController(
         IRepositoryService repoService,
-        IDualVectorSearchService dualSearch,
         IVersionDiscoveryService versionDiscovery)
     {
         _repoService = repoService;
-        _dualSearch = dualSearch;
         _versionDiscovery = versionDiscovery;
     }
 
@@ -132,33 +129,6 @@ public class RepositoriesController : ControllerBase
         return Ok(new { message = "仓库已删除" });
     }
 
-    /// <summary>
-    /// DELETE /api/repositories/{repositoryId}/vectors/code — 删除指定仓库版本的代码向量
-    /// </summary>
-    [HttpDelete("{repositoryId:guid}/vectors/code")]
-    public async Task<IActionResult> DeleteCodeVectors(Guid repositoryId, [FromQuery] string branch = "main")
-    {
-        var version = await _versionDiscovery.GetLatestVersionAsync(repositoryId, branch);
-        if (version is null)
-            return NotFound(new { error = "未找到仓库版本" });
-
-        var count = await _dualSearch.DeleteCodeVectorsAsync(version.Id);
-        return Ok(new { message = $"已删除 {count} 条代码向量", deleted_count = count });
-    }
-
-    /// <summary>
-    /// DELETE /api/repositories/{repositoryId}/vectors/wiki — 删除指定 Wiki 版本的向量
-    /// </summary>
-    [HttpDelete("{repositoryId:guid}/vectors/wiki")]
-    public async Task<IActionResult> DeleteWikiVectors(Guid repositoryId,
-        [FromQuery] string wikiVersionId = "")
-    {
-        if (string.IsNullOrWhiteSpace(wikiVersionId) || !Guid.TryParse(wikiVersionId, out var wvId))
-            return BadRequest(new { error = "需要提供有效的 wikiVersionId" });
-
-        var count = await _dualSearch.DeleteWikiVectorsAsync(wvId);
-        return Ok(new { message = $"已删除 {count} 条 Wiki 向量", deleted_count = count });
-    }
 }
 
 public class ImportRequest

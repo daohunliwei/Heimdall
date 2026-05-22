@@ -1,8 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { tomorrow } from 'react-syntax-highlighter/dist/cjs/styles/prism';
@@ -13,7 +12,67 @@ interface MarkdownProps {
   content: string;
 }
 
+/** 预处理 Wiki 内容：自动包裹 Mermaid、剥离裸 XML 标签、移除裸露元数据 */
+function preprocessContent(raw: string): string {
+  let result = raw;
+
+  // 1. 剥离裸露的 JSON 元数据块（title: "..." nav_title: "..." ... source_files: [...] prerequisite_pages: [...]）
+  result = result.replace(/^(title|nav_title|page_type|importance|summary|tags|source_files|related_pages|prerequisite_pages)\s*:\s*.+$/gm, '');
+
+  // 2. 自动包裹裸 Mermaid 语法
+  // graph TD/LR, sequenceDiagram, classDiagram, stateDiagram, gantt, pie
+  const mermaidKeys = ['graph TD', 'graph LR', 'graph BT', 'graph RL',
+    'sequenceDiagram', 'classDiagram', 'stateDiagram', 'gantt', 'pie', 'flowchart'];
+  for (const kw of mermaidKeys) {
+    if (result.includes(kw) && !result.includes('```mermaid')) {
+      // 找到以关键字开头的行，包裹在 ```mermaid ``` 中
+      const lines = result.split('\n');
+      const newLines: string[] = [];
+      let inMermaid = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!inMermaid && mermaidKeys.some(k => trimmed.startsWith(k))) {
+          newLines.push('```mermaid');
+          newLines.push(line);
+          inMermaid = true;
+        } else if (inMermaid) {
+          if (trimmed === '' || trimmed.startsWith('```') || trimmed.startsWith('classDef') || trimmed.startsWith('style ') ||
+              trimmed.startsWith('subgraph') || trimmed.startsWith('end') || trimmed.match(/^[A-Za-z0-9_-]+(\[|\(|->|-->|---|\.\.|==>)/)) {
+            newLines.push(line);
+          } else {
+            newLines.push('```');
+            newLines.push(line);
+            inMermaid = false;
+          }
+        } else {
+          newLines.push(line);
+        }
+      }
+      if (inMermaid) newLines.push('```');
+      result = newLines.join('\n');
+      break; // 只处理一次，避免重复包裹
+    }
+  }
+
+  // 3. 剥离裸 XML/HTML 标签（来自 .csproj/.config 等文件）
+  const csprojTags = 'Description|Compile|None|PackageReference|ProjectReference|EmbeddedResource|Content|Folder|Service|OutputPath|TargetFramework|LangVersion|Nullable|ImplicitUsings|GenerateDocumentationFile|NoWarn|TreatWarningsAsErrors|AssemblyName|RootNamespace|AssemblyVersion|FileVersion|NeutralLanguage|SignAssembly|AssemblyOriginatorKeyFile|DelaySign|DebugType|Optimize|DefineConstants|ErrorReport|WarningLevel|PlatformTarget|Prefer32Bit|AllowUnsafeBlocks|CheckForOverflowUnderflow|DocumentationFile|NativeDllNameSourceLines|ItemGroup|PropertyGroup|Target|Exec|When|Otherwise|Choose|Import|Using|GenerateNativeDllName';
+  result = result.replace(new RegExp(`<(${csprojTags})\\b[^>]*\\/?>`, 'gi'), '&lt;$1&gt;');
+  result = result.replace(new RegExp(`<\\/(${csprojTags})>`, 'gi'), '&lt;/$1&gt;');
+
+  // 4. 修复代码块中缺少 mermaid 语言标记
+  result = result.replace(/```\s*\n([\s\S]*?)```/g, (match, content: string) => {
+    const trimmed = content.trim();
+    const isMermaid = mermaidKeys.some(k => trimmed.startsWith(k) || trimmed.includes('\n' + k));
+    if (isMermaid) return '```mermaid\n' + trimmed + '\n```';
+    return match;
+  });
+
+  return result;
+}
+
 const Markdown: React.FC<MarkdownProps> = ({ content }) => {
+  const processed = useMemo(() => preprocessContent(content), [content]);
   const MarkdownComponents: React.ComponentProps<typeof ReactMarkdown>['components'] = {
     pre({ children }: { children?: React.ReactNode }) {
       // 使用 div 包装而非 Fragment，避免 block 元素直接嵌套在 <p> 中导致 hydration 错误
@@ -167,10 +226,10 @@ const Markdown: React.FC<MarkdownProps> = ({ content }) => {
     <div className="prose max-w-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeRaw, rehypeKatex]}
+        rehypePlugins={[rehypeKatex]}
         components={MarkdownComponents}
       >
-        {content}
+        {processed}
       </ReactMarkdown>
     </div>
   );

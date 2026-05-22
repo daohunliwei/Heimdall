@@ -1,7 +1,7 @@
 namespace Heimdall.Core.Interfaces.Services;
 
 /// <summary>
-/// 混合检索结果。
+/// BM25 检索结果。
 /// </summary>
 public class HybridSearchResult
 {
@@ -12,14 +12,13 @@ public class HybridSearchResult
     public int StartLine { get; init; }
     public int EndLine { get; init; }
     public double Bm25Score { get; set; }
-    public double? VectorScore { get; set; }
     public double CombinedScore { get; set; }
 }
 
 public interface IHybridSearchService
 {
     /// <summary>
-    /// 构建搜索引擎：BM25 索引 + 向量嵌入。
+    /// 构建 BM25 搜索引擎索引。
     /// </summary>
     Task BuildIndexAsync(
         string indexKey,
@@ -27,7 +26,7 @@ public interface IHybridSearchService
         CancellationToken ct = default);
 
     /// <summary>
-    /// 执行混合检索（BM25 + 向量搜索）。
+    /// 执行 BM25 检索。
     /// </summary>
     Task<List<HybridSearchResult>> SearchAsync(
         string indexKey,

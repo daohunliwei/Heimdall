@@ -99,44 +99,27 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
             await _context.SaveChangesAsync(cancellationToken);
         }
 
-        WikiVersion? wikiVersion = null;
-        if (task.ResultWikiVersionId.HasValue)
+        // 始终创建新版本，不复用已有版本
+        var maxVersionNo = await _context.WikiVersions
+            .Where(v => v.WikiSpaceId == wikiSpace.Id)
+            .MaxAsync(v => (int?)v.VersionNo, cancellationToken) ?? 0;
+        var wikiVersion = new WikiVersion
         {
-            wikiVersion = await _context.WikiVersions
-                .FirstOrDefaultAsync(v => v.Id == task.ResultWikiVersionId.Value, cancellationToken);
-        }
-
-        if (wikiVersion is null)
-        {
-            var versionNo = await _context.WikiVersions.CountAsync(v => v.WikiSpaceId == wikiSpace.Id, cancellationToken) + 1;
-            wikiVersion = new WikiVersion
-            {
-                WikiSpaceId = wikiSpace.Id,
-                RepositoryVersionId = repositoryVersion.Id,
-                VersionNo = versionNo,
-                GenerationMode = task.ForceRefresh ? "rebuild" : "latest",
-                GenerationProfile = generationProfile,
-                Status = "generating",
-                PageCount = 0,
-                TocDepth = 1,
-                SummaryMarkdown = $"由任务 {task.Id} 生成",
-                StructureJson = structureJson,
-                CreatedByTaskId = task.Id,
-                IsForceRefresh = task.ForceRefresh
-            };
-            _context.WikiVersions.Add(wikiVersion);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-        else
-        {
-            wikiVersion.RepositoryVersionId = repositoryVersion.Id;
-            wikiVersion.GenerationMode = task.ForceRefresh ? "rebuild" : "latest";
-            wikiVersion.GenerationProfile = generationProfile;
-            wikiVersion.Status = "generating";
-            wikiVersion.StructureJson = structureJson;
-            wikiVersion.CompletedAt = null;
-            await _context.SaveChangesAsync(cancellationToken);
-        }
+            WikiSpaceId = wikiSpace.Id,
+            RepositoryVersionId = repositoryVersion.Id,
+            VersionNo = maxVersionNo + 1,
+            GenerationMode = task.ForceRefresh ? "rebuild" : "latest",
+            GenerationProfile = generationProfile,
+            Status = "generating",
+            PageCount = 0,
+            TocDepth = 1,
+            SummaryMarkdown = $"由任务 {task.Id} 生成",
+            StructureJson = structureJson,
+            CreatedByTaskId = task.Id,
+            IsForceRefresh = task.ForceRefresh
+        };
+        _context.WikiVersions.Add(wikiVersion);
+        await _context.SaveChangesAsync(cancellationToken);
 
         await _context.WikiPageRelations
             .Where(r => r.WikiVersionId == wikiVersion.Id)
