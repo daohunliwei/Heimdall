@@ -23,7 +23,8 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Embedding dimension: {len\\(d.get\\(\\\\\"embedding\\\\\",[]\\)\\)}'\\)\")",
       "Bash(openspec new *)",
       "Bash(openspec status *)",
-      "Bash(openspec instructions *)"
+      "Bash(openspec instructions *)",
+      "mcp__playwright__browser_navigate"
     ]
   }
 }

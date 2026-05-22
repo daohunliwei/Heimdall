@@ -993,6 +993,25 @@ export default function RepositoryWikiPage() {
 
               {currentPage ? (
                 <div className="max-w-3xl mx-auto p-6 lg:p-8">
+                  {/* Frontmatter 头部 */}
+                  {currentPage.summary && (
+                    <div className="mb-6 p-4 rounded-lg bg-[var(--background)] border border-[var(--border-color)]">
+                      {currentPage.pageType && (
+                        <span className="inline-block tag tag-primary text-xs mb-2">{currentPage.pageType}</span>
+                      )}
+                      <p className="text-sm text-[var(--muted)]">{currentPage.summary}</p>
+                      {currentPage.filePaths.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {currentPage.filePaths.slice(0, 5).map((f) => (
+                            <code key={f} className="text-xs font-mono bg-[var(--card-bg)] px-1.5 py-0.5 rounded">{f}</code>
+                          ))}
+                          {currentPage.filePaths.length > 5 && (
+                            <span className="text-xs text-[var(--muted)]">+{currentPage.filePaths.length - 5} more</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <h3 className="text-xl font-bold text-[var(--foreground)] mb-6">{currentPage.title}</h3>
                   <div className="prose prose-sm md:prose-base max-w-none">
                     <Markdown content={currentPage.content} />
