@@ -130,6 +130,18 @@ public class TaskRecord
     /// </summary>
     public int AttemptCount { get; set; }
 
+    /// <summary>
+    /// 任务恢复次数。
+    /// 每次通过 Resume API 或自动恢复启动时递增。
+    /// </summary>
+    public int ResumeCount { get; set; }
+
+    /// <summary>
+    /// 自动恢复连续失败次数。
+    /// 超过上限 (3) 后不再自动恢复，需手动触发。
+    /// </summary>
+    public int AutoResumeFailCount { get; set; }
+
     /// <summary>V2: 目标分支</summary>
     public string? TargetBranch { get; set; }
     /// <summary>V2: 实际生成使用的仓库快照版本</summary>

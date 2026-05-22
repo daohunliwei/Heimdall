@@ -445,6 +445,33 @@ public sealed class WikiTaskService
             wikiStructure.Pages = OrderPagesByTreeBfs(wikiStructure.Pages);
 
             var totalPages = wikiStructure.Pages.Count;
+            var debugTruncated = false;
+            var debugOriginalPageCount = totalPages;
+
+            // ── Debug Mode 页数截断 ──
+            var settingRepo = execScope.ServiceProvider.GetService<ISystemSettingRepository>();
+            if (settingRepo != null)
+            {
+                var debugEnabled = await settingRepo.GetByKeyAsync("DebugMode.Enabled");
+                if (debugEnabled?.Value == "true")
+                {
+                    var maxPagesSetting = await settingRepo.GetByKeyAsync("DebugMode.MaxPages");
+                    var maxPages = int.TryParse(maxPagesSetting?.Value, out var mp) ? mp : 5;
+                    if (totalPages > maxPages)
+                    {
+                        var skippedPages = wikiStructure.Pages.Skip(maxPages).Select(p => p.Title).ToList();
+                        wikiStructure.Pages = wikiStructure.Pages.Take(maxPages).ToList();
+                        totalPages = wikiStructure.Pages.Count;
+                        debugTruncated = true;
+                        _logger.LogWarning(
+                            "[Wiki] 调试模式：页面已截断 TaskId={TaskId} Original={Orig} Truncated={Now} Max={Max} Skipped={Skipped}",
+                            task.Id, debugOriginalPageCount, totalPages, maxPages,
+                            string.Join(", ", skippedPages));
+                        _structuredLogger.LogTaskProgress(task.Id, "调试模式截断", null, totalPages,
+                            $"已截断页面列表：{debugOriginalPageCount} → {totalPages}（上限 {maxPages} 页）");
+                    }
+                }
+            }
 
             // CodingPlan 模型使用更大的批次（减少调用次数）
             var effectiveBatchSize = PageBatchSize;
@@ -856,7 +883,9 @@ public sealed class WikiTaskService
                 persistenceResult.RepositoryVersionId,
                 persistenceResult.WikiVersionId,
                 codeChunkCount,
-                wikiChunkCount);
+                wikiChunkCount,
+                debugTruncated,
+                debugOriginalPageCount);
             await taskRepo.UpdateAsync(executingTask);
 
             var maxDepth = wikiStructure.Pages.Any() ? wikiStructure.Pages.Max(p => p.Depth) : 0;
@@ -1142,7 +1171,9 @@ public sealed class WikiTaskService
         Guid repositoryVersionId,
         Guid wikiVersionId,
         int? codeChunkCount,
-        int? wikiChunkCount)
+        int? wikiChunkCount,
+        bool debugTruncated = false,
+        int debugOriginalPageCount = 0)
     {
         return System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -1153,6 +1184,8 @@ public sealed class WikiTaskService
             wiki_version_id = wikiVersionId,
             code_chunk_count = codeChunkCount,
             wiki_chunk_count = wikiChunkCount,
+            debug_truncated = debugTruncated ? true : (bool?)null,
+            debug_original_page_count = debugTruncated ? debugOriginalPageCount : (int?)null,
             pages = structure.Pages.Select(p => new
             {
                 p.Id,
