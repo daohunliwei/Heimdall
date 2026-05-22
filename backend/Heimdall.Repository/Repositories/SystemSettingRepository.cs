@@ -1,35 +1,34 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
 public class SystemSettingRepository : ISystemSettingRepository
 {
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
-    public SystemSettingRepository(AppDbContext context)
+    public SystemSettingRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
     public async Task<SystemSetting?> GetByKeyAsync(string key)
     {
-        return await _context.SystemSettings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Key == key);
+        return await _db.Queryable<SystemSetting>()
+            .FirstAsync(s => s.Key == key);
     }
 
     public async Task<SystemSetting> SetAsync(string key, string value)
     {
-        var existing = await _context.SystemSettings
-            .FirstOrDefaultAsync(s => s.Key == key);
+        var existing = await _db.Queryable<SystemSetting>()
+            .FirstAsync(s => s.Key == key);
 
         if (existing is not null)
         {
             existing.Value = value;
             existing.UpdatedAt = DateTime.UtcNow;
+            await _db.Updateable(existing).ExecuteCommandAsync();
         }
         else
         {
@@ -39,17 +38,15 @@ public class SystemSettingRepository : ISystemSettingRepository
                 Value = value,
                 UpdatedAt = DateTime.UtcNow
             };
-            _context.SystemSettings.Add(existing);
+            await _db.Insertable(existing).ExecuteCommandAsync();
         }
 
-        await _context.SaveChangesAsync();
         return existing;
     }
 
     public async Task<List<SystemSetting>> GetAllAsync()
     {
-        return await _context.SystemSettings
-            .AsNoTracking()
+        return await _db.Queryable<SystemSetting>()
             .OrderBy(s => s.Key)
             .ToListAsync();
     }

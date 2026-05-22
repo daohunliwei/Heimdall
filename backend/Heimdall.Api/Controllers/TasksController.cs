@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
@@ -5,6 +6,7 @@ using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Models;
 using Heimdall.Core.Services.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.AI;
 
 namespace Heimdall.Api.Controllers;
 
@@ -93,6 +95,102 @@ public class TasksController : ControllerBase
             _logger.LogError(ex, "Ask 请求处理失败");
             return StatusCode(500, new { error = $"问答处理失败：{ex.Message}" });
         }
+    }
+
+    /// <summary>
+    /// POST /tasks/ask/stream — AI 流式问答（SSE），基于 IChatClient.GetStreamingResponseAsync
+    /// </summary>
+    [HttpPost("ask/stream")]
+    public async Task AskStream(CancellationToken ct)
+    {
+        Response.Headers.Append("Content-Type", "text/event-stream");
+        Response.Headers.Append("Cache-Control", "no-cache");
+        Response.Headers.Append("Connection", "keep-alive");
+
+        AskRequest request;
+        try
+        {
+            using var reader = new StreamReader(Request.Body);
+            var body = await reader.ReadToEndAsync(ct);
+            request = JsonSerializer.Deserialize<AskRequest>(body, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            }) ?? new AskRequest();
+        }
+        catch
+        {
+            request = new AskRequest();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RepositoryId) || !Guid.TryParse(request.RepositoryId, out var repoId))
+        {
+            await WriteSseError("repository_id 是必填字段", ct);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Question))
+        {
+            await WriteSseError("question 是必填字段", ct);
+            return;
+        }
+
+        try
+        {
+            var repo = await _repoRepo.GetByIdAsync(repoId);
+            if (repo is null)
+            {
+                await WriteSseError("仓库不存在", ct);
+                return;
+            }
+
+            var executionRequest = new AskTaskExecutionRequest
+            {
+                Options = BuildVersionedTaskOptions(request, repo, repoId),
+                Question = request.Question,
+                History = request.History?.Select(message => new TaskConversationMessage
+                {
+                    Role = message.Role,
+                    Content = message.Content
+                }).ToList() ?? [],
+                DeepResearch = request.DeepResearch,
+                FilePath = request.FilePath
+            };
+
+            await foreach (var update in _askTaskService.AskStreamingAsync(executionRequest, ct))
+            {
+                if (ct.IsCancellationRequested) break;
+
+                if (!string.IsNullOrEmpty(update.Text))
+                {
+                    var sseData = $"data: {JsonSerializer.Serialize(new { content = update.Text })}\n\n";
+                    await Response.WriteAsync(sseData, ct);
+                    await Response.Body.FlushAsync(ct);
+                }
+
+                if (update.FinishReason.HasValue) break;
+            }
+
+            await Response.WriteAsync("event: done\ndata: [DONE]\n\n", ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // 客户端断开
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "流式 Ask 失败");
+            try
+            {
+                await WriteSseError(ex.Message, ct);
+            }
+            catch { /* 客户端已断开 */ }
+        }
+    }
+
+    private async Task WriteSseError(string error, CancellationToken ct)
+    {
+        var msg = $"event: error\ndata: {JsonSerializer.Serialize(new { error })}\n\n";
+        await Response.WriteAsync(msg, ct);
     }
 
     /// <summary>

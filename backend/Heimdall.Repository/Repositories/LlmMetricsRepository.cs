@@ -1,35 +1,31 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
 public class LlmMetricsRepository : ILlmMetricsRepository
 {
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
-    public LlmMetricsRepository(AppDbContext context)
+    public LlmMetricsRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
     public async Task AddAsync(LlmCallMetric metric, CancellationToken ct = default)
     {
-        _context.LlmCallMetrics.Add(metric);
-        await _context.SaveChangesAsync(ct);
+        await _db.Insertable(metric).ExecuteCommandAsync(ct);
     }
 
     public async Task AddRangeAsync(IEnumerable<LlmCallMetric> metrics, CancellationToken ct = default)
     {
-        _context.LlmCallMetrics.AddRange(metrics);
-        await _context.SaveChangesAsync(ct);
+        await _db.Insertable(metrics.ToList()).ExecuteCommandAsync(ct);
     }
 
     public async Task<List<LlmCallMetric>> GetByTaskIdAsync(Guid taskId, CancellationToken ct = default)
     {
-        return await _context.LlmCallMetrics
-            .AsNoTracking()
+        return await _db.Queryable<LlmCallMetric>()
             .Where(m => m.TaskId == taskId)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct);
@@ -37,8 +33,7 @@ public class LlmMetricsRepository : ILlmMetricsRepository
 
     public async Task<List<LlmCallMetric>> GetByTimeRangeAsync(DateTime from, DateTime to, CancellationToken ct = default)
     {
-        return await _context.LlmCallMetrics
-            .AsNoTracking()
+        return await _db.Queryable<LlmCallMetric>()
             .Where(m => m.CreatedAt >= from && m.CreatedAt <= to)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct);
@@ -46,8 +41,7 @@ public class LlmMetricsRepository : ILlmMetricsRepository
 
     public async Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default)
     {
-        var metrics = await _context.LlmCallMetrics
-            .AsNoTracking()
+        var metrics = await _db.Queryable<LlmCallMetric>()
             .Where(m => m.TaskId == taskId)
             .ToListAsync(ct);
 

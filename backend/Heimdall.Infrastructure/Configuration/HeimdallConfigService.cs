@@ -146,6 +146,22 @@ public sealed class HeimdallConfigService
     }
 
     /// <summary>
+    /// 获取 Provider 的自定义 endpoint URL。
+    /// </summary>
+    public string? GetProviderEndpoint(string providerId)
+    {
+        return _configuration[$"HEIMDALL_{providerId.ToUpperInvariant()}_ENDPOINT"];
+    }
+
+    /// <summary>
+    /// 获取 Provider 的 API Key。
+    /// </summary>
+    public string? GetProviderApiKey(string providerId)
+    {
+        return _configuration[$"HEIMDALL_{providerId.ToUpperInvariant()}_API_KEY"];
+    }
+
+    /// <summary>
     /// 获取通用 HttpClient 超时时间。
     /// </summary>
     public TimeSpan GetHttpClientTimeout()

@@ -4,8 +4,7 @@ using System.Text.Json;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
@@ -16,19 +15,16 @@ namespace Heimdall.Repository.Repositories;
 public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
 {
     private static readonly JsonSerializerOptions ArtifactJsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
     /// <summary>
     /// 初始化 Wiki 任务执行仓储。
     /// </summary>
-    public WikiTaskExecutionRepository(AppDbContext context)
+    public WikiTaskExecutionRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
-    /// <summary>
-    /// 在同一事务中持久化 Wiki 主数据、版本、页面、关系与渲染快照。
-    /// </summary>
     /// <summary>
     /// 在同一事务中持久化 Wiki 版本、页面、关系与渲染快照。
     /// V4：已移除旧 Wiki 实体依赖，Wiki 数据直接归属 WikiVersion。
@@ -42,212 +38,221 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
         string generationProfile,
         CancellationToken cancellationToken = default)
     {
-        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        await _db.Ado.BeginTranAsync();
 
-        var repositoryId = task.RepositoryId
-            ?? throw new InvalidOperationException($"任务缺少 RepositoryId：{task.Id}");
-
-        var repository = await _context.Repositories.FirstOrDefaultAsync(r => r.Id == repositoryId, cancellationToken)
-            ?? throw new InvalidOperationException($"仓库不存在：{repositoryId}");
-
-        // V4：旧 Wiki 实体已移除，Wiki 空间和版本直接创建，不依赖 Wiki 主记录
-        RepositoryVersion? repositoryVersion = null;
-        if (task.ResolvedRepositoryVersionId.HasValue)
+        try
         {
-            repositoryVersion = await _context.RepositoryVersions
-                .FirstOrDefaultAsync(v => v.Id == task.ResolvedRepositoryVersionId.Value, cancellationToken);
-        }
+            var repositoryId = task.RepositoryId
+                ?? throw new InvalidOperationException($"任务缺少 RepositoryId：{task.Id}");
 
-        repositoryVersion ??= await _context.RepositoryVersions
-            .Where(v => v.RepositoryId == repositoryId && v.BranchName == branch && v.IsLatestOnBranch)
-            .OrderByDescending(v => v.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
+            var repository = await _db.Queryable<Heimdall.Core.Entities.Repository>().FirstAsync(r => r.Id == repositoryId)
+                ?? throw new InvalidOperationException($"仓库不存在：{repositoryId}");
 
-        if (repositoryVersion is null)
-        {
-            repositoryVersion = new RepositoryVersion
+            // V4：旧 Wiki 实体已移除，Wiki 空间和版本直接创建，不依赖 Wiki 主记录
+            RepositoryVersion? repositoryVersion = null;
+            if (task.ResolvedRepositoryVersionId.HasValue)
             {
-                RepositoryId = repositoryId,
-                BranchName = branch,
-                CommitSha = "unknown",
-                CommitTime = DateTime.UtcNow,
-                CommitAuthor = "system",
-                CommitMessage = $"由任务 {task.Id} 触发生成",
-                SourceStatus = "active",
-                IsLatestOnBranch = true,
-                VersionSourceConfidence = "unknown"
-            };
-            _context.RepositoryVersions.Add(repositoryVersion);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        var wikiSpace = await _context.WikiSpaces
-            .FirstOrDefaultAsync(s => s.RepositoryId == repositoryId
-                && s.Language == language
-                && s.ViewType == "default", cancellationToken);
-        if (wikiSpace is null)
-        {
-            wikiSpace = new WikiSpace
-            {
-                RepositoryId = repositoryId,
-                Language = language,
-                ViewType = "default",
-                Title = $"{repository.DisplayName} Wiki",
-                Description = $"为 {repository.DisplayName} 生成的 Wiki"
-            };
-            _context.WikiSpaces.Add(wikiSpace);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        // 始终创建新版本，不复用已有版本
-        var maxVersionNo = await _context.WikiVersions
-            .Where(v => v.WikiSpaceId == wikiSpace.Id)
-            .MaxAsync(v => (int?)v.VersionNo, cancellationToken) ?? 0;
-        var wikiVersion = new WikiVersion
-        {
-            WikiSpaceId = wikiSpace.Id,
-            RepositoryVersionId = repositoryVersion.Id,
-            VersionNo = maxVersionNo + 1,
-            GenerationMode = task.ForceRefresh ? "rebuild" : "latest",
-            GenerationProfile = generationProfile,
-            Status = "generating",
-            PageCount = 0,
-            TocDepth = 1,
-            SummaryMarkdown = $"由任务 {task.Id} 生成",
-            StructureJson = structureJson,
-            CreatedByTaskId = task.Id,
-            IsForceRefresh = task.ForceRefresh
-        };
-        _context.WikiVersions.Add(wikiVersion);
-        await _context.SaveChangesAsync(cancellationToken);
-
-        await _context.WikiPageRelations
-            .Where(r => r.WikiVersionId == wikiVersion.Id)
-            .ExecuteDeleteAsync(cancellationToken);
-
-        await _context.WikiPages
-            .Where(p => p.WikiVersionId == wikiVersion.Id)
-            .ExecuteDeleteAsync(cancellationToken);
-
-        var persistedPages = new List<WikiPage>();
-        foreach (var pageWithIndex in structure.Pages.Select((page, index) => new { page, index }))
-        {
-            // V4：WikiPage 直接归属 WikiVersion，不再通过 Wiki 关联
-            persistedPages.Add(new WikiPage
-            {
-                WikiVersionId = wikiVersion.Id,
-                TaskId = task.Id,
-                PageOrder = pageWithIndex.index,
-                Title = pageWithIndex.page.Title,
-                NavTitle = string.IsNullOrWhiteSpace(pageWithIndex.page.NavTitle) ? pageWithIndex.page.Title : pageWithIndex.page.NavTitle,
-                ContentMarkdown = pageWithIndex.page.Content,
-                PageType = string.IsNullOrWhiteSpace(pageWithIndex.page.PageType)
-                    ? (pageWithIndex.page.IsSection == true ? "section" : "article")
-                    : pageWithIndex.page.PageType,
-                Importance = pageWithIndex.page.Importance,
-                OutlineJson = JsonSerializer.Serialize(pageWithIndex.page.Outline ?? new List<WikiPageHeadingDto>(), ArtifactJsonOptions),
-                Summary = string.IsNullOrWhiteSpace(pageWithIndex.page.FrontMatter?.Summary)
-                    ? pageWithIndex.page.Description
-                    : pageWithIndex.page.FrontMatter.Summary,
-                SourceCoverageJson = JsonSerializer.Serialize(pageWithIndex.page.SourceCoverage ?? new WikiPageSourceCoverageDto(), ArtifactJsonOptions),
-                FilePaths = pageWithIndex.page.FilePaths?.ToArray(),
-                TokenCount = string.IsNullOrWhiteSpace(pageWithIndex.page.Content)
-                    ? 0
-                    : pageWithIndex.page.Content.Length / 4,
-                Status = "ready"
-            });
-        }
-
-        _context.WikiPages.AddRange(persistedPages);
-        await _context.SaveChangesAsync(cancellationToken);
-
-        var pageIdMapping = structure.Pages
-            .Select((page, index) => new { page.Id, PersistedId = persistedPages[index].Id })
-            .ToDictionary(item => item.Id, item => item.PersistedId, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var pageWithIndex in structure.Pages.Select((page, index) => new { page, index }))
-        {
-            if (!string.IsNullOrWhiteSpace(pageWithIndex.page.ParentId)
-                && pageIdMapping.TryGetValue(pageWithIndex.page.ParentId, out var parentPageId))
-            {
-                persistedPages[pageWithIndex.index].ParentPageId = parentPageId;
-                persistedPages[pageWithIndex.index].Depth = CalculateDepth(pageWithIndex.page, structure.Pages, pageIdMapping);
+                repositoryVersion = await _db.Queryable<RepositoryVersion>()
+                    .FirstAsync(v => v.Id == task.ResolvedRepositoryVersionId.Value);
             }
-            else
+
+            repositoryVersion ??= await _db.Queryable<RepositoryVersion>()
+                .Where(v => v.RepositoryId == repositoryId && v.BranchName == branch && v.IsLatestOnBranch)
+                .OrderByDescending(v => v.CreatedAt)
+                .FirstAsync();
+
+            if (repositoryVersion is null)
             {
-                persistedPages[pageWithIndex.index].Depth = 0;
-            }
-        }
-
-        await _context.SaveChangesAsync(cancellationToken);
-
-        var relations = BuildWikiPageRelations(wikiVersion.Id, structure, pageIdMapping);
-        if (relations.Count > 0)
-        {
-            _context.WikiPageRelations.AddRange(relations);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-
-        wikiVersion.PageCount = persistedPages.Count;
-        wikiVersion.TocDepth = Math.Max(1, structure.Sections.Count > 0 ? 2 : 1);
-        wikiVersion.SummaryMarkdown = $"由任务 {task.Id} 生成，共 {persistedPages.Count} 个页面";
-        wikiVersion.Status = wikiSpace.PublishedWikiVersionId is null ? "published" : "ready";
-        wikiVersion.CompletedAt = DateTime.UtcNow;
-
-        if (wikiSpace.PublishedWikiVersionId is null)
-            wikiSpace.PublishedWikiVersionId = wikiVersion.Id;
-
-        task.ResolvedRepositoryVersionId = repositoryVersion.Id;
-        task.ResultWikiVersionId = wikiVersion.Id;
-        task.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(cancellationToken);
-
-        await UpsertArtifactAsync(
-            task,
-            "relation_artifact",
-            "relations",
-            "persistence",
-            0,
-            JsonSerializer.Serialize(new
-            {
-                wiki_version_id = wikiVersion.Id,
-                relation_count = relations.Count,
-                page_count = persistedPages.Count
-            }, ArtifactJsonOptions),
-            $"页面关系已写入，共 {relations.Count} 条",
-            cancellationToken);
-
-        await UpsertArtifactAsync(
-            task,
-            "render_artifact",
-            "render-snapshot",
-            "persistence",
-            0,
-            JsonSerializer.Serialize(new
-            {
-                wiki_version_id = wikiVersion.Id,
-                title = structure.Title,
-                description = structure.Description,
-                page_count = persistedPages.Count,
-                pages = persistedPages.Select(p => new
+                repositoryVersion = new RepositoryVersion
                 {
-                    page_id = p.Id,
-                    p.PageOrder,
-                    p.Title,
-                    p.NavTitle,
-                    p.PageType,
-                    p.Importance,
-                    p.ContentMarkdown,
-                    p.OutlineJson,
-                    p.SourceCoverageJson,
-                    p.Summary
-                })
-            }, ArtifactJsonOptions),
-            $"渲染快照已生成，共 {persistedPages.Count} 个页面",
-            cancellationToken);
+                    RepositoryId = repositoryId,
+                    BranchName = branch,
+                    CommitSha = "unknown",
+                    CommitTime = DateTime.UtcNow,
+                    CommitAuthor = "system",
+                    CommitMessage = $"由任务 {task.Id} 触发生成",
+                    SourceStatus = "active",
+                    IsLatestOnBranch = true,
+                    VersionSourceConfidence = "unknown"
+                };
+                await _db.Insertable(repositoryVersion).ExecuteCommandAsync(cancellationToken);
+            }
 
-        await transaction.CommitAsync(cancellationToken);
-        return (repositoryVersion.Id, wikiVersion.Id, persistedPages);
+            var wikiSpace = await _db.Queryable<WikiSpace>()
+                .FirstAsync(s => s.RepositoryId == repositoryId
+                    && s.Language == language
+                    && s.ViewType == "default");
+
+            if (wikiSpace is null)
+            {
+                wikiSpace = new WikiSpace
+                {
+                    RepositoryId = repositoryId,
+                    Language = language,
+                    ViewType = "default",
+                    Title = $"{repository.DisplayName} Wiki",
+                    Description = $"为 {repository.DisplayName} 生成的 Wiki"
+                };
+                await _db.Insertable(wikiSpace).ExecuteCommandAsync(cancellationToken);
+            }
+
+            // 始终创建新版本，不复用已有版本
+            var maxVersionNo = await _db.Queryable<WikiVersion>()
+                .Where(v => v.WikiSpaceId == wikiSpace.Id)
+                .MaxAsync(v => (int?)v.VersionNo) ?? 0;
+
+            var wikiVersion = new WikiVersion
+            {
+                WikiSpaceId = wikiSpace.Id,
+                RepositoryVersionId = repositoryVersion.Id,
+                VersionNo = maxVersionNo + 1,
+                GenerationMode = task.ForceRefresh ? "rebuild" : "latest",
+                GenerationProfile = generationProfile,
+                Status = "generating",
+                PageCount = 0,
+                TocDepth = 1,
+                SummaryMarkdown = $"由任务 {task.Id} 生成",
+                StructureJson = structureJson,
+                CreatedByTaskId = task.Id,
+                IsForceRefresh = task.ForceRefresh
+            };
+            await _db.Insertable(wikiVersion).ExecuteCommandAsync(cancellationToken);
+
+            await _db.Deleteable<WikiPageRelation>()
+                .Where(r => r.WikiVersionId == wikiVersion.Id)
+                .ExecuteCommandAsync(cancellationToken);
+
+            await _db.Deleteable<WikiPage>()
+                .Where(p => p.WikiVersionId == wikiVersion.Id)
+                .ExecuteCommandAsync(cancellationToken);
+
+            var persistedPages = new List<WikiPage>();
+            foreach (var pageWithIndex in structure.Pages.Select((page, index) => new { page, index }))
+            {
+                // V4：WikiPage 直接归属 WikiVersion，不再通过 Wiki 关联
+                persistedPages.Add(new WikiPage
+                {
+                    WikiVersionId = wikiVersion.Id,
+                    TaskId = task.Id,
+                    PageOrder = pageWithIndex.index,
+                    Title = pageWithIndex.page.Title,
+                    NavTitle = string.IsNullOrWhiteSpace(pageWithIndex.page.NavTitle) ? pageWithIndex.page.Title : pageWithIndex.page.NavTitle,
+                    ContentMarkdown = pageWithIndex.page.Content,
+                    PageType = string.IsNullOrWhiteSpace(pageWithIndex.page.PageType)
+                        ? (pageWithIndex.page.IsSection == true ? "section" : "article")
+                        : pageWithIndex.page.PageType,
+                    Importance = pageWithIndex.page.Importance,
+                    OutlineJson = JsonSerializer.Serialize(pageWithIndex.page.Outline ?? new List<WikiPageHeadingDto>(), ArtifactJsonOptions),
+                    Summary = string.IsNullOrWhiteSpace(pageWithIndex.page.FrontMatter?.Summary)
+                        ? pageWithIndex.page.Description
+                        : pageWithIndex.page.FrontMatter.Summary,
+                    SourceCoverageJson = JsonSerializer.Serialize(pageWithIndex.page.SourceCoverage ?? new WikiPageSourceCoverageDto(), ArtifactJsonOptions),
+                    FilePaths = pageWithIndex.page.FilePaths?.ToArray(),
+                    TokenCount = string.IsNullOrWhiteSpace(pageWithIndex.page.Content)
+                        ? 0
+                        : pageWithIndex.page.Content.Length / 4,
+                    Status = "ready"
+                });
+            }
+
+            await _db.Insertable(persistedPages).ExecuteCommandAsync(cancellationToken);
+
+            var pageIdMapping = structure.Pages
+                .Select((page, index) => new { page.Id, PersistedId = persistedPages[index].Id })
+                .ToDictionary(item => item.Id, item => item.PersistedId, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var pageWithIndex in structure.Pages.Select((page, index) => new { page, index }))
+            {
+                if (!string.IsNullOrWhiteSpace(pageWithIndex.page.ParentId)
+                    && pageIdMapping.TryGetValue(pageWithIndex.page.ParentId, out var parentPageId))
+                {
+                    persistedPages[pageWithIndex.index].ParentPageId = parentPageId;
+                    persistedPages[pageWithIndex.index].Depth = CalculateDepth(pageWithIndex.page, structure.Pages, pageIdMapping);
+                }
+                else
+                {
+                    persistedPages[pageWithIndex.index].Depth = 0;
+                }
+            }
+
+            await _db.Updateable(persistedPages).ExecuteCommandAsync(cancellationToken);
+
+            var relations = BuildWikiPageRelations(wikiVersion.Id, structure, pageIdMapping);
+            if (relations.Count > 0)
+            {
+                await _db.Insertable(relations).ExecuteCommandAsync(cancellationToken);
+            }
+
+            wikiVersion.PageCount = persistedPages.Count;
+            wikiVersion.TocDepth = Math.Max(1, structure.Sections.Count > 0 ? 2 : 1);
+            wikiVersion.SummaryMarkdown = $"由任务 {task.Id} 生成，共 {persistedPages.Count} 个页面";
+            wikiVersion.Status = wikiSpace.PublishedWikiVersionId is null ? "published" : "ready";
+            wikiVersion.CompletedAt = DateTime.UtcNow;
+            await _db.Updateable(wikiVersion).ExecuteCommandAsync(cancellationToken);
+
+            if (wikiSpace.PublishedWikiVersionId is null)
+            {
+                wikiSpace.PublishedWikiVersionId = wikiVersion.Id;
+                await _db.Updateable(wikiSpace).ExecuteCommandAsync(cancellationToken);
+            }
+
+            task.ResolvedRepositoryVersionId = repositoryVersion.Id;
+            task.ResultWikiVersionId = wikiVersion.Id;
+            task.UpdatedAt = DateTime.UtcNow;
+            await _db.Updateable(task).ExecuteCommandAsync(cancellationToken);
+
+            await UpsertArtifactAsync(
+                task,
+                "relation_artifact",
+                "relations",
+                "persistence",
+                0,
+                JsonSerializer.Serialize(new
+                {
+                    wiki_version_id = wikiVersion.Id,
+                    relation_count = relations.Count,
+                    page_count = persistedPages.Count
+                }, ArtifactJsonOptions),
+                $"页面关系已写入，共 {relations.Count} 条",
+                cancellationToken);
+
+            await UpsertArtifactAsync(
+                task,
+                "render_artifact",
+                "render-snapshot",
+                "persistence",
+                0,
+                JsonSerializer.Serialize(new
+                {
+                    wiki_version_id = wikiVersion.Id,
+                    title = structure.Title,
+                    description = structure.Description,
+                    page_count = persistedPages.Count,
+                    pages = persistedPages.Select(p => new
+                    {
+                        page_id = p.Id,
+                        p.PageOrder,
+                        p.Title,
+                        p.NavTitle,
+                        p.PageType,
+                        p.Importance,
+                        p.ContentMarkdown,
+                        p.OutlineJson,
+                        p.SourceCoverageJson,
+                        p.Summary
+                    })
+                }, ArtifactJsonOptions),
+                $"渲染快照已生成，共 {persistedPages.Count} 个页面",
+                cancellationToken);
+
+            await _db.Ado.CommitTranAsync();
+            return (repositoryVersion.Id, wikiVersion.Id, persistedPages);
+        }
+        catch
+        {
+            await _db.Ado.RollbackTranAsync();
+            throw;
+        }
     }
 
     /// <summary>
@@ -264,10 +269,10 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
         CancellationToken cancellationToken)
     {
         var contentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payloadJson))).ToLowerInvariant();
-        var artifact = await _context.TaskArtifacts
-            .FirstOrDefaultAsync(a => a.TaskId == task.Id
+        var artifact = await _db.Queryable<TaskArtifact>()
+            .FirstAsync(a => a.TaskId == task.Id
                 && a.ArtifactType == artifactType
-                && a.ArtifactKey == artifactKey, cancellationToken);
+                && a.ArtifactKey == artifactKey);
 
         if (artifact is null)
         {
@@ -280,7 +285,7 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
                 Sequence = sequence,
                 PayloadJson = payloadJson
             };
-            _context.TaskArtifacts.Add(artifact);
+            await _db.Insertable(artifact).ExecuteCommandAsync(cancellationToken);
         }
 
         artifact.StageName = stageName;
@@ -292,12 +297,12 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
         artifact.ErrorMessage = null;
         artifact.UpdatedAt = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await _db.Updateable(artifact).ExecuteCommandAsync(cancellationToken);
 
         task.LastArtifactId = artifact.Id;
         task.LastSuccessfulStage = stageName;
         task.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(cancellationToken);
+        await _db.Updateable(task).ExecuteCommandAsync(cancellationToken);
     }
 
     /// <summary>

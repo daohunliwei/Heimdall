@@ -1,55 +1,75 @@
+using SqlSugar;
+
 namespace Heimdall.Core.Entities;
 
+[SugarTable("wiki_pages")]
 public class WikiPage
 {
-    /// <summary>页面主键</summary>
+    [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
-    /// <summary>所属 Wiki 版本（V4 必填锚点）</summary>
+
     public Guid WikiVersionId { get; set; }
-    /// <summary>所属 Wiki 版本导航属性</summary>
+
+    [Navigate(NavigateType.OneToOne, nameof(WikiVersionId))]
     public WikiVersion WikiVersion { get; set; } = null!;
-    /// <summary>关联的任务 ID（可选）</summary>
+
     public Guid? TaskId { get; set; }
-    /// <summary>关联的任务记录</summary>
+
+    [Navigate(NavigateType.OneToOne, nameof(TaskId))]
     public TaskRecord? Task { get; set; }
-    /// <summary>页面顺序</summary>
+
     public int PageOrder { get; set; }
-    /// <summary>页面标题</summary>
+
+    [SugarColumn(ColumnDataType = "text")]
     public string Title { get; set; } = string.Empty;
-    /// <summary>导航标题（可短于 Title）</summary>
+
+    [SugarColumn(ColumnName = "nav_title", Length = 256, IsNullable = true)]
     public string? NavTitle { get; set; }
-    /// <summary>页面正文 Markdown</summary>
+
+    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
     public string? ContentMarkdown { get; set; }
-    /// <summary>父页面 ID（层级关系）</summary>
+
     public Guid? ParentPageId { get; set; }
-    /// <summary>父页面导航属性</summary>
+
+    [Navigate(NavigateType.OneToOne, nameof(ParentPageId))]
     public WikiPage? ParentPage { get; set; }
-    /// <summary>页面类型：section / article / overview / appendix</summary>
+
+    [SugarColumn(ColumnName = "page_type", Length = 16)]
     public string PageType { get; set; } = "article";
-    /// <summary>重要程度：high / medium / low</summary>
+
+    [SugarColumn(Length = 8)]
     public string Importance { get; set; } = "medium";
-    /// <summary>层级深度</summary>
+
+    [SugarColumn(ColumnName = "depth")]
     public int Depth { get; set; }
-    /// <summary>页面结构化目录 JSON</summary>
+
+    [SugarColumn(ColumnName = "outline_json", ColumnDataType = "jsonb", IsNullable = true)]
     public string? OutlineJson { get; set; }
-    /// <summary>页面摘要文本</summary>
+
+    [SugarColumn(ColumnName = "summary", ColumnDataType = "text", IsNullable = true)]
     public string? Summary { get; set; }
-    /// <summary>来源文件、符号、版本覆盖信息 JSON</summary>
+
+    [SugarColumn(ColumnName = "source_coverage_json", ColumnDataType = "jsonb", IsNullable = true)]
     public string? SourceCoverageJson { get; set; }
-    /// <summary>关联的源文件路径列表</summary>
+
+    [SugarColumn(ColumnDataType = "text[]", IsNullable = true)]
     public string[]? FilePaths { get; set; }
-    /// <summary>Token 数估算</summary>
+
+    [SugarColumn(ColumnName = "token_count", IsNullable = true)]
     public int? TokenCount { get; set; }
-    /// <summary>页面状态：ready / stale / generating</summary>
+
+    [SugarColumn(ColumnName = "status", Length = 16)]
     public string Status { get; set; } = "ready";
-    /// <summary>创建时间</summary>
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    /// <summary>最后更新时间</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-    /// <summary>子页面集合</summary>
-    public ICollection<WikiPage> Children { get; set; } = new List<WikiPage>();
-    /// <summary>作为源头的页面关系</summary>
-    public ICollection<WikiPageRelation> SourceRelations { get; set; } = new List<WikiPageRelation>();
-    /// <summary>作为目标的页面关系</summary>
-    public ICollection<WikiPageRelation> TargetRelations { get; set; } = new List<WikiPageRelation>();
+
+    [Navigate(NavigateType.OneToMany, nameof(WikiPage.ParentPageId))]
+    public List<WikiPage> Children { get; set; } = new();
+
+    [Navigate(NavigateType.OneToMany, nameof(WikiPageRelation.SourcePageId))]
+    public List<WikiPageRelation> SourceRelations { get; set; } = new();
+
+    [Navigate(NavigateType.OneToMany, nameof(WikiPageRelation.TargetPageId))]
+    public List<WikiPageRelation> TargetRelations { get; set; } = new();
 }

@@ -1,41 +1,37 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
 public class WikiPageRelationRepository : IWikiPageRelationRepository
 {
-    private readonly AppDbContext _context;
-    public WikiPageRelationRepository(AppDbContext context) => _context = context;
+    private readonly ISqlSugarClient _db;
+    public WikiPageRelationRepository(ISqlSugarClient db) => _db = db;
 
     public async Task<List<WikiPageRelation>> GetByVersionIdAsync(Guid wikiVersionId)
     {
-        return await _context.WikiPageRelations
+        return await _db.Queryable<WikiPageRelation>()
             .Where(r => r.WikiVersionId == wikiVersionId)
-            .AsNoTracking()
             .ToListAsync();
     }
 
     public async Task<List<WikiPageRelation>> GetBySourcePageIdAsync(Guid pageId)
     {
-        return await _context.WikiPageRelations
+        return await _db.Queryable<WikiPageRelation>()
             .Where(r => r.SourcePageId == pageId)
-            .AsNoTracking()
             .ToListAsync();
     }
 
     public async Task AddRangeAsync(IEnumerable<WikiPageRelation> relations)
     {
-        _context.WikiPageRelations.AddRange(relations);
-        await _context.SaveChangesAsync();
+        await _db.Insertable(relations.ToList()).ExecuteCommandAsync();
     }
 
     public async Task<int> DeleteByVersionIdAsync(Guid wikiVersionId)
     {
-        return await _context.WikiPageRelations
+        return await _db.Deleteable<WikiPageRelation>()
             .Where(r => r.WikiVersionId == wikiVersionId)
-            .ExecuteDeleteAsync();
+            .ExecuteCommandAsync();
     }
 }

@@ -1,134 +1,119 @@
 using System.Diagnostics;
 using Heimdall.Infrastructure.Configuration;
-using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Providers;
-using Heimdall.Infrastructure.Services;
 using Heimdall.Infrastructure.Utilities;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services.Tasks;
 
+/// <summary>
+/// LLM 调用服务 — 基于 MEAI IChatClient 封装调用、日志与成本估算。
+/// </summary>
 public sealed class TaskLlmService
 {
-    private readonly ProviderRegistry _providerRegistry;
-    private readonly ProviderRateLimiter _rateLimiter;
-    private readonly LlmRetryPolicy _retryPolicy;
+    private readonly ChatClientFactory _chatClientFactory;
     private readonly HeimdallConfigService _configService;
     private readonly ILogger<TaskLlmService> _logger;
 
     public TaskLlmService(
-        ProviderRegistry providerRegistry,
-        ProviderRateLimiter rateLimiter,
-        LlmRetryPolicy retryPolicy,
+        ChatClientFactory chatClientFactory,
         HeimdallConfigService configService,
         ILogger<TaskLlmService> logger)
     {
-        _providerRegistry = providerRegistry;
-        _rateLimiter = rateLimiter;
-        _retryPolicy = retryPolicy;
+        _chatClientFactory = chatClientFactory;
         _configService = configService;
         _logger = logger;
     }
 
     /// <summary>
-    /// 生成文本（兼容旧接口）。
+    /// 生成文本（非流式）。
     /// </summary>
     public async Task<string> GenerateTextAsync(
         string provider, string? model, string? customModel, string prompt,
         CancellationToken ct, string? systemPrompt = null)
     {
         var response = await GenerateWithMetricsAsync(provider, model, customModel, prompt, ct, systemPrompt);
-        return response.Content;
+        return response.Messages.LastOrDefault()?.Text ?? string.Empty;
     }
 
     /// <summary>
-    /// 带完整指标的 LLM 调用——返回 Token 用量、延迟等元数据。
+    /// 带完整指标的 LLM 调用——返回 ChatResponse（含 UsageDetails）。
     /// </summary>
-    public async Task<ChatCompletionResponse> GenerateWithMetricsAsync(
+    public async Task<ChatResponse> GenerateWithMetricsAsync(
         string provider, string? model, string? customModel, string prompt,
         CancellationToken ct, string? systemPrompt = null)
     {
-        var effectiveProvider = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
+        var providerId = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
         var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
             : !string.IsNullOrWhiteSpace(customModel) ? customModel
             : null;
 
-        var request = new ChatCompletionRequest
-        {
-            Provider = effectiveProvider,
-            Model = effectiveModel ?? string.Empty,
-            CustomModel = customModel,
-            Messages = [new ChatMessage { Role = "user", Content = prompt }]
-        };
-
-        var (resolvedProviderId, resolvedModel, parameters, metadata, chatProvider) = _providerRegistry.ResolveChatProviderWithMetadata(request);
-
-        if (string.IsNullOrWhiteSpace(resolvedModel))
+        if (string.IsNullOrWhiteSpace(effectiveModel))
         {
             throw new InvalidOperationException(
-                $"无法解析 Provider='{resolvedProviderId}' 的模型。请在请求中指定 model 参数，或在 generator.json 中配置该 Provider 的默认模型。");
+                $"无法解析 Provider='{providerId}' 的模型。请在请求中指定 model 参数。");
         }
 
+        var chatClient = _chatClientFactory.GetClient(providerId);
+        var estimatedPromptTokens = TokenCounter.EstimateTokenCount(prompt);
+
         _logger.LogInformation(
-            "[LLM] 调用开始 Provider={Provider} Model={Model} BillingType={Billing} ContextBudget={ContextBudget} MaxOutput={MaxOutput} PromptTokens(est)={PromptTokens} Strategy={Strategy}",
-            resolvedProviderId, resolvedModel,
-            metadata.BillingType,
-            metadata.MaxContextTokens,
-            metadata.MaxOutputTokens,
-            TokenCounter.EstimateTokenCount(prompt),
-            metadata.BillingType == BillingType.CodingPlan ? "BatchMerge" : "PerItem");
+            "[LLM] 调用开始 Provider={Provider} Model={Model} PromptTokens(est)={PromptTokens}",
+            providerId, effectiveModel, estimatedPromptTokens);
 
-        // 速率限制等待
-        await _rateLimiter.AcquireAsync(resolvedProviderId, resolvedModel, ct);
+        var sw = Stopwatch.StartNew();
 
-        // 带重试的调用，传入 MaxOutputTokens 作为 max_tokens
-        var response = await _retryPolicy.ExecuteAsync(async token =>
+        var messages = new List<ChatMessage>();
+        if (!string.IsNullOrEmpty(systemPrompt))
         {
-            return await chatProvider.GenerateWithMetricsAsync(new ProviderChatRequest
-            {
-                ProviderId = resolvedProviderId,
-                Model = resolvedModel,
-                Prompt = prompt,
-                SystemPrompt = systemPrompt,
-                Temperature = parameters.Temperature,
-                TopP = parameters.TopP,
-                TopK = parameters.TopK,
-                MaxOutputTokens = metadata.MaxOutputTokens,
-                Options = parameters.Options
-            }, token);
-        }, $"GenerateText:{resolvedProviderId}/{resolvedModel}", ct);
+            messages.Add(new ChatMessage(ChatRole.System, systemPrompt));
+        }
+        messages.Add(new ChatMessage(ChatRole.User, prompt));
 
-        // 调用后日志——Token 消耗、缓存命中、延迟、估算成本
-        var estimatedCost = EstimateCallCost(resolvedProviderId, response.Usage);
-        _logger.LogInformation(
-            "[LLM] 调用完成 Provider={Provider} Model={Model} Latency={Ms}ms InputTokens={In} OutputTokens={Out} CacheHit={Cache} Estimated={Est} Cost≈${Cost:F4}",
-            resolvedProviderId, resolvedModel, response.LatencyMs,
-            response.Usage.InputTokens, response.Usage.OutputTokens,
-            response.Usage.CacheHitTokens, response.Usage.IsEstimated, estimatedCost);
+        var options = new ChatOptions
+        {
+            ModelId = effectiveModel,
+            MaxOutputTokens = 8192,
+        };
 
-        return response;
+        try
+        {
+            var response = await chatClient.GetResponseAsync(messages, options, ct);
+            sw.Stop();
+
+            var usage = response.Usage ?? new UsageDetails();
+            var estimatedCost = EstimateCallCost(providerId,
+                (int)usage.InputTokenCount, (int)usage.OutputTokenCount);
+
+            _logger.LogInformation(
+                "[LLM] 调用完成 Provider={Provider} Model={Model} Latency={Ms}ms InputTokens={In} OutputTokens={Out} Cost≈${Cost:F4}",
+                providerId, effectiveModel, sw.ElapsedMilliseconds,
+                usage.InputTokenCount, usage.OutputTokenCount, estimatedCost);
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _logger.LogError(ex,
+                "[LLM] 调用失败 Provider={Provider} Model={Model} Latency={Ms}ms",
+                providerId, effectiveModel, sw.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     public (string providerId, string model) ResolveTarget(string? provider, string? model, string? customModel)
     {
-        var request = new ChatCompletionRequest
-        {
-            Provider = provider,
-            Model = model ?? customModel ?? string.Empty,
-            CustomModel = customModel
-        };
-        var (pid, m, _, _) = _providerRegistry.ResolveChatProvider(request);
-        return (pid, m);
+        var providerId = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
+        var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
+            : !string.IsNullOrWhiteSpace(customModel) ? customModel
+            : string.Empty;
+        return (providerId, effectiveModel);
     }
 
-    /// <summary>
-    /// 简单成本估算（基于通用 Token 定价），用于日志参考。
-    /// Ollama 等本地模型返回 0。
-    /// </summary>
-    private static decimal EstimateCallCost(string provider, TokenUsage usage)
+    private static decimal EstimateCallCost(string provider, long? inputTokens, long? outputTokens)
     {
-        // 通用估算: OpenAI GPT-4o 级别 $2.5/MTok input, $10/MTok output
-        // 本地 Provider 免费
         if (provider.Contains("ollama", StringComparison.OrdinalIgnoreCase))
             return 0m;
 
@@ -139,6 +124,6 @@ public sealed class TaskLlmService
             : provider.Contains("google", StringComparison.OrdinalIgnoreCase) ? 5.0m
             : 8.0m;
 
-        return (usage.InputTokens * inputCostPerMTok + usage.OutputTokens * outputCostPerMTok) / 1_000_000m;
+        return ((inputTokens ?? 0) * inputCostPerMTok + (outputTokens ?? 0) * outputCostPerMTok) / 1_000_000m;
     }
 }

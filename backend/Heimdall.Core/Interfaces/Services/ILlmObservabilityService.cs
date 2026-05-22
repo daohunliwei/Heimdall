@@ -1,6 +1,6 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Infrastructure.Models;
+using Microsoft.Extensions.AI;
 
 namespace Heimdall.Core.Interfaces.Services;
 
@@ -13,7 +13,8 @@ public interface ILlmObservabilityService
     /// 记录一次 LLM 调用指标。
     /// </summary>
     Task RecordCallAsync(Guid taskId, string stage, string provider, string model,
-        ChatCompletionResponse response, CancellationToken ct = default);
+        UsageDetails? usage, int latencyMs, bool success, bool isStreaming = false,
+        int? firstTokenLatencyMs = null, string? errorType = null, CancellationToken ct = default);
 
     /// <summary>
     /// 获取指定任务的指标汇总。

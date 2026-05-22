@@ -1,28 +1,58 @@
+using SqlSugar;
+
 namespace Heimdall.Core.Entities;
 
+[SugarTable("repositories")]
 public class Repository
 {
+    [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
-    /// <summary>仓库平台类型：github / gitlab / bitbucket / local</summary>
+
+    [SugarColumn(ColumnName = "provider_type", Length = 32)]
     public string ProviderType { get; set; } = "github";
-    /// <summary>上游平台可稳定识别的仓库键，优先使用平台原生 ID</summary>
+
+    [SugarColumn(ColumnName = "provider_repository_key", Length = 256, IsNullable = true)]
     public string? ProviderRepositoryKey { get; set; }
-    /// <summary>展示名称，形如 owner/repo</summary>
+
+    [SugarColumn(ColumnName = "display_name", Length = 512)]
     public string DisplayName { get; set; } = string.Empty;
+
+    [SugarColumn(Length = 128)]
     public string Owner { get; set; } = string.Empty;
+
+    [SugarColumn(Length = 128)]
     public string RepoName { get; set; } = string.Empty;
+
+    [SugarColumn(Length = 16)]
     public string RepoType { get; set; } = "github";
+
+    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
     public string? RepoUrl { get; set; }
+
+    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
     public string? CloneUrl { get; set; }
+
+    [SugarColumn(Length = 128)]
     public string DefaultBranch { get; set; } = "main";
+
+    [SugarColumn(Length = 8)]
     public string DefaultLanguage { get; set; } = "zh";
+
+    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
     public string? Description { get; set; }
+
+    [SugarColumn(ColumnName = "is_archived")]
     public bool IsArchived { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-    /// <summary>关联的任务记录</summary>
-    public ICollection<TaskRecord> Tasks { get; set; } = new List<TaskRecord>();
-    /// <summary>仓库快照版本列表</summary>
-    public ICollection<RepositoryVersion> RepositoryVersions { get; set; } = new List<RepositoryVersion>();
-    public ICollection<WikiSpace> WikiSpaces { get; set; } = new List<WikiSpace>();
+
+    [Navigate(NavigateType.OneToMany, nameof(TaskRecord.RepositoryId))]
+    public List<TaskRecord> Tasks { get; set; } = new();
+
+    [Navigate(NavigateType.OneToMany, nameof(RepositoryVersion.RepositoryId))]
+    public List<RepositoryVersion> RepositoryVersions { get; set; } = new();
+
+    [Navigate(NavigateType.OneToMany, nameof(WikiSpace.RepositoryId))]
+    public List<WikiSpace> WikiSpaces { get; set; } = new();
 }

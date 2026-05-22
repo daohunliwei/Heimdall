@@ -23,7 +23,7 @@ public class LoggingController : ControllerBase
         return Ok(new
         {
             showSql = _filter.ShowSqlCommands,
-            showEfCore = _filter.ShowEfCore,
+            showSqlSugar = _filter.ShowSqlSugar,
             showStructuredProgress = _filter.ShowStructuredProgress
         });
     }
@@ -37,8 +37,8 @@ public class LoggingController : ControllerBase
         if (request.ShowSql.HasValue)
             _filter.ShowSqlCommands = request.ShowSql.Value;
 
-        if (request.ShowEfCore.HasValue)
-            _filter.ShowEfCore = request.ShowEfCore.Value;
+        if (request.ShowSqlSugar.HasValue)
+            _filter.ShowSqlSugar = request.ShowSqlSugar.Value;
 
         if (request.ShowStructuredProgress.HasValue)
             _filter.ShowStructuredProgress = request.ShowStructuredProgress.Value;
@@ -46,7 +46,7 @@ public class LoggingController : ControllerBase
         return Ok(new
         {
             showSql = _filter.ShowSqlCommands,
-            showEfCore = _filter.ShowEfCore,
+            showSqlSugar = _filter.ShowSqlSugar,
             showStructuredProgress = _filter.ShowStructuredProgress
         });
     }
@@ -55,6 +55,6 @@ public class LoggingController : ControllerBase
 public class LogFilterRequest
 {
     public bool? ShowSql { get; set; }
-    public bool? ShowEfCore { get; set; }
+    public bool? ShowSqlSugar { get; set; }
     public bool? ShowStructuredProgress { get; set; }
 }

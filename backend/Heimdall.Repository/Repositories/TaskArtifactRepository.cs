@@ -1,7 +1,6 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
@@ -10,14 +9,14 @@ namespace Heimdall.Repository.Repositories;
 /// </summary>
 public class TaskArtifactRepository : ITaskArtifactRepository
 {
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
     /// <summary>
     /// 初始化任务工件仓储。
     /// </summary>
-    public TaskArtifactRepository(AppDbContext context)
+    public TaskArtifactRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
     /// <summary>
@@ -25,11 +24,10 @@ public class TaskArtifactRepository : ITaskArtifactRepository
     /// </summary>
     public async Task<List<TaskArtifact>> GetByTaskIdAsync(Guid taskId)
     {
-        return await _context.TaskArtifacts
-            .AsNoTracking()
+        return await _db.Queryable<TaskArtifact>()
             .Where(a => a.TaskId == taskId)
             .OrderBy(a => a.CreatedAt)
-            .ThenBy(a => a.Sequence)
+            .OrderBy(a => a.Sequence)
             .ToListAsync();
     }
 
@@ -38,8 +36,8 @@ public class TaskArtifactRepository : ITaskArtifactRepository
     /// </summary>
     public async Task<TaskArtifact?> GetByTypeAndKeyAsync(Guid taskId, string artifactType, string artifactKey)
     {
-        return await _context.TaskArtifacts
-            .FirstOrDefaultAsync(a => a.TaskId == taskId
+        return await _db.Queryable<TaskArtifact>()
+            .FirstAsync(a => a.TaskId == taskId
                 && a.ArtifactType == artifactType
                 && a.ArtifactKey == artifactKey);
     }
@@ -49,11 +47,10 @@ public class TaskArtifactRepository : ITaskArtifactRepository
     /// </summary>
     public async Task<List<TaskArtifact>> GetByTypeAsync(Guid taskId, string artifactType)
     {
-        return await _context.TaskArtifacts
-            .AsNoTracking()
+        return await _db.Queryable<TaskArtifact>()
             .Where(a => a.TaskId == taskId && a.ArtifactType == artifactType)
             .OrderBy(a => a.Sequence)
-            .ThenBy(a => a.CreatedAt)
+            .OrderBy(a => a.CreatedAt)
             .ToListAsync();
     }
 
@@ -62,8 +59,8 @@ public class TaskArtifactRepository : ITaskArtifactRepository
     /// </summary>
     public async Task<TaskArtifact> UpsertAsync(TaskArtifact artifact)
     {
-        var existing = await _context.TaskArtifacts
-            .FirstOrDefaultAsync(a => a.TaskId == artifact.TaskId
+        var existing = await _db.Queryable<TaskArtifact>()
+            .FirstAsync(a => a.TaskId == artifact.TaskId
                 && a.ArtifactType == artifact.ArtifactType
                 && a.ArtifactKey == artifact.ArtifactKey);
 
@@ -71,8 +68,7 @@ public class TaskArtifactRepository : ITaskArtifactRepository
         {
             artifact.CreatedAt = DateTime.UtcNow;
             artifact.UpdatedAt = artifact.CreatedAt;
-            _context.TaskArtifacts.Add(artifact);
-            await _context.SaveChangesAsync();
+            await _db.Insertable(artifact).ExecuteCommandAsync();
             return artifact;
         }
 
@@ -85,7 +81,7 @@ public class TaskArtifactRepository : ITaskArtifactRepository
         existing.ErrorMessage = artifact.ErrorMessage;
         existing.UpdatedAt = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync();
+        await _db.Updateable(existing).ExecuteCommandAsync();
         return existing;
     }
 }

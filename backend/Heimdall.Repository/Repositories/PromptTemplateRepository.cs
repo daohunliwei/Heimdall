@@ -1,43 +1,40 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
 public class PromptTemplateRepository : IPromptTemplateRepository
 {
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
-    public PromptTemplateRepository(AppDbContext context)
+    public PromptTemplateRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
     public async Task<List<PromptTemplate>> GetAllAsync()
     {
-        return await _context.PromptTemplates
-            .AsNoTracking()
+        return await _db.Queryable<PromptTemplate>()
             .OrderBy(p => p.Name)
             .ToListAsync();
     }
 
     public async Task<PromptTemplate?> GetByIdAsync(Guid id)
     {
-        return await _context.PromptTemplates.FindAsync(id);
+        return await _db.Queryable<PromptTemplate>()
+            .FirstAsync(x => x.Id == id);
     }
 
     public async Task<PromptTemplate?> GetBySlugAsync(string slug)
     {
-        return await _context.PromptTemplates
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Slug == slug && p.IsActive);
+        return await _db.Queryable<PromptTemplate>()
+            .FirstAsync(p => p.Slug == slug && p.IsActive);
     }
 
     public async Task<List<PromptTemplate>> GetByLayerAsync(string layer)
     {
-        return await _context.PromptTemplates
-            .AsNoTracking()
+        return await _db.Queryable<PromptTemplate>()
             .Where(p => p.Layer == layer && p.IsActive)
             .OrderBy(p => p.Name)
             .ToListAsync();
@@ -45,8 +42,7 @@ public class PromptTemplateRepository : IPromptTemplateRepository
 
     public async Task<List<PromptTemplate>> GetByCategoryAsync(string category)
     {
-        return await _context.PromptTemplates
-            .AsNoTracking()
+        return await _db.Queryable<PromptTemplate>()
             .Where(p => p.Category == category && p.IsActive)
             .OrderBy(p => p.Priority)
             .ToListAsync();
@@ -54,8 +50,7 @@ public class PromptTemplateRepository : IPromptTemplateRepository
 
     public async Task<List<PromptTemplate>> GetBySlugAsync(IEnumerable<string> slugs)
     {
-        return await _context.PromptTemplates
-            .AsNoTracking()
+        return await _db.Queryable<PromptTemplate>()
             .Where(p => slugs.Contains(p.Slug) && p.IsActive)
             .OrderBy(p => p.Priority)
             .ToListAsync();
@@ -65,25 +60,23 @@ public class PromptTemplateRepository : IPromptTemplateRepository
     {
         template.CreatedAt = DateTime.UtcNow;
         template.UpdatedAt = DateTime.UtcNow;
-        _context.PromptTemplates.Add(template);
-        await _context.SaveChangesAsync();
+        await _db.Insertable(template).ExecuteCommandAsync();
         return template;
     }
 
     public async Task<PromptTemplate> UpdateAsync(PromptTemplate template)
     {
         template.UpdatedAt = DateTime.UtcNow;
-        _context.PromptTemplates.Update(template);
-        await _context.SaveChangesAsync();
+        await _db.Updateable(template).ExecuteCommandAsync();
         return template;
     }
 
     public async Task<bool> DeleteAsync(Guid id)
     {
-        var template = await _context.PromptTemplates.FindAsync(id);
+        var template = await _db.Queryable<PromptTemplate>()
+            .FirstAsync(x => x.Id == id);
         if (template is null) return false;
-        _context.PromptTemplates.Remove(template);
-        await _context.SaveChangesAsync();
+        await _db.Deleteable(template).ExecuteCommandAsync();
         return true;
     }
 }
