@@ -123,13 +123,13 @@
 
 ## 17. 前端流式适配
 
-- [ ] 17.1 Ask 页面新增流式回答模式，优先使用 `POST /tasks/ask/stream` 端点
-- [ ] 17.2 前端实现 SSE 读取（`fetch` + `ReadableStream`），逐 chunk 追加渲染 Markdown
+- [x] 17.1 Ask 页面新增流式回答模式，优先使用 `POST /tasks/ask/stream` 端点
+- [x] 17.2 前端实现 SSE 读取（`fetch` + `ReadableStream`），逐 chunk 追加渲染 Markdown
 
 ## 18. 验证与清理
 
 - [x] 18.1 执行 `dotnet build` 确保后端编译通过
-- [ ] 18.2 执行 `npm run build` 确保前端编译通过
+- [x] 18.2 执行 `npm run build` 确保前端编译通过
 - [ ] 18.3 运行 `dev-start.ps1` 启动应用，验证 Code First 自动建表成功
 - [ ] 18.4 验证 Chat 流式 SSE 端点在各个 Provider 上正常工作
 - [ ] 18.5 验证 Ask 流式输出在页面上实时显示

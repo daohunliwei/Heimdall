@@ -247,6 +247,67 @@ const Ask: React.FC<AskProps> = ({
     return taskResponse.json();
   };
 
+  /// 流式 Ask — 使用 fetch + ReadableStream 消费 SSE 端点
+  const requestAskTaskStream = async (
+    requestBody: AskTaskRequest,
+    onChunk: (text: string) => void,
+    signal?: AbortSignal
+  ): Promise<string> => {
+    const taskResponse = await fetch('/api/tasks/ask/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal,
+    });
+
+    if (!taskResponse.ok) {
+      const errorBody = await taskResponse.json().catch(() => ({ error: '请求失败' }));
+      throw new Error(errorBody.error || `Ask 流式任务失败：${taskResponse.status}`);
+    }
+
+    const reader = taskResponse.body?.getReader();
+    if (!reader) throw new Error('无法读取响应流');
+
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.content) {
+                fullText += parsed.content;
+                onChunk(parsed.content);
+              }
+            } catch {
+              // 非 JSON 数据直接作为文本追加
+              fullText += data;
+              onChunk(data);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return fullText;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -270,37 +331,57 @@ const Ask: React.FC<AskProps> = ({
     setResearchIteration(0);
     setResearchComplete(false);
 
+    const initialMessage: Message = {
+      role: 'user',
+      content: question
+    };
+
+    const requestBody: AskTaskRequest = {
+      repository_id: repositoryId,
+      question: question,
+      history: conversationHistory.map(msg => ({ role: msg.role as 'user' | 'assistant' | 'system', content: msg.content })),
+      deep_research: deepResearch,
+      repository_version_id: repositoryVersionId,
+      wiki_version_id: wikiVersionId,
+      provider: selectedProvider,
+      model: isCustomSelectedModel ? undefined : selectedModel,
+      is_custom_model: isCustomSelectedModel,
+      custom_model: isCustomSelectedModel ? customSelectedModel : undefined,
+      language: language
+    };
+
+    // 非深度研究模式优先使用流式 SSE 端点
+    const useStream = !deepResearch;
+
     try {
-      const initialMessage: Message = {
-        role: 'user',
-        content: question
-      };
-
-      const requestBody: AskTaskRequest = {
-        repository_id: repositoryId,
-        question: question,
-        history: conversationHistory.map(msg => ({ role: msg.role as 'user' | 'assistant' | 'system', content: msg.content })),
-        deep_research: deepResearch,
-        repository_version_id: repositoryVersionId,
-        wiki_version_id: wikiVersionId,
-        provider: selectedProvider,
-        model: isCustomSelectedModel ? undefined : selectedModel,
-        is_custom_model: isCustomSelectedModel,
-        custom_model: isCustomSelectedModel ? customSelectedModel : undefined,
-        language: language
-      };
-
-      const result = await requestAskTask(requestBody);
-      setResponse(result.content);
-      setResearchStages(result.stages || []);
-      setCurrentStageIndex(result.stages && result.stages.length > 0 ? result.stages.length - 1 : 0);
-      setResearchIteration(result.iterations || 1);
-      setResearchComplete(result.complete);
-      setConversationHistory([
-        ...conversationHistory,
-        initialMessage,
-        { role: 'assistant', content: result.content }
-      ]);
+      if (useStream) {
+        let fullContent = '';
+        await requestAskTaskStream(
+          requestBody,
+          (chunk) => {
+            fullContent += chunk;
+            setResponse(fullContent);
+          }
+        );
+        setResearchComplete(true);
+        setConversationHistory([
+          ...conversationHistory,
+          initialMessage,
+          { role: 'assistant', content: fullContent }
+        ]);
+      } else {
+        const result = await requestAskTask(requestBody);
+        setResponse(result.content);
+        setResearchStages(result.stages || []);
+        setCurrentStageIndex(result.stages && result.stages.length > 0 ? result.stages.length - 1 : 0);
+        setResearchIteration(result.iterations || 1);
+        setResearchComplete(result.complete);
+        setConversationHistory([
+          ...conversationHistory,
+          initialMessage,
+          { role: 'assistant', content: result.content }
+        ]);
+      }
     } catch (error) {
       console.error('Error during API call:', error);
       setResponse('获取回答失败，请稍后重试。');
@@ -432,6 +513,9 @@ const Ask: React.FC<AskProps> = ({
               className="p-4 max-h-[400px] overflow-y-auto"
             >
               <Markdown content={response} />
+              {isLoading && (
+                <span className="inline-block w-2 h-4 bg-[var(--accent-primary)] animate-pulse ml-1" />
+              )}
             </div>
 
             <div className="p-2 flex justify-between items-center border-t border-[var(--border-color)]">
@@ -485,7 +569,7 @@ const Ask: React.FC<AskProps> = ({
               <span className="text-xs text-[var(--muted)]">
                 {deepResearch
                   ? (researchIteration === 0 ? '正在启动深度研究任务...' : `后端正在执行第 ${researchIteration} 轮研究...`)
-                  : '正在生成回答...'}
+                  : '正在流式生成回答...'}
               </span>
             </div>
           </div>
