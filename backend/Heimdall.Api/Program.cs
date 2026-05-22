@@ -7,12 +7,10 @@ using System.Text;
 using Heimdall.Infrastructure.Configuration;
 using Heimdall.Infrastructure.Providers;
 using Heimdall.Infrastructure.Providers.ChatProviders;
-using Heimdall.Infrastructure.Providers.EmbeddingProviders;
 using Heimdall.Infrastructure.RepositorySources;
 using Heimdall.Infrastructure.Utilities;
 using Heimdall.Api.Middleware;
 using Heimdall.Core.Services.Auth;
-using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Tasks;
 using Heimdall.Core.Services.Admin;
 using Heimdall.Core.Services.Prompt;
@@ -135,14 +133,7 @@ builder.Services.AddSingleton<IChatProvider, BedrockChatProvider>();
 builder.Services.AddSingleton<IChatProvider>(sp =>
     new DeepSeekChatProvider(sp.GetRequiredService<IHttpClientFactory>().CreateClient(), sp.GetRequiredService<IConfiguration>()));
 
-// Embedding Providers
-builder.Services.AddSingleton<IEmbeddingProvider>(sp =>
-    new OpenAiEmbeddingProvider(sp.GetRequiredService<IHttpClientFactory>().CreateClient(), sp.GetRequiredService<IConfiguration>()));
-builder.Services.AddSingleton<IEmbeddingProvider>(sp =>
-    new GoogleEmbeddingProvider(sp.GetRequiredService<IHttpClientFactory>().CreateClient(), sp.GetRequiredService<IConfiguration>()));
-builder.Services.AddSingleton<IEmbeddingProvider>(sp =>
-    new OllamaEmbeddingProvider(sp.GetRequiredService<IHttpClientFactory>().CreateClient(), sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<HeimdallConfigService>(), sp.GetRequiredService<ILogger<OllamaEmbeddingProvider>>()));
-builder.Services.AddSingleton<IEmbeddingProvider, BedrockEmbeddingProvider>();
+// V8: 嵌入提供器已移除——当前阶段不需要向量化
 
 // Repository Layer (Scoped - 依赖 DbContext)
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -157,8 +148,7 @@ builder.Services.AddScoped<IPromptOverrideRepository, PromptOverrideRepository>(
 builder.Services.AddScoped<IPromptTemplateHistoryRepository, PromptTemplateHistoryRepository>();
 builder.Services.AddScoped<IRepositoryConfigRepository, RepositoryConfigRepository>();
 builder.Services.AddScoped<IRepositoryVersionRepository, RepositoryVersionRepository>();
-builder.Services.AddScoped<ICodeEmbeddingRepository, CodeEmbeddingRepository>();
-builder.Services.AddScoped<IWikiEmbeddingRepository, WikiEmbeddingRepository>();
+// V8: ICodeEmbeddingRepository / IWikiEmbeddingRepository 已移除
 builder.Services.AddScoped<IWikiSpaceRepository, WikiSpaceRepository>();
 builder.Services.AddScoped<IWikiVersionRepository, WikiVersionRepository>();
 builder.Services.AddScoped<IWikiPageRelationRepository, WikiPageRelationRepository>();
@@ -169,16 +159,14 @@ builder.Services.AddScoped<IProviderMetadataRepository, ProviderMetadataReposito
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IVersionDiscoveryService, VersionDiscoveryService>();
 builder.Services.AddScoped<IRefreshOrchestrationService, RefreshOrchestrationService>();
-builder.Services.AddScoped<IDualVectorSearchService, DualVectorSearchService>();
-builder.Services.AddScoped<ICodeEmbeddingService, CodeEmbeddingService>();
-builder.Services.AddScoped<IWikiEmbeddingService, WikiEmbeddingService>();
+// V8: DualVectorSearchService / CodeEmbeddingService / WikiEmbeddingService 已移除——BM25 替代
 builder.Services.AddScoped<IVersionedKnowledgeService, VersionedKnowledgeService>();
 builder.Services.AddScoped<IAskTaskService, AskTaskService>();
 builder.Services.AddScoped<ISlidesTaskService, SlidesTaskService>();
 builder.Services.AddScoped<IWorkshopTaskService, WorkshopTaskService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<JwtTokenService>();
-builder.Services.AddScoped<RagContextService>();
+// V8: RagContextService 已移除——Ask 使用 BM25 检索替代向量检索
 builder.Services.AddScoped<TaskRequestUtilityService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<TaskLlmCallLogService>();

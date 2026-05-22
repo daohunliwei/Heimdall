@@ -102,7 +102,7 @@ public class TaskRecord
 
     /// <summary>
     /// 当前执行阶段名称。
-    /// 例如 queued、repository_preparation、structure_planning、page_generation、persistence、code_embedding、wiki_embedding。
+    /// 例如 queued、repository_preparation、structure_planning、page_generation、persistence。
     /// </summary>
     public string CurrentStage { get; set; } = "queued";
 

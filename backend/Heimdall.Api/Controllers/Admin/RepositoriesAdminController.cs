@@ -10,21 +10,15 @@ namespace Heimdall.Api.Controllers.Admin;
 public class RepositoriesAdminController : ControllerBase
 {
     private readonly IRepositoryConfigRepository _repoRepo;
-    private readonly ICodeEmbeddingRepository _codeEmbeddingRepo;
-    private readonly IWikiEmbeddingRepository _wikiEmbeddingRepo;
     private readonly IRepositoryVersionRepository _versionRepo;
     private readonly IWikiVersionRepository _wikiVersionRepo;
 
     public RepositoriesAdminController(
         IRepositoryConfigRepository repoRepo,
-        ICodeEmbeddingRepository codeEmbeddingRepo,
-        IWikiEmbeddingRepository wikiEmbeddingRepo,
         IRepositoryVersionRepository versionRepo,
         IWikiVersionRepository wikiVersionRepo)
     {
         _repoRepo = repoRepo;
-        _codeEmbeddingRepo = codeEmbeddingRepo;
-        _wikiEmbeddingRepo = wikiEmbeddingRepo;
         _versionRepo = versionRepo;
         _wikiVersionRepo = wikiVersionRepo;
     }
@@ -48,11 +42,6 @@ public class RepositoriesAdminController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        // 清理向量数据
-        var versions = await _versionRepo.GetByRepositoryIdAsync(id);
-        foreach (var rv in versions)
-            await _codeEmbeddingRepo.DeleteByVersionIdAsync(rv.Id);
-
         var deleted = await _repoRepo.DeleteAsync(id);
         return deleted ? Ok() : NotFound();
     }
@@ -62,11 +51,6 @@ public class RepositoriesAdminController : ControllerBase
     {
         var repo = await _repoRepo.GetByIdAsync(id);
         if (repo is null) return NotFound();
-
-        // 清除向量缓存
-        var versions = await _versionRepo.GetByRepositoryIdAsync(id);
-        foreach (var rv in versions)
-            await _codeEmbeddingRepo.DeleteByVersionIdAsync(rv.Id);
 
         return Ok(new { status = "cleared" });
     }

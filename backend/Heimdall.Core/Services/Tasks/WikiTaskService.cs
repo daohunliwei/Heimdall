@@ -5,7 +5,6 @@ using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
 using Heimdall.Core.Interfaces.Services;
-using Heimdall.Core.Services.Rag;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Services.Search;
 using Heimdall.Infrastructure.Models;
@@ -171,8 +170,6 @@ public sealed class WikiTaskService
             var taskRepo = execScope.ServiceProvider.GetRequiredService<ITaskRepository>();
             var artifactRepo = execScope.ServiceProvider.GetRequiredService<ITaskArtifactRepository>();
             var executionRepo = execScope.ServiceProvider.GetRequiredService<IWikiTaskExecutionRepository>();
-            var codeEmbedService = execScope.ServiceProvider.GetRequiredService<ICodeEmbeddingService>();
-            var wikiEmbedService = execScope.ServiceProvider.GetRequiredService<IWikiEmbeddingService>();
             var executingTask = await taskRepo.GetByIdAsync(task.Id)
                 ?? throw new InvalidOperationException($"任务不存在：{task.Id}");
             var effectiveProvider = string.IsNullOrWhiteSpace(provider) ? "ollama" : provider;
@@ -806,75 +803,12 @@ public sealed class WikiTaskService
                 execToken,
                 markStageAsSuccessful: true);
 
-            await MarkTaskStageAsync(
-                taskRepo,
-                executingTask,
-                "code_embedding",
-                "running",
-                90,
-                "正在写入代码向量...",
-                execToken);
-
-            var documents = await repoAccess.ReadRepositoryDocumentsAsync(repoPath, new(), new(), new(), new(), execToken);
-            var codeChunkCount = await codeEmbedService.EmbedRepositoryAsync(persistenceResult.RepositoryVersionId, documents, execToken);
-            await UpsertTaskArtifactAsync(
-                artifactRepo,
-                taskRepo,
-                executingTask,
-                "code_embedding_artifact",
-                "code-embedding",
-                "code_embedding",
-                0,
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    repository_version_id = persistenceResult.RepositoryVersionId,
-                    document_count = documents.Count,
-                    chunk_count = codeChunkCount
-                }, ArtifactJsonOptions),
-                $"代码向量写入完成，共 {codeChunkCount} 个分块",
-                execToken);
-
-            await MarkTaskStageAsync(
-                taskRepo,
-                executingTask,
-                "code_embedding",
-                "completed",
-                94,
-                $"代码向量写入完成，共 {codeChunkCount} 个分块",
-                execToken,
-                markStageAsSuccessful: true);
-
-            await MarkTaskStageAsync(
-                taskRepo,
-                executingTask,
-                "wiki_embedding",
-                "running",
-                95,
-                "正在写入 Wiki 向量...",
-                execToken);
-
-            var wikiChunkCount = await wikiEmbedService.EmbedWikiPagesAsync(persistenceResult.WikiVersionId, persistenceResult.Pages, execToken);
-            await UpsertTaskArtifactAsync(
-                artifactRepo,
-                taskRepo,
-                executingTask,
-                "wiki_embedding_artifact",
-                "wiki-embedding",
-                "wiki_embedding",
-                0,
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    wiki_version_id = persistenceResult.WikiVersionId,
-                    page_count = persistenceResult.Pages.Count,
-                    chunk_count = wikiChunkCount
-                }, ArtifactJsonOptions),
-                $"Wiki 向量写入完成，共 {wikiChunkCount} 个分块",
-                execToken);
+            // V8: BM25 检索引擎不再需要预计算向量，移除 code_embedding / wiki_embedding 阶段
 
             executingTask.Status = "completed";
             executingTask.CurrentStage = "completed";
             executingTask.CurrentStageStatus = "completed";
-            executingTask.LastSuccessfulStage = "wiki_embedding";
+            executingTask.LastSuccessfulStage = "persistence";
             executingTask.ProgressPercent = 100;
             executingTask.ProgressMessage = $"Wiki 生成完成，共 {totalPages} 个页面";
             executingTask.CompletedAt = DateTime.UtcNow;
@@ -882,8 +816,6 @@ public sealed class WikiTaskService
                 wikiStructure,
                 persistenceResult.RepositoryVersionId,
                 persistenceResult.WikiVersionId,
-                codeChunkCount,
-                wikiChunkCount,
                 debugTruncated,
                 debugOriginalPageCount);
             await taskRepo.UpdateAsync(executingTask);
@@ -1170,8 +1102,6 @@ public sealed class WikiTaskService
         WikiStructureDto structure,
         Guid repositoryVersionId,
         Guid wikiVersionId,
-        int? codeChunkCount,
-        int? wikiChunkCount,
         bool debugTruncated = false,
         int debugOriginalPageCount = 0)
     {
@@ -1182,8 +1112,6 @@ public sealed class WikiTaskService
             page_count = structure.Pages.Count,
             repository_version_id = repositoryVersionId,
             wiki_version_id = wikiVersionId,
-            code_chunk_count = codeChunkCount,
-            wiki_chunk_count = wikiChunkCount,
             debug_truncated = debugTruncated ? true : (bool?)null,
             debug_original_page_count = debugTruncated ? debugOriginalPageCount : (int?)null,
             pages = structure.Pages.Select(p => new

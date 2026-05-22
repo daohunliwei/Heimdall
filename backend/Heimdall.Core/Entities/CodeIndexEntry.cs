@@ -43,9 +43,6 @@ public class CodeIndexChunk
     public int EndLine { get; set; }
     public string Language { get; set; } = string.Empty;
 
-    // 向量嵌入（pgvector bytea 格式）
-    public byte[]? Embedding { get; set; }
-
     public Guid CodeIndexEntryId { get; set; }
     public CodeIndexEntry? CodeIndexEntry { get; set; }
 }
