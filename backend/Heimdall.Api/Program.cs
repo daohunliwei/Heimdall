@@ -273,6 +273,7 @@ if (useJwt)
 }
 
 builder.Services.AddHostedService<Heimdall.Api.Services.ProviderMetadataStartupLoader>();
+builder.Services.AddHostedService<TaskResumeService>();
 
 var app = builder.Build();
 app.UseCors();
@@ -281,35 +282,12 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// 确保数据库已创建并初始化种子数据
+// 启动时自动应用数据库迁移，确保 schema 与代码同步
+// MigrateAsync() 会自动创建数据库（如不存在）并执行所有待处理的迁移
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.EnsureCreatedAsync();
-
-    // 确保 provider_model_metadata 表存在（迁移未通过 dotnet ef 执行时的回退）
-    try
-    {
-        await db.Database.ExecuteSqlRawAsync(
-            "CREATE TABLE IF NOT EXISTS provider_model_metadata (" +
-            "\"Id\" uuid NOT NULL PRIMARY KEY, " +
-            "\"ProviderKey\" varchar(64) NOT NULL, " +
-            "\"ModelName\" varchar(128) NOT NULL, " +
-            "\"BillingType\" varchar(32) NOT NULL DEFAULT 'TokenPlan', " +
-            "\"MaxContextTokens\" integer NOT NULL DEFAULT 128000, " +
-            "\"MaxOutputTokens\" integer NOT NULL DEFAULT 8192, " +
-            "\"RateLimitPerMinute\" integer NULL, " +
-            "\"InputTokenPrice\" numeric(10,6) NULL, " +
-            "\"OutputTokenPrice\" numeric(10,6) NULL, " +
-            "\"CallPrice\" numeric(10,6) NULL, " +
-            "\"SupportsCaching\" boolean NOT NULL DEFAULT FALSE, " +
-            "\"ContextFillRatio\" double precision NOT NULL DEFAULT 0.65, " +
-            "\"ContextWarningThreshold\" double precision NOT NULL DEFAULT 0.90, " +
-            "\"UpdatedAt\" timestamp with time zone NOT NULL DEFAULT NOW())");
-        await db.Database.ExecuteSqlRawAsync(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_provider_model_metadata_key_model ON provider_model_metadata (\"ProviderKey\", \"ModelName\")");
-    }
-    catch { /* 表已存在则跳过 */ }
+    await db.Database.MigrateAsync();
 
     var seedData = scope.ServiceProvider.GetRequiredService<Heimdall.Core.Services.Prompt.PromptSeedData>();
     await seedData.SeedAsync();

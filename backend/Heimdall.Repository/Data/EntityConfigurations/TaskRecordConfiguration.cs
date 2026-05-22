@@ -28,6 +28,8 @@ public class TaskRecordConfiguration : IEntityTypeConfiguration<TaskRecord>
         builder.Property(e => e.LastSuccessfulStage).HasColumnName("last_successful_stage").HasMaxLength(64);
         builder.Property(e => e.LastArtifactId).HasColumnName("last_artifact_id");
         builder.Property(e => e.AttemptCount).HasColumnName("attempt_count").HasDefaultValue(0);
+        builder.Property(e => e.ResumeCount).HasColumnName("resume_count").HasDefaultValue(0);
+        builder.Property(e => e.AutoResumeFailCount).HasColumnName("auto_resume_fail_count").HasDefaultValue(0);
         // V2 版本关联字段
         builder.Property(e => e.TargetBranch).HasColumnName("target_branch").HasMaxLength(128);
         builder.Property(e => e.ResolvedRepositoryVersionId).HasColumnName("resolved_repository_version_id");

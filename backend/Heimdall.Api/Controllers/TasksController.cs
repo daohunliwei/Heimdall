@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Models;
@@ -15,6 +16,8 @@ public class TasksController : ControllerBase
     private readonly IAskTaskService _askTaskService;
     private readonly ISlidesTaskService _slidesTaskService;
     private readonly IWorkshopTaskService _workshopTaskService;
+    private readonly ITaskRepository _taskRepo;
+    private readonly WikiTaskService _wikiTaskService;
     private readonly ILogger<TasksController> _logger;
 
     /// <summary>
@@ -25,12 +28,16 @@ public class TasksController : ControllerBase
         IAskTaskService askTaskService,
         ISlidesTaskService slidesTaskService,
         IWorkshopTaskService workshopTaskService,
+        ITaskRepository taskRepo,
+        WikiTaskService wikiTaskService,
         ILogger<TasksController> logger)
     {
         _repoRepo = repoRepo;
         _askTaskService = askTaskService;
         _slidesTaskService = slidesTaskService;
         _workshopTaskService = workshopTaskService;
+        _taskRepo = taskRepo;
+        _wikiTaskService = wikiTaskService;
         _logger = logger;
     }
 
@@ -160,6 +167,66 @@ public class TasksController : ControllerBase
         {
             _logger.LogError(ex, "Workshop 生成失败");
             return StatusCode(500, new { error = $"训练营生成失败：{ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// POST /tasks/{id}/resume — 恢复中断的任务
+    /// </summary>
+    [HttpPost("{id:guid}/resume")]
+    public async Task<IActionResult> ResumeTask(Guid id)
+    {
+        var task = await _taskRepo.GetByIdAsync(id);
+        if (task is null) return NotFound(new { error = "任务不存在" });
+
+        if (task.Status == "completed")
+            return BadRequest(new { error = "任务已完成，无需恢复" });
+
+        if (task.Status == "running")
+            return Conflict(new { error = "任务正在运行中" });
+
+        if (task.TaskType != "wiki")
+            return BadRequest(new { error = "仅支持恢复 Wiki 生成任务" });
+
+        try
+        {
+            task.ResumeCount++;
+            task.Status = "running";
+            task.ErrorMessage = null;
+            task.UpdatedAt = DateTime.UtcNow;
+            await _taskRepo.UpdateAsync(task);
+
+            // 在后台恢复执行
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _wikiTaskService.ExecuteAsync(
+                        task,
+                        task.Repository?.RepoUrl ?? "",
+                        "git",
+                        null,
+                        task.Provider,
+                        task.Model,
+                        null,
+                        task.Language ?? "zh",
+                        true,
+                        HttpContext.RequestAborted,
+                        task.SourceBranch,
+                        task.RefreshStrategy ?? "comprehensive");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "任务手动恢复失败 TaskId={TaskId}", task.Id);
+                }
+            });
+
+            return Ok(new { message = "任务已恢复执行", taskId = task.Id });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "恢复任务失败 TaskId={TaskId}", id);
+            return StatusCode(500, new { error = $"恢复失败：{ex.Message}" });
         }
     }
 

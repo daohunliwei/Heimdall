@@ -172,6 +172,15 @@ export default function TasksPage() {
                     {t.status === "running" && (
                       <button onClick={() => handleCancel(t.id)} className="text-xs text-[var(--warning)] hover:underline">取消</button>
                     )}
+                    {(t.status === "failed" || t.status === "cancelled") && t.task_type === "wiki" && (
+                      <button onClick={() => {
+                        if (!confirm(t.status === "failed" ? "从检查点恢复此任务？" : "重新开始此任务？")) return;
+                        fetch(`/api/tasks/${t.id}/resume`, { method: "POST" })
+                          .then((r) => r.json())
+                          .then(() => fetchTasks())
+                          .catch(() => alert("恢复失败"));
+                      }} className="text-xs text-[var(--success)] hover:underline" title="从检查点恢复执行">恢复</button>
+                    )}
                     {t.status === "failed" && (
                       <button onClick={() => { fetch(`/api/admin/tasks/${t.id}/retry`, { method: "POST" }).then(() => fetchTasks()); }} className="text-xs text-[var(--accent-primary)] hover:underline">重试</button>
                     )}
