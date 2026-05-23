@@ -112,6 +112,10 @@ var sqlSugarScope = new SqlSugarScope(new ConnectionConfig
     ConnectionString = connectionString,
     IsAutoCloseConnection = true,
     InitKeyType = InitKeyType.Attribute,
+    MoreSettings = new ConnMoreSettings
+    {
+        PgSqlIsAutoToLower = false
+    },
     ConfigureExternalServices = new ConfigureExternalServices
     {
         EntityNameService = (type, entity) =>
