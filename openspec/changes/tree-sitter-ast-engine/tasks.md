@@ -38,5 +38,5 @@
 
 - [x] 6.1 执行 `dotnet build` 确保编译通过
 - [ ] 6.2 编写/更新单元测试：验证 C#/TypeScript/Python/Go/Rust/Java 六种语言的符号提取结果正确
-- [ ] 6.3 端到端测试：对 libgit2sharp 仓库执行代码索引，验证 `code_index_entries` 表数据完整
-- [ ] 6.4 对比验证：TreeSitter C# 提取结果与旧 Roslyn 提取结果基本一致（允许方法签名差异）
+- [x] 6.3 端到端测试：对 libgit2sharp 仓库执行代码索引，验证 `code_index_entries` 表数据完整
+- [x] 6.4 对比验证：TreeSitter C# 提取结果与旧 Roslyn 提取结果基本一致（允许方法签名差异）
