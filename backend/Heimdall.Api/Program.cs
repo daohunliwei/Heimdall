@@ -271,7 +271,7 @@ builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IPromptMergeServ
 builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptSeedData>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeStructureIndexService>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeIndexService>();
-builder.Services.AddSingleton<Heimdall.Infrastructure.AstAnalysis.IAstAnalyzer, Heimdall.Infrastructure.AstAnalysis.RoslynCSharpAnalyzer>();
+builder.Services.AddSingleton<Heimdall.Infrastructure.AstAnalysis.TreeSitterAnalyzer>();
 builder.Services.AddSingleton<Heimdall.Infrastructure.Search.Bm25SearchService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IHybridSearchService, Heimdall.Core.Services.Search.HybridSearchService>();
 builder.Services.AddScoped<Heimdall.Core.Interfaces.Repositories.ICodeIndexRepository, Heimdall.Repository.Repositories.CodeIndexRepository>();

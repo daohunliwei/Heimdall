@@ -7,24 +7,22 @@ using Microsoft.Extensions.Logging;
 namespace Heimdall.Core.Services.Repository;
 
 /// <summary>
-/// 代码结构索引服务——优先使用 AST 分析器，不支持的语言回退到正则表达式。
+/// 代码结构索引服务——基于 TreeSitter.DotNet 统一解析引擎。
 /// </summary>
 public sealed partial class CodeIndexService
 {
     private readonly ILogger<CodeIndexService> _logger;
-    private readonly Dictionary<string, IAstAnalyzer> _astAnalyzers;
+    private readonly TreeSitterAnalyzer _analyzer;
 
-    // 优先按函数/类边界分块时最大行数
     private const int ChunkMaxLinesWithBoundary = 120;
-    // 无边界时回退最大行数
     private const int ChunkMaxLines = 80;
-    // 块间重叠行数
-    private const int ChunkOverlapLines = 10;
+    private const int ChunkMinLines = 20;
 
-    public CodeIndexService(ILogger<CodeIndexService> logger, IEnumerable<IAstAnalyzer>? astAnalyzers = null)
+    public CodeIndexService(ILogger<CodeIndexService> logger, TreeSitterAnalyzer? analyzer = null)
     {
         _logger = logger;
-        _astAnalyzers = (astAnalyzers ?? Enumerable.Empty<IAstAnalyzer>()).ToDictionary(a => a.Language, StringComparer.OrdinalIgnoreCase);
+        _analyzer = analyzer ?? new TreeSitterAnalyzer(
+            new Microsoft.Extensions.Logging.Abstractions.NullLogger<TreeSitterAnalyzer>());
     }
 
     /// <summary>
@@ -40,16 +38,21 @@ public sealed partial class CodeIndexService
         Parallel.ForEach(allFiles, filePath =>
         {
             var relativePath = Path.GetRelativePath(repoPath, filePath).Replace('\\', '/');
-
             if (ShouldSkip(relativePath)) return;
 
             var fileInfo = new FileInfo(filePath);
             var language = DetectLanguage(relativePath);
+
+            string source;
+            try { source = File.ReadAllText(filePath); }
+            catch { return; }
+
+            var result = _analyzer.Analyze(filePath, source, language);
             var moduleName = GetModuleName(relativePath);
             var fileType = ClassifyFileType(relativePath);
-            var symbols = ExtractSymbols(filePath, language);
-            var deps = ExtractDependencies(filePath, language);
             var importance = CalculateImportance(relativePath, fileType);
+            var symbols = result.Symbols.Select(s => s.FullSignature).Distinct().Take(100).ToList();
+            var deps = result.CallEdges.Select(e => e.CalleeFilePath).Distinct().Take(30).ToList();
 
             entries.Add(new CodeIndexEntry
             {
@@ -103,134 +106,40 @@ public sealed partial class CodeIndexService
     }
 
     /// <summary>
-    /// 对单个文件按函数/类边界分块，返回代码块列表。
+    /// 对单个文件按 AST 节点边界分块。
     /// </summary>
     public List<(int StartLine, int EndLine, string Content)> ChunkFile(string filePath, string language)
     {
         var chunks = new List<(int, int, string)>();
         if (!File.Exists(filePath)) return chunks;
 
-        var lines = File.ReadAllLines(filePath);
-        var boundaries = FindChunkBoundaries(lines, language);
-
-        for (var i = 0; i < boundaries.Count; i++)
+        try
         {
-            var start = boundaries[i];
-            // 如果有明确的下一个边界，允许最多 120 行；否则回退 80 行
-            var hasNextBoundary = i + 1 < boundaries.Count;
-            var maxLines = hasNextBoundary ? ChunkMaxLinesWithBoundary : ChunkMaxLines;
-            var end = Math.Min(start + maxLines - 1, lines.Length);
-            // 尝试在下一个边界处断开（优先按函数/类边界分块）
-            if (hasNextBoundary && boundaries[i + 1] > start && boundaries[i + 1] <= end)
+            var source = File.ReadAllText(filePath);
+            var result = _analyzer.Analyze(filePath, source, language);
+
+            foreach (var chunk in result.Chunks)
             {
-                end = boundaries[i + 1] - 1;
+                chunks.Add((chunk.StartLine, chunk.EndLine, chunk.Content));
             }
-            var content = string.Join('\n', lines.Skip(start - 1).Take(end - start + 1));
-            chunks.Add((start, end, content));
+
+            if (chunks.Count == 0)
+            {
+                // 回退：按固定行分块
+                var lines = source.Split('\n');
+                for (int i = 0; i < lines.Length; i += ChunkMaxLines)
+                {
+                    var end = Math.Min(i + ChunkMaxLines, lines.Length);
+                    chunks.Add((i + 1, end, string.Join('\n', lines[i..end])));
+                }
+            }
+        }
+        catch
+        {
+            // 无法读取或解析，返回空
         }
 
         return chunks;
-    }
-
-    /// <summary>
-    /// 查找代码块边界（函数定义、类定义等）。
-    /// </summary>
-    private List<int> FindChunkBoundaries(string[] lines, string language)
-    {
-        var boundaries = new List<int> { 1 }; // 总是从第 1 行开始
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var trimmed = lines[i].TrimStart();
-            bool isBoundary = language switch
-            {
-                "csharp" => trimmed.StartsWith("public ") || trimmed.StartsWith("private ") ||
-                            trimmed.StartsWith("internal ") || trimmed.StartsWith("protected ") ||
-                            trimmed.StartsWith("class ") || trimmed.StartsWith("interface ") ||
-                            trimmed.StartsWith("enum ") || trimmed.StartsWith("record "),
-                "typescript" or "javascript" => trimmed.Contains("function ") || trimmed.Contains("=>") ||
-                            trimmed.StartsWith("class ") || trimmed.StartsWith("interface ") ||
-                            trimmed.StartsWith("export "),
-                "python" => trimmed.StartsWith("def ") || trimmed.StartsWith("class ") ||
-                            trimmed.StartsWith("async def "),
-                _ => trimmed.Length > 0 && char.IsLetter(trimmed[0]) && !trimmed.StartsWith("//")
-            };
-
-            if (isBoundary && i + 1 > boundaries.Last() + ChunkMinLines)
-            {
-                boundaries.Add(i + 1);
-            }
-        }
-        return boundaries;
-    }
-
-    private const int ChunkMinLines = 20;
-
-    // ── 符号提取 ──
-
-    private List<string> ExtractSymbols(string filePath, string language)
-    {
-        var symbols = new List<string>();
-        if (!File.Exists(filePath)) return symbols;
-
-        try
-        {
-            // AST 优先
-            var ext = Path.GetExtension(filePath);
-            var analyzer = _astAnalyzers.Values.FirstOrDefault(a => a.CanAnalyze(ext));
-            if (analyzer != null)
-            {
-                var content = File.ReadAllText(filePath);
-                if (content.Length > 100_000) content = content[..100_000];
-                var result = analyzer.AnalyzeAsync(filePath, content).GetAwaiter().GetResult();
-                symbols.AddRange(result.Symbols.Select(s => s.FullSignature));
-                return symbols.Distinct().Take(100).ToList();
-            }
-
-            // 正则回退
-            var content2 = File.ReadAllText(filePath);
-            if (content2.Length > 50_000) content2 = content2[..50_000];
-            switch (language)
-            {
-                case "typescript" or "javascript":
-                    symbols.AddRange(RegexPatterns.TsClassPattern().Matches(content2).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.TsFunctionPattern().Matches(content2).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.TsExportPattern().Matches(content2).Select(m => m.Groups[1].Value));
-                    break;
-                case "python":
-                    symbols.AddRange(RegexPatterns.PyClassPattern().Matches(content2).Select(m => m.Groups[1].Value));
-                    symbols.AddRange(RegexPatterns.PyDefPattern().Matches(content2).Select(m => m.Groups[1].Value));
-                    break;
-            }
-        }
-        catch { /* 跳过无法读取的文件 */ }
-
-        return symbols.Distinct().Take(50).ToList();
-    }
-
-    private static List<string> ExtractDependencies(string filePath, string language)
-    {
-        var deps = new List<string>();
-        try
-        {
-            var content = File.ReadAllText(filePath);
-            if (content.Length > 50_000) content = content[..50_000];
-
-            switch (language)
-            {
-                case "csharp":
-                    deps.AddRange(RegexPatterns.UsingPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    break;
-                case "typescript" or "javascript":
-                    deps.AddRange(RegexPatterns.ImportPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    break;
-                case "python":
-                    deps.AddRange(RegexPatterns.PyImportPattern().Matches(content).Select(m => m.Groups[1].Value));
-                    break;
-            }
-        }
-        catch { }
-
-        return deps.Distinct().Take(30).ToList();
     }
 
     // ── 辅助方法 ──
@@ -270,6 +179,16 @@ public sealed partial class CodeIndexService
             ".php" => "php",
             ".c" or ".h" => "c",
             ".cpp" or ".hpp" or ".cc" or ".cxx" => "cpp",
+            ".swift" => "swift",
+            ".scala" => "scala",
+            ".hs" => "haskell",
+            ".html" or ".htm" => "html",
+            ".css" or ".scss" or ".less" => "css",
+            ".json" => "json",
+            ".sh" or ".bash" => "bash",
+            ".toml" => "toml",
+            ".ml" => "ocaml",
+            ".jl" => "julia",
             _ => "other"
         };
     }
@@ -282,7 +201,6 @@ public sealed partial class CodeIndexService
             var root = relativePath[..firstSlash];
             if (root is not "src" and not "test" and not "tests" and not "lib" and not "docs" and not "doc")
                 return root;
-            // 对于 src 等通用根目录，取第二级
             var secondSlash = relativePath.IndexOf('/', firstSlash + 1);
             if (secondSlash > 0)
                 return relativePath[(firstSlash + 1)..secondSlash];
@@ -306,26 +224,15 @@ public sealed partial class CodeIndexService
     {
         var lower = filePath.ToLowerInvariant();
         var score = 5;
-
-        // 入口文件 +10
         if (Regex.IsMatch(lower, @"(program\.cs|main\.go|index\.(ts|js|tsx)|app\.(tsx|jsx|py)|__init__\.py|setup\.py)$"))
             score += 10;
-        // 核心目录 +3
         if (lower.Contains("src/") || lower.Contains("lib/") || lower.Contains("app/"))
             score += 3;
-        // 接口/抽象 +2
         if (Regex.IsMatch(lower, @"i\w+\.cs$") && lower.Contains("interface"))
             score += 2;
-        // 测试文件扣分
-        if (fileType == "test")
-            score -= 3;
-        // 配置文件基础分
-        if (fileType == "config")
-            score = 3;
-        // 文档
-        if (fileType == "doc")
-            score = 1;
-
+        if (fileType == "test") score -= 3;
+        if (fileType == "config") score = 3;
+        if (fileType == "doc") score = 1;
         return Math.Max(1, Math.Min(15, score));
     }
 
@@ -352,38 +259,4 @@ public sealed partial class CodeIndexService
         if (paths.Any(p => p.EndsWith(".go"))) parts.Add("Go");
         return parts.Count > 0 ? string.Join("/", parts) : "未知";
     }
-}
-
-/// <summary>
-/// 用于符号提取的正则表达式模式。
-/// </summary>
-internal static partial class RegexPatterns
-{
-    // C#
-    [GeneratedRegex(@"class\s+(\w+)", RegexOptions.Compiled)]
-    public static partial Regex ClassPattern();
-    [GeneratedRegex(@"(?:public|private|internal|protected)\s+(?:static\s+)?(?:async\s+)?(?:\w+(?:<\w+>)?)\s+(\w+)\s*\(", RegexOptions.Compiled)]
-    public static partial Regex MethodPattern();
-    [GeneratedRegex(@"interface\s+(\w+)", RegexOptions.Compiled)]
-    public static partial Regex InterfacePattern();
-    [GeneratedRegex(@"using\s+([\w.]+)", RegexOptions.Compiled)]
-    public static partial Regex UsingPattern();
-
-    // TypeScript/JavaScript
-    [GeneratedRegex(@"class\s+(\w+)", RegexOptions.Compiled)]
-    public static partial Regex TsClassPattern();
-    [GeneratedRegex(@"(?:function|const|let|var)\s+(\w+)", RegexOptions.Compiled)]
-    public static partial Regex TsFunctionPattern();
-    [GeneratedRegex(@"export\s+(?:const|function|class|interface|type|enum)\s+(\w+)", RegexOptions.Compiled)]
-    public static partial Regex TsExportPattern();
-    [GeneratedRegex(@"from\s+['""]([^'""]+)['""]", RegexOptions.Compiled)]
-    public static partial Regex ImportPattern();
-
-    // Python
-    [GeneratedRegex(@"class\s+(\w+)", RegexOptions.Compiled)]
-    public static partial Regex PyClassPattern();
-    [GeneratedRegex(@"def\s+(\w+)", RegexOptions.Compiled)]
-    public static partial Regex PyDefPattern();
-    [GeneratedRegex(@"(?:from|import)\s+([\w.]+)", RegexOptions.Compiled)]
-    public static partial Regex PyImportPattern();
 }
