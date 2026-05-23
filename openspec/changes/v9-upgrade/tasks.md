@@ -130,11 +130,11 @@
 
 - [x] 18.1 执行 `dotnet build` 确保后端编译通过
 - [x] 18.2 执行 `npm run build` 确保前端编译通过
-- [ ] 18.3 运行 `dev-start.ps1` 启动应用，验证 Code First 自动建表成功
-- [ ] 18.4 验证 Chat 流式 SSE 端点在各个 Provider 上正常工作
-- [ ] 18.5 验证 Ask 流式输出在页面上实时显示
-- [ ] 18.6 验证 Token 估算在不带 usage 的流式 Provider 上正常工作
+- [x] 18.3 运行 `dev-start.ps1` 启动应用，验证 Code First 自动建表成功
+- [x] 18.4 验证 Chat 流式 SSE 端点在各个 Provider 上正常工作
+- [x] 18.5 验证 Ask 流式输出在页面上实时显示
+- [x] 18.6 验证 Token 估算在不带 usage 的流式 Provider 上正常工作
 - [ ] 18.7 验证 OpenTelemetry Trace 在控制台/导出器中可见
-- [ ] 18.8 手动执行 `/SqlScripts/Init_Tables.sql` 验证脚本可独立建表
+- [x] 18.8 手动执行 `/SqlScripts/Init_Tables.sql` 验证脚本可独立建表
 - [ ] 18.9 验证数据库管理后台 Token 统计数据显示正确
 - [x] 18.10 执行 `dev-reset.ps1 -Force` 后重新启动，验证全流程正常
