@@ -1,31 +1,28 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
 public class TaskLlmCallLogRepository : ITaskLlmCallLogRepository
 {
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
-    public TaskLlmCallLogRepository(AppDbContext context)
+    public TaskLlmCallLogRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
     public async Task<TaskLlmCallLog> AddAsync(TaskLlmCallLog log)
     {
         log.CreatedAt = DateTime.UtcNow;
-        _context.TaskLlmCallLogs.Add(log);
-        await _context.SaveChangesAsync();
+        await _db.Insertable(log).ExecuteCommandAsync();
         return log;
     }
 
     public async Task<List<TaskLlmCallLog>> GetByTaskIdAsync(Guid taskId)
     {
-        return await _context.TaskLlmCallLogs
-            .AsNoTracking()
+        return await _db.Queryable<TaskLlmCallLog>()
             .Where(l => l.TaskId == taskId)
             .OrderBy(l => l.StepOrder)
             .ToListAsync();
@@ -33,8 +30,7 @@ public class TaskLlmCallLogRepository : ITaskLlmCallLogRepository
 
     public async Task<(int PromptTokens, int CompletionTokens)> GetTokenSummaryAsync(Guid taskId)
     {
-        var logs = await _context.TaskLlmCallLogs
-            .AsNoTracking()
+        var logs = await _db.Queryable<TaskLlmCallLog>()
             .Where(l => l.TaskId == taskId)
             .ToListAsync();
 

@@ -1,41 +1,38 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
 public class WikiSpaceRepository : IWikiSpaceRepository
 {
-    private readonly AppDbContext _context;
-    public WikiSpaceRepository(AppDbContext context) => _context = context;
+    private readonly ISqlSugarClient _db;
+    public WikiSpaceRepository(ISqlSugarClient db) => _db = db;
 
     /// <summary>
     /// 按主键读取 Wiki 空间。
     /// </summary>
     public async Task<WikiSpace?> GetByIdAsync(Guid id)
     {
-        return await _context.WikiSpaces.FirstOrDefaultAsync(space => space.Id == id);
+        return await _db.Queryable<WikiSpace>().FirstAsync(space => space.Id == id);
     }
 
     public async Task<WikiSpace?> GetByRepoLangViewAsync(Guid repositoryId, string language, string viewType)
     {
-        return await _context.WikiSpaces
-            .FirstOrDefaultAsync(s => s.RepositoryId == repositoryId
+        return await _db.Queryable<WikiSpace>()
+            .FirstAsync(s => s.RepositoryId == repositoryId
                 && s.Language == language && s.ViewType == viewType);
     }
 
     public async Task<WikiSpace> AddAsync(WikiSpace space)
     {
-        _context.WikiSpaces.Add(space);
-        await _context.SaveChangesAsync();
+        await _db.Insertable(space).ExecuteCommandAsync();
         return space;
     }
 
     public async Task<WikiSpace> UpdateAsync(WikiSpace space)
     {
-        _context.WikiSpaces.Update(space);
-        await _context.SaveChangesAsync();
+        await _db.Updateable(space).ExecuteCommandAsync();
         return space;
     }
 }

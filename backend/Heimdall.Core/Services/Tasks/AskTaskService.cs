@@ -1,6 +1,9 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Models;
+using Heimdall.Infrastructure.Providers;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services.Tasks;
@@ -12,15 +15,18 @@ public sealed class AskTaskService : IAskTaskService
 {
     private readonly IVersionedKnowledgeService _versionedKnowledgeService;
     private readonly TaskLlmService _taskLlmService;
+    private readonly ChatClientFactory _chatClientFactory;
     private readonly ILogger<AskTaskService> _logger;
 
     public AskTaskService(
         IVersionedKnowledgeService versionedKnowledgeService,
         TaskLlmService taskLlmService,
+        ChatClientFactory chatClientFactory,
         ILogger<AskTaskService> logger)
     {
         _versionedKnowledgeService = versionedKnowledgeService;
         _taskLlmService = taskLlmService;
+        _chatClientFactory = chatClientFactory;
         _logger = logger;
     }
 
@@ -81,6 +87,62 @@ public sealed class AskTaskService : IAskTaskService
             RepositoryVersionId = knowledgeContext.RepositoryVersion.Id,
             WikiVersionId = knowledgeContext.WikiVersion.Id
         };
+    }
+
+    /// <summary>
+    /// 流式 Ask——基于 IChatClient.GetStreamingResponseAsync() 实现真流式输出。
+    /// </summary>
+    public async IAsyncEnumerable<ChatResponseUpdate> AskStreamingAsync(
+        AskTaskExecutionRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(request.Question))
+            throw new InvalidOperationException("question 是必填字段。");
+
+        var knowledgeContext = await _versionedKnowledgeService.ResolveAsync(request.Options, cancellationToken);
+
+        var artifactContext = _versionedKnowledgeService.BuildArtifactContextMarkdown(knowledgeContext, 8_000);
+        var pageContext = _versionedKnowledgeService.BuildPageContextMarkdown(
+            knowledgeContext,
+            request.DeepResearch ? 12 : 8,
+            request.DeepResearch ? 24_000 : 16_000);
+        var historyContext = BuildHistoryContextMarkdown(request.History);
+        var prompt = BuildAskPrompt(
+            knowledgeContext,
+            request.Question,
+            request.FilePath,
+            request.DeepResearch,
+            artifactContext,
+            pageContext,
+            historyContext);
+
+        var providerId = request.Options.Provider ?? "ollama";
+        var model = request.Options.Model ?? request.Options.CustomModel ?? string.Empty;
+
+        var chatClient = _chatClientFactory.GetClient(providerId);
+
+        var messages = new List<Microsoft.Extensions.AI.ChatMessage>
+        {
+            new(Microsoft.Extensions.AI.ChatRole.User, prompt)
+        };
+
+        var options = new ChatOptions
+        {
+            ModelId = model,
+            MaxOutputTokens = 8192,
+        };
+
+        await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
+        {
+            yield return update;
+        }
+
+        _logger.LogInformation(
+            "Ask 流式任务完成 RepositoryVersionId={RvId} WikiVersionId={WvId}",
+            knowledgeContext.RepositoryVersion.Id,
+            knowledgeContext.WikiVersion.Id);
     }
 
     private static string BuildAskPrompt(

@@ -365,11 +365,12 @@ public sealed class WikiTaskService
                     structureAttemptCount++;
                     var structureSw = Stopwatch.StartNew();
                     var structureResponse = await _taskLlm.GenerateWithMetricsAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
-                    structureRawResponse = structureResponse.Content;
+                    structureRawResponse = structureResponse.Messages.LastOrDefault()?.Text ?? string.Empty;
                     try
                     {
                         var obs = execScope.ServiceProvider.GetRequiredService<ILlmObservabilityService>();
-                        await obs.RecordCallAsync(task.Id, "structure_planning", effectiveProvider, model ?? customModel ?? "", structureResponse, execToken);
+                        await obs.RecordCallAsync(task.Id, "structure_planning", effectiveProvider, model ?? customModel ?? "",
+                            structureResponse.Usage, (int)structureSw.ElapsedMilliseconds, success: true, ct: execToken);
                     }
                     catch { /* 指标记录失败不影响主流程 */ }
                     await LogLlmCallAsync(task.Id, 0, "structure_generation", effectiveProvider, model ?? customModel,
@@ -585,21 +586,21 @@ public sealed class WikiTaskService
                         // 使用带指标的调用，记录 Token 消耗
                         var pageResponseObj = await _taskLlm.GenerateWithMetricsAsync(
                             effectiveProvider, model, customModel, pagePrompt, execToken);
-                        var pageResponse = pageResponseObj.Content;
+                        var pageResponse = pageResponseObj.Messages.LastOrDefault()?.Text ?? string.Empty;
 
                         try
                         {
                             var observability = execScope.ServiceProvider
                                 .GetRequiredService<ILlmObservabilityService>();
                             await observability.RecordCallAsync(task.Id, "page_generation",
-                                effectiveProvider, model ?? customModel ?? "", pageResponseObj, execToken);
+                                effectiveProvider, model ?? customModel ?? "", pageResponseObj.Usage, (int)pageSw.ElapsedMilliseconds, success: true, ct: execToken);
                         }
                         catch { /* 指标记录失败不应中断主流程 */ }
 
                         try { await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
                             pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false); } catch { }
                         _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
-                            $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms | In={pageResponseObj.Usage.InputTokens} Out={pageResponseObj.Usage.OutputTokens}");
+                            $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms | In={pageResponseObj.Usage?.InputTokenCount ?? 0} Out={pageResponseObj.Usage?.OutputTokenCount ?? 0}");
 
                         var pageDraft = _wikiParser.ParsePageDraft(page, pageResponse);
                         ApplyGeneratedPageDraft(page, pageDraft);
@@ -713,10 +714,11 @@ public sealed class WikiTaskService
                         try
                         {
                             var obs = execScope.ServiceProvider.GetRequiredService<ILlmObservabilityService>();
-                            await obs.RecordCallAsync(task.Id, "quality_assurance", effectiveProvider, model ?? customModel ?? "", regenResponse, execToken);
+                            await obs.RecordCallAsync(task.Id, "quality_assurance", effectiveProvider, model ?? customModel ?? "",
+                                regenResponse.Usage, 0, success: true, ct: execToken);
                         }
                         catch { }
-                        var newDraft = _wikiParser.ParsePageDraft(weakPage, regenResponse.Content);
+                        var newDraft = _wikiParser.ParsePageDraft(weakPage, regenResponse.Messages.LastOrDefault()?.Text ?? string.Empty);
                         if (!string.IsNullOrWhiteSpace(newDraft.Content))
                         {
                             ApplyGeneratedPageDraft(weakPage, newDraft);

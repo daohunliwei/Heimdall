@@ -1,54 +1,50 @@
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 using RepositoryEntity = Heimdall.Core.Entities.Repository;
 
 namespace Heimdall.Repository.Repositories;
 
 public class RepositoryConfigRepository : IRepositoryConfigRepository
 {
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
-    public RepositoryConfigRepository(AppDbContext context)
+    public RepositoryConfigRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
     public async Task<RepositoryEntity?> GetByIdAsync(Guid id)
     {
-        return await _context.Repositories.FindAsync(id);
+        return await _db.Queryable<RepositoryEntity>()
+            .FirstAsync(x => x.Id == id);
     }
 
     public async Task<RepositoryEntity?> GetByOwnerRepoTypeAsync(string owner, string repoName, string repoType)
     {
-        return await _context.Repositories
-            .AsNoTracking()
-            .FirstOrDefaultAsync(r => r.Owner == owner
+        return await _db.Queryable<RepositoryEntity>()
+            .FirstAsync(r => r.Owner == owner
                 && r.RepoName == repoName
                 && r.RepoType == repoType);
     }
 
     public async Task<RepositoryEntity?> GetByOwnerRepoAnyTypeAsync(string owner, string repoName)
     {
-        return await _context.Repositories
-            .AsNoTracking()
-            .FirstOrDefaultAsync(r => r.Owner == owner && r.RepoName == repoName);
+        return await _db.Queryable<RepositoryEntity>()
+            .FirstAsync(r => r.Owner == owner && r.RepoName == repoName);
     }
 
     public async Task<RepositoryEntity?> GetByProviderKeyAsync(string providerType, string providerRepositoryKey)
     {
-        return await _context.Repositories
-            .AsNoTracking()
-            .FirstOrDefaultAsync(r => r.ProviderType == providerType
+        return await _db.Queryable<RepositoryEntity>()
+            .FirstAsync(r => r.ProviderType == providerType
                 && r.ProviderRepositoryKey == providerRepositoryKey);
     }
 
     public async Task<List<RepositoryEntity>> GetAllAsync()
     {
-        return await _context.Repositories
-            .AsNoTracking()
+        return await _db.Queryable<RepositoryEntity>()
             .OrderBy(r => r.Owner)
-            .ThenBy(r => r.RepoName)
+            .OrderBy(r => r.RepoName)
             .ToListAsync();
     }
 
@@ -56,25 +52,23 @@ public class RepositoryConfigRepository : IRepositoryConfigRepository
     {
         repository.CreatedAt = DateTime.UtcNow;
         repository.UpdatedAt = DateTime.UtcNow;
-        _context.Repositories.Add(repository);
-        await _context.SaveChangesAsync();
+        await _db.Insertable(repository).ExecuteCommandAsync();
         return repository;
     }
 
     public async Task<RepositoryEntity> UpdateAsync(RepositoryEntity repository)
     {
         repository.UpdatedAt = DateTime.UtcNow;
-        _context.Repositories.Update(repository);
-        await _context.SaveChangesAsync();
+        await _db.Updateable(repository).ExecuteCommandAsync();
         return repository;
     }
 
     public async Task<bool> DeleteAsync(Guid id)
     {
-        var repository = await _context.Repositories.FindAsync(id);
+        var repository = await _db.Queryable<RepositoryEntity>()
+            .FirstAsync(x => x.Id == id);
         if (repository is null) return false;
-        _context.Repositories.Remove(repository);
-        await _context.SaveChangesAsync();
+        await _db.Deleteable(repository).ExecuteCommandAsync();
         return true;
     }
 }

@@ -1,40 +1,34 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
 public sealed class CodeIndexRepository : ICodeIndexRepository
 {
-    private readonly AppDbContext _db;
+    private readonly ISqlSugarClient _db;
 
-    public CodeIndexRepository(AppDbContext db)
+    public CodeIndexRepository(ISqlSugarClient db)
     {
         _db = db;
     }
 
     public async Task<List<CodeIndexEntry>> GetByVersionIdAsync(Guid repositoryVersionId, CancellationToken ct = default)
     {
-        return await _db.CodeIndexEntries
-            .AsNoTracking()
+        return await _db.Queryable<CodeIndexEntry>()
             .Where(e => e.RepositoryVersionId == repositoryVersionId)
-            .Include(e => e.Chunks)
             .ToListAsync(ct);
     }
 
     public async Task AddEntriesAsync(List<CodeIndexEntry> entries, CancellationToken ct = default)
     {
-        await _db.CodeIndexEntries.AddRangeAsync(entries, ct);
-        await _db.SaveChangesAsync(ct);
+        await _db.Insertable(entries).ExecuteCommandAsync(ct);
     }
 
     public async Task DeleteByVersionIdAsync(Guid repositoryVersionId, CancellationToken ct = default)
     {
-        var existing = await _db.CodeIndexEntries
+        await _db.Deleteable<CodeIndexEntry>()
             .Where(e => e.RepositoryVersionId == repositoryVersionId)
-            .ToListAsync(ct);
-        _db.CodeIndexEntries.RemoveRange(existing);
-        await _db.SaveChangesAsync(ct);
+            .ExecuteCommandAsync(ct);
     }
 }

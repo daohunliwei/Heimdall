@@ -5,6 +5,7 @@ using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Providers;
 using Heimdall.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.AI;
 
 namespace Heimdall.Api.Controllers;
 
@@ -12,25 +13,25 @@ namespace Heimdall.Api.Controllers;
 [Route("chat")]
 public class ChatController : ControllerBase
 {
-    private readonly ProviderRegistry _providerRegistry;
+    private readonly ChatClientFactory _chatClientFactory;
     private readonly TextUtilityService _textUtility;
     private readonly IPromptMergeService _promptMergeService;
     private readonly ILogger<ChatController> _logger;
 
     public ChatController(
-        ProviderRegistry providerRegistry,
+        ChatClientFactory chatClientFactory,
         TextUtilityService textUtility,
         IPromptMergeService promptMergeService,
         ILogger<ChatController> logger)
     {
-        _providerRegistry = providerRegistry;
+        _chatClientFactory = chatClientFactory;
         _textUtility = textUtility;
         _promptMergeService = promptMergeService;
         _logger = logger;
     }
 
     /// <summary>
-    /// POST /chat/completions/stream — SSE 流式聊天补全。
+    /// POST /chat/completions/stream — 真 SSE 流式聊天补全（基于 IChatClient.GetStreamingResponseAsync）
     /// </summary>
     [HttpPost("completions/stream")]
     public async Task StreamChat(CancellationToken ct)
@@ -54,41 +55,51 @@ public class ChatController : ControllerBase
             request = new ChatCompletionRequest();
         }
 
+        var providerId = request.Provider ?? "ollama";
+        var model = request.Model ?? request.CustomModel ?? string.Empty;
+
         try
         {
-            var (_, resolvedModel, parameters, provider) = _providerRegistry.ResolveChatProvider(request);
+            var chatClient = _chatClientFactory.GetClient(providerId);
             var prompt = request.Messages.Count > 0
                 ? request.Messages[^1].Content
                 : "Hello";
 
             var (systemPrompt, userPrompt) = await _promptMergeService.BuildChatPromptAsync(
-                "chat", provider.ProviderId, "text",
+                "chat", providerId, "text",
                 new Dictionary<string, string> { ["question"] = prompt });
 
             var finalPrompt = string.IsNullOrEmpty(userPrompt) ? prompt : userPrompt;
 
-            var providerRequest = new ProviderChatRequest
+            var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
+            if (!string.IsNullOrEmpty(systemPrompt))
             {
-                ProviderId = provider.ProviderId,
-                Model = resolvedModel,
-                Prompt = finalPrompt,
-                SystemPrompt = systemPrompt,
-                Temperature = parameters.Temperature,
-                TopP = parameters.TopP,
-                TopK = parameters.TopK,
-                Options = parameters.Options
+                messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.System, systemPrompt));
+            }
+            messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, finalPrompt));
+
+            var options = new ChatOptions
+            {
+                ModelId = model,
+                MaxOutputTokens = 4096,
             };
 
-            var result = await provider.GenerateAsync(providerRequest, ct);
-
-            // 按 SSE 格式输出
-            var chunks = _textUtility.SplitIntoSseChunks(result, 200);
-            foreach (var chunk in chunks)
+            // 真流式：通过 await foreach 消费 ChatResponseUpdate
+            await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options, ct))
             {
                 if (ct.IsCancellationRequested) break;
-                var sseData = $"data: {JsonSerializer.Serialize(new { content = chunk })}\n\n";
-                await Response.WriteAsync(sseData, ct);
-                await Response.Body.FlushAsync(ct);
+
+                if (!string.IsNullOrEmpty(update.Text))
+                {
+                    var sseData = $"data: {JsonSerializer.Serialize(new { content = update.Text })}\n\n";
+                    await Response.WriteAsync(sseData, ct);
+                    await Response.Body.FlushAsync(ct);
+                }
+
+                if (update.FinishReason.HasValue)
+                {
+                    break;
+                }
             }
 
             await Response.WriteAsync("event: done\ndata: [DONE]\n\n", ct);
@@ -100,7 +111,11 @@ public class ChatController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "流式聊天失败");
-            await Response.WriteAsync($"event: error\ndata: {JsonSerializer.Serialize(new { error = ex.Message })}\n\n", ct);
+            try
+            {
+                await Response.WriteAsync($"event: error\ndata: {JsonSerializer.Serialize(new { error = ex.Message })}\n\n", ct);
+            }
+            catch { /* 客户端已断开 */ }
         }
     }
 }

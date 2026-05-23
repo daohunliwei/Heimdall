@@ -20,14 +20,12 @@ public sealed class DynamicLogFilterOptions : IPostConfigureOptions<LoggerFilter
         // 在已有规则之前插入自定义过滤规则
         options.Rules.Insert(0, new LoggerFilterRule(
             providerName: null,
-            categoryName: "Microsoft.EntityFrameworkCore.Database.Command",
+            categoryName: "SqlSugar",
             logLevel: null, // 由 filter 委托决定
             filter: (provider, category, level) =>
             {
-                if (category?.StartsWith("Microsoft.EntityFrameworkCore.Database.Command") == true)
+                if (category?.StartsWith("SqlSugar") == true)
                     return _filter.ShowSqlCommands ? level >= LogLevel.Information : false;
-                if (category?.StartsWith("Microsoft.EntityFrameworkCore") == true)
-                    return _filter.ShowEfCore ? level >= LogLevel.Information : level >= LogLevel.Warning;
                 return true;
             }));
     }

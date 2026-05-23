@@ -1,48 +1,69 @@
+using SqlSugar;
+
 namespace Heimdall.Core.Entities;
 
-/// <summary>
-/// 代码索引条目——数据库持久化实体。
-/// </summary>
+[SugarTable("code_index_entries")]
 public class CodeIndexEntry
 {
+    [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    [SugarColumn(Length = 1024)]
     public string FilePath { get; set; } = string.Empty;
+
+    [SugarColumn(Length = 256)]
     public string ModuleName { get; set; } = string.Empty;
+
+    [SugarColumn(Length = 64)]
     public string FileType { get; set; } = "source";
+
+    [SugarColumn(Length = 64, IsNullable = true)]
     public string Language { get; set; } = string.Empty;
+
     public long SizeBytes { get; set; }
     public int ImportanceScore { get; set; }
+
+    [SugarColumn(ColumnName = "exported_symbols", ColumnDataType = "text")]
     public string ExportedSymbolsJson { get; set; } = "[]";
+
+    [SugarColumn(ColumnName = "dependency_hints", ColumnDataType = "text")]
     public string DependencyHintsJson { get; set; } = "[]";
 
-    /// <summary>方法级调用关系 JSON（V7: CallEdge 数组序列化）。</summary>
+    [SugarColumn(IsNullable = true)]
     public string? CallGraphJson { get; set; }
 
-    /// <summary>模块间依赖边 JSON（V7: DependencyEdge 数组序列化）。</summary>
+    [SugarColumn(IsNullable = true)]
     public string? DependencyEdgesJson { get; set; }
 
-    /// <summary>设计模式启发式提示（V7: 逗号分隔的模式名，如 "Factory,Strategy"）。</summary>
+    [SugarColumn(IsNullable = true)]
     public string? DesignPatternHints { get; set; }
 
-    // 版本关联
     public Guid RepositoryVersionId { get; set; }
+
+    [Navigate(NavigateType.OneToOne, nameof(RepositoryVersionId))]
     public RepositoryVersion? RepositoryVersion { get; set; }
 
-    // 关联的分块
+    [Navigate(NavigateType.OneToMany, nameof(CodeIndexChunk.CodeIndexEntryId))]
     public List<CodeIndexChunk> Chunks { get; set; } = new();
 }
 
-/// <summary>
-/// 代码索引分块——嵌入和检索的基本单元。
-/// </summary>
+[SugarTable("code_index_chunks")]
 public class CodeIndexChunk
 {
+    [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    [SugarColumn(ColumnDataType = "text")]
     public string Content { get; set; } = string.Empty;
+
     public int StartLine { get; set; }
     public int EndLine { get; set; }
+
+    [SugarColumn(Length = 64)]
     public string Language { get; set; } = string.Empty;
 
     public Guid CodeIndexEntryId { get; set; }
+
+    [Navigate(NavigateType.OneToOne, nameof(CodeIndexEntryId))]
     public CodeIndexEntry? CodeIndexEntry { get; set; }
 }

@@ -1,30 +1,48 @@
+using SqlSugar;
+
 namespace Heimdall.Core.Entities;
 
-/// <summary>仓库快照版本 — 以 (repository_id, branch_name, commit_sha) 唯一标识不可变快照</summary>
+[SugarTable("repository_versions")]
 public class RepositoryVersion
 {
+    [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
+
     public Guid RepositoryId { get; set; }
+
+    [Navigate(NavigateType.OneToOne, nameof(RepositoryId))]
     public Repository Repository { get; set; } = null!;
-    /// <summary>分支名</summary>
+
+    [SugarColumn(ColumnName = "branch_name", Length = 256)]
     public string BranchName { get; set; } = "main";
-    /// <summary>提交哈希</summary>
+
+    [SugarColumn(ColumnName = "commit_sha", Length = 64)]
     public string CommitSha { get; set; } = string.Empty;
-    /// <summary>文件树指纹，用于快速比较</summary>
+
+    [SugarColumn(ColumnName = "tree_fingerprint", Length = 128, IsNullable = true)]
     public string? TreeFingerprint { get; set; }
-    /// <summary>提交时间</summary>
+
+    [SugarColumn(ColumnName = "commit_time")]
     public DateTime CommitTime { get; set; }
-    /// <summary>提交作者</summary>
+
+    [SugarColumn(ColumnName = "commit_author", Length = 256, IsNullable = true)]
     public string? CommitAuthor { get; set; }
-    /// <summary>提交说明摘要</summary>
+
+    [SugarColumn(ColumnName = "commit_message", ColumnDataType = "text", IsNullable = true)]
     public string? CommitMessage { get; set; }
-    /// <summary>版本状态：active / superseded / deleted</summary>
+
+    [SugarColumn(ColumnName = "source_status", Length = 32)]
     public string SourceStatus { get; set; } = "active";
-    /// <summary>是否为该分支最新发现的版本</summary>
+
+    [SugarColumn(ColumnName = "is_latest_on_branch")]
     public bool IsLatestOnBranch { get; set; }
-    /// <summary>版本可信度：exact / inferred / unknown</summary>
+
+    [SugarColumn(ColumnName = "version_source_confidence", Length = 16)]
     public string VersionSourceConfidence { get; set; } = "exact";
+
+    [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public ICollection<WikiVersion> WikiVersions { get; set; } = new List<WikiVersion>();
+    [Navigate(NavigateType.OneToMany, nameof(WikiVersion.RepositoryVersionId))]
+    public List<WikiVersion> WikiVersions { get; set; } = new();
 }

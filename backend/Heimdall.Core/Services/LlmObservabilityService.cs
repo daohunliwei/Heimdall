@@ -3,6 +3,7 @@ using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Infrastructure.Configuration;
 using Heimdall.Infrastructure.Models;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services;
@@ -27,40 +28,40 @@ public sealed class LlmObservabilityService : ILlmObservabilityService
     }
 
     public async Task RecordCallAsync(Guid taskId, string stage, string provider, string model,
-        ChatCompletionResponse response, CancellationToken ct = default)
+        UsageDetails? usage, int latencyMs, bool success, bool isStreaming = false,
+        int? firstTokenLatencyMs = null, string? errorType = null, CancellationToken ct = default)
     {
+        int inputTokens = (int)(usage?.InputTokenCount ?? 0);
+        int outputTokens = (int)(usage?.OutputTokenCount ?? 0);
+        int cacheTokens = 0;
+        if (usage?.AdditionalCounts?.TryGetValue("CachedInputTokenCount", out var cached) == true)
+            cacheTokens = (int)((long)cached);
+
         var metric = new LlmCallMetric
         {
             TaskId = taskId,
             Stage = stage,
             Provider = provider,
             Model = model,
-            InputTokens = response.Usage.InputTokens,
-            OutputTokens = response.Usage.OutputTokens,
-            CacheHitTokens = response.Usage.CacheHitTokens,
-            LatencyMs = response.LatencyMs,
-            Success = response.FinishReason != "error",
-            IsEstimated = response.Usage.IsEstimated,
+            InputTokens = inputTokens,
+            OutputTokens = outputTokens,
+            CacheHitTokens = cacheTokens,
+            LatencyMs = latencyMs,
+            Success = success,
+            IsEstimated = usage?.AdditionalCounts?.ContainsKey("IsEstimated") == true,
+            IsStreaming = isStreaming,
+            FirstTokenLatencyMs = firstTokenLatencyMs,
+            ErrorType = errorType,
             CreatedAt = DateTime.UtcNow
         };
 
-        if (response.FinishReason == "error")
-        {
-            metric.ErrorType = "GenerationError";
-        }
-        else if (response.FinishReason == "length")
-        {
-            metric.ErrorType = "Truncated";
-        }
-
         await _repository.AddAsync(metric, ct);
 
-        var cost = EstimateCost(provider, model, response.Usage.InputTokens, response.Usage.OutputTokens);
+        var cost = EstimateCost(provider, model, inputTokens, outputTokens);
 
         _logger.LogDebug(
             "LLM 指标已记录 Task={TaskId} Stage={Stage} In={In} Out={Out} Cache={Cache} Latency={Ms}ms Cost=${Cost:F4}",
-            taskId, stage, response.Usage.InputTokens, response.Usage.OutputTokens,
-            response.Usage.CacheHitTokens, response.LatencyMs, cost);
+            taskId, stage, inputTokens, outputTokens, cacheTokens, latencyMs, cost);
     }
 
     public async Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default)
@@ -95,8 +96,8 @@ public sealed class LlmObservabilityService : ILlmObservabilityService
 
         return metadata.BillingType switch
         {
-            BillingType.CodingPlan => metadata.CallPrice ?? 0m,
-            BillingType.TokenPlan =>
+            global::Heimdall.Infrastructure.Models.BillingType.CodingPlan => metadata.CallPrice ?? 0m,
+            global::Heimdall.Infrastructure.Models.BillingType.TokenPlan =>
                 (inputTokens / 1_000_000m * (metadata.InputTokenPrice ?? 0m)) +
                 (outputTokens / 1_000_000m * (metadata.OutputTokenPrice ?? 0m)),
             _ => 0m

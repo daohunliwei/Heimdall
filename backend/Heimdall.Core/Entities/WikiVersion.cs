@@ -1,39 +1,65 @@
+using SqlSugar;
+
 namespace Heimdall.Core.Entities;
 
-/// <summary>Wiki 生成版本 — 表示某 Wiki 空间在某个仓库快照上的一次生成结果</summary>
+[SugarTable("wiki_versions")]
 public class WikiVersion
 {
+    [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
+
     public Guid WikiSpaceId { get; set; }
+
+    [Navigate(NavigateType.OneToOne, nameof(WikiSpaceId))]
     public WikiSpace WikiSpace { get; set; } = null!;
+
     public Guid RepositoryVersionId { get; set; }
+
+    [Navigate(NavigateType.OneToOne, nameof(RepositoryVersionId))]
     public RepositoryVersion RepositoryVersion { get; set; } = null!;
-    /// <summary>Wiki 版本号，仓库内递增</summary>
+
+    [SugarColumn(ColumnName = "version_no")]
     public int VersionNo { get; set; }
-    /// <summary>生成模式：current / latest / rebuild</summary>
+
+    [SugarColumn(ColumnName = "generation_mode", Length = 16)]
     public string GenerationMode { get; set; } = "latest";
-    /// <summary>生成档位：concise / comprehensive</summary>
+
+    [SugarColumn(ColumnName = "generation_profile", Length = 32)]
     public string GenerationProfile { get; set; } = "comprehensive";
-    /// <summary>Prompt 模板版本摘要</summary>
+
+    [SugarColumn(ColumnName = "prompt_profile_hash", Length = 64, IsNullable = true)]
     public string? PromptProfileHash { get; set; }
-    /// <summary>Provider + Model 配置摘要</summary>
+
+    [SugarColumn(ColumnName = "model_profile_hash", Length = 64, IsNullable = true)]
     public string? ModelProfileHash { get; set; }
-    /// <summary>状态：draft / generating / ready / published / failed / superseded</summary>
+
+    [SugarColumn(ColumnName = "status", Length = 16)]
     public string Status { get; set; } = "draft";
-    /// <summary>是否强制刷新生成</summary>
+
+    [SugarColumn(ColumnName = "is_force_refresh")]
     public bool IsForceRefresh { get; set; }
-    /// <summary>页面数量</summary>
+
+    [SugarColumn(ColumnName = "page_count", IsNullable = true)]
     public int? PageCount { get; set; }
-    /// <summary>目录深度</summary>
+
+    [SugarColumn(ColumnName = "toc_depth", IsNullable = true)]
     public int? TocDepth { get; set; }
-    /// <summary>版本摘要说明</summary>
+
+    [SugarColumn(ColumnName = "summary_markdown", ColumnDataType = "text", IsNullable = true)]
     public string? SummaryMarkdown { get; set; }
-    /// <summary>结构规划 JSON（阶段 B 工件）</summary>
+
+    [SugarColumn(ColumnName = "structure_json", ColumnDataType = "text", IsNullable = true)]
     public string? StructureJson { get; set; }
-    /// <summary>来源任务 ID</summary>
+
+    [SugarColumn(ColumnName = "created_by_task_id", IsNullable = true)]
     public Guid? CreatedByTaskId { get; set; }
+
+    [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [SugarColumn(ColumnName = "completed_at", IsNullable = true)]
     public DateTime? CompletedAt { get; set; }
 
-    public ICollection<WikiPage> WikiPages { get; set; } = new List<WikiPage>();
+    [Navigate(NavigateType.OneToMany, nameof(WikiPage.WikiVersionId))]
+    public List<WikiPage> WikiPages { get; set; } = new();
 }

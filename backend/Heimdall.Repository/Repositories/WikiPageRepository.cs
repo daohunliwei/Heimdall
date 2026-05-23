@@ -1,7 +1,6 @@
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
-using Heimdall.Repository.Data;
-using Microsoft.EntityFrameworkCore;
+using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
@@ -10,12 +9,12 @@ namespace Heimdall.Repository.Repositories;
 /// </summary>
 public class WikiPageRepository : IWikiPageRepository
 {
-    private readonly AppDbContext _context;
+    private readonly ISqlSugarClient _db;
 
     /// <summary>初始化仓储</summary>
-    public WikiPageRepository(AppDbContext context)
+    public WikiPageRepository(ISqlSugarClient db)
     {
-        _context = context;
+        _db = db;
     }
 
     /// <summary>
@@ -26,8 +25,7 @@ public class WikiPageRepository : IWikiPageRepository
     /// <returns>页面列表（按 PageOrder 排序）</returns>
     public async Task<List<WikiPage>> GetByWikiVersionIdAsync(Guid wikiVersionId)
     {
-        return await _context.WikiPages
-            .AsNoTracking()
+        return await _db.Queryable<WikiPage>()
             .Where(p => p.WikiVersionId == wikiVersionId)
             .OrderBy(p => p.PageOrder)
             .ToListAsync();
@@ -38,8 +36,7 @@ public class WikiPageRepository : IWikiPageRepository
     {
         page.CreatedAt = DateTime.UtcNow;
         page.UpdatedAt = DateTime.UtcNow;
-        _context.WikiPages.Add(page);
-        await _context.SaveChangesAsync();
+        await _db.Insertable(page).ExecuteCommandAsync();
         return page;
     }
 
@@ -52,8 +49,7 @@ public class WikiPageRepository : IWikiPageRepository
             page.CreatedAt = DateTime.UtcNow;
             page.UpdatedAt = DateTime.UtcNow;
         }
-        _context.WikiPages.AddRange(pageList);
-        await _context.SaveChangesAsync();
+        await _db.Insertable(pageList).ExecuteCommandAsync();
         return pageList;
     }
 
@@ -61,8 +57,7 @@ public class WikiPageRepository : IWikiPageRepository
     public async Task<WikiPage> UpdateAsync(WikiPage page)
     {
         page.UpdatedAt = DateTime.UtcNow;
-        _context.WikiPages.Update(page);
-        await _context.SaveChangesAsync();
+        await _db.Updateable(page).ExecuteCommandAsync();
         return page;
     }
 }

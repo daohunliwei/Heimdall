@@ -9,6 +9,8 @@
 - 后端：C# / ASP.NET Core / `.NET 10`
 - 前端：Next.js 16 (App Router)
 - 数据库：PostgreSQL + pgvector
+- ORM：SqlSugar（CodeFirst 自动同步，无迁移文件）
+- AI 抽象：Microsoft.Extensions.AI（MEAI）`IChatClient`
 
 历史 Python 逻辑已完全移除，仓库不再包含任何 Python 运行链路与源码目录。
 
@@ -19,24 +21,33 @@ Heimdall.Api (API 层)         →  控制器、DTO、中间件、Mappings
     ↓
 Heimdall.Core (业务层)        →  实体、业务接口与实现、领域模型
     ↓
-Heimdall.Repository (数据层)  →  EF Core、仓储、迁移、向量查询
+Heimdall.Repository (数据层)  →  SqlSugar ORM、仓储实现
     ↘              ↙
-Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本工具
+Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、仓库源、BM25 搜索、文本工具
 ```
 
 依赖规则：Api → Core → Repository；全部 → Infrastructure。Core 不依赖 Api。层间通过接口通信，DI 注入。
 
+### V9 关键变更
+
+- **ORM**：EF Core → SqlSugar。`ISqlSugarClient` (Singleton) 替代 `AppDbContext` (Scoped)。无 DbContext、无 EntityConfigurations、无迁移文件。
+- **Provider**：自研 `IChatProvider` 接口 → MEAI `IChatClient`。`ChatClientFactory` + Keyed DI 替代 `ProviderRegistry`。OpenAI/OpenRouter/DashScope/DeepSeek/Azure 统一走 `OpenAiCompatibleClientFactory`；Ollama/Gemini/MiniMax 为自定义 `IChatClient` 适配器（`Infrastructure/Providers/CustomBackends/`）。
+- **流式**：`IChatClient.GetStreamingResponseAsync()` 真流式 SSE，Chat 和 Ask 端点均已升级。
+- **CodeFirst**：启动时 `CodeFirstSyncService` 扫描 `Core.Entities` 自动同步表结构。`/SqlScripts/` 为回退方案。
+- **指标**：`ILlmObservabilityService.RecordCallAsync` 接收 MEAI `UsageDetails`，支持 `IsStreaming`/`FirstTokenLatencyMs`。
+
 ## 目录职责
 
 - `backend/Heimdall.Api`：C# API 入口——控制器、中间件、DTO 模型、Mappings、`Program.cs`
-- `backend/Heimdall.Core`：业务逻辑——`Entities/`、`Interfaces/`、`Services/`、`Models/`。`Services/Repository/` 含 `CodeIndexService`（本地代码索引，无 LLM）和 `CodeStructureIndexService`；`Services/Search/` 含 `HybridSearchService`（BM25 + 向量双路检索）；`Services/Tasks/` 含 `AgentOrchestratorService`（大仓库子代理协调）
-- `backend/Heimdall.Infrastructure`：工具层——`Providers/`（LLM 适配）、`Search/`（BM25 搜索引擎）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
-- `backend/Heimdall.Repository`：数据层——`Data/`（AppDbContext）、`EntityConfigurations/`、`Repositories/`、`Migrations/`
-- `frontend/src/app`：Next.js 页面与 API 代理路由
-- `frontend/src/components`：前端组件
+- `backend/Heimdall.Core`：业务逻辑——`Entities/`（`[SugarTable]` 实体）、`Interfaces/`、`Services/`、`Models/`。`Services/Repository/` 含 `CodeIndexService`（本地代码索引，无 LLM）和 `CodeStructureIndexService`；`Services/Tasks/` 含 `AgentOrchestratorService`（大仓库子代理协调）；`Services/CodeFirstSyncService.cs`（启动时表结构同步）
+- `backend/Heimdall.Infrastructure`：工具层——`Providers/`（MEAI IChatClient 适配 + `ChatClientFactory` + `OpenAiCompatibleClientFactory` + `BedrockClientFactory`）、`Providers/CustomBackends/`（OllamaChatClient / GeminiChatClient / MiniMaxChatClient）、`Search/`（BM25 搜索引擎）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
+- `backend/Heimdall.Repository`：数据层——`Repositories/`（注入 `ISqlSugarClient`）
+- `frontend/src/app`：Next.js 页面与 API 代理路由（含 `/api/tasks/ask/stream` SSE 代理）
+- `frontend/src/components`：前端组件（`Ask.tsx` 含流式 SSE 支持）
 - `frontend/src/contexts`：Auth/Language 上下文
 - `frontend/src/hooks`：自定义 Hook（useTaskStream、useProcessedProjects、useArtifactVersionContext）
 - `frontend/src/messages`：中文界面文案
+- `SqlScripts/`：PostgreSQL 初始化脚本（Init_Tables / Init_Indexes / Init_Extensions / Init_SeedData）
 - `doc/architecture`：架构升级方案与审计清单
 
 ## 修改原则
@@ -44,7 +55,7 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 - 所有新增文档、注释、说明文字必须使用中文
 - C# 运行时固定为 `.NET 10`
 - 优先修改 C# 后端与 Next.js 前端，不要引入 Python 业务代码
-- 数据层变更需生成 EF Core 迁移
+- 实体变更后同步更新 `/SqlScripts/Init_Tables.sql`
 - 新服务需在 `Program.cs` 中注册 DI
 
 ## 常见任务入口
@@ -57,8 +68,8 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 - `backend/Heimdall.Api/Controllers/` — API 控制器
 - `backend/Heimdall.Core/Services/` — 业务服务实现
 - `backend/Heimdall.Core/Interfaces/` — 接口定义
-- `backend/Heimdall.Core/Entities/` — 领域实体
-- `backend/Heimdall.Repository/Repositories/` — 数据访问实现
+- `backend/Heimdall.Core/Entities/` — 领域实体（`[SugarTable]` / `[SugarColumn]`）
+- `backend/Heimdall.Repository/Repositories/` — 数据访问实现（注入 `ISqlSugarClient`）
 - `backend/Heimdall.Api/Models/` — API DTO
 - `backend/Heimdall.Api/config/` — JSON 配置文件
 
@@ -90,13 +101,11 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 
 优先修改：
 
-- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 10 阶段管线编排
+- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 9 阶段管线编排
 - `backend/Heimdall.Core/Services/Repository/CodeIndexService.cs` — 本地代码索引（正则符号提取，无 LLM）
-- `backend/Heimdall.Core/Services/Search/HybridSearchService.cs` — BM25 + 向量混合检索
 - `backend/Heimdall.Infrastructure/Search/Bm25SearchService.cs` — BM25 精确匹配引擎
 - `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs` — 提示词构建
 - `backend/Heimdall.Core/Services/Prompt/PromptSeedData.cs` — 提示词模板播种
-- `backend/Heimdall.Core/Interfaces/Services/IHybridSearchService.cs` — 混合检索接口
 - `backend/Heimdall.Core/Entities/CodeIndexEntry.cs` — 代码索引实体
 - `backend/Heimdall.Repository/Repositories/CodeIndexRepository.cs` — 索引持久化
 
@@ -104,16 +113,16 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 
 优先修改：
 
-- `backend/Heimdall.Api/Controllers/ChatController.cs`
-- `backend/Heimdall.Api/Controllers/TasksController.cs`
-- `backend/Heimdall.Core/Services/Tasks/AskTaskService.cs`
+- `backend/Heimdall.Api/Controllers/ChatController.cs` — 流式 SSE Chat
+- `backend/Heimdall.Api/Controllers/TasksController.cs` — Ask/AskStream 端点
+- `backend/Heimdall.Core/Services/Tasks/AskTaskService.cs` — Ask + AskStreamingAsync
 - `backend/Heimdall.Core/Services/Tasks/SlidesTaskService.cs`
 - `backend/Heimdall.Core/Services/Tasks/WorkshopTaskService.cs`
 - `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs`
 - `backend/Heimdall.Core/Services/Tasks/VersionedKnowledgeService.cs`
 - `backend/Heimdall.Core/Services/Prompt/PromptTemplateService.cs`
-- `backend/Heimdall.Infrastructure/Providers/`
-- `frontend/src/components/Ask.tsx`
+- `backend/Heimdall.Infrastructure/Providers/` — MEAI Provider 工厂与适配器
+- `frontend/src/components/Ask.tsx` — 流式 SSE 问答界面
 - `frontend/src/app/repositories/[repositoryId]/slides/page.tsx`
 - `frontend/src/app/repositories/[repositoryId]/workshop/page.tsx`
 
@@ -121,54 +130,60 @@ Heimdall.Infrastructure (工具层) →  Provider、配置、仓库源、文本�
 
 优先修改：
 
-- `backend/Heimdall.Core/Entities/` — 实体定义
-- `backend/Heimdall.Repository/Data/EntityConfigurations/` — Fluent API
-- `backend/Heimdall.Repository/Data/AppDbContext.cs` — DbContext
-- 修改后执行：`dotnet ef migrations add <Name>` → `dotnet ef database update`
+- `backend/Heimdall.Core/Entities/` — 实体定义（`[SugarTable]` + `[SugarColumn]` 属性）
+- `SqlScripts/Init_Tables.sql` — 同步更新建表脚本
+- `SqlScripts/Init_Indexes.sql` — 同步更新索引脚本
+- 启动时 CodeFirst 自动同步（由 `CodeFirst:AutoSync` 配置控制）
 
 ## 运行方式
 
+### 环境变量
+
+所有调试凭据统一存放在 `scripts/dev.env`（已 gitignore），启动脚本自动加载：
+
+```bash
+cp scripts/dev.env.example scripts/dev.env
+# 编辑 scripts/dev.env，填入真实值
+```
+
 ### 本地开发
 
-后端：
-
 ```bash
-dotnet run --project backend/Heimdall.Api/Heimdall.Api.csproj
+# macOS / Linux — 一键启动
+bash scripts/dev.sh
+
+# Windows — 一键启动
+.\scripts\dev-start.ps1
+
+# 仅后端
+bash scripts/dev.sh --backend-only
+
+# 仅前端
+.\scripts\dev.ps1 -FrontendOnly
+
+# 预览启动命令（不实际执行）
+.\scripts\dev.ps1 -DryRun
 ```
 
-前端：
+### AI 工具自动调试
 
 ```bash
-cd frontend
-npm install
-npm run dev
-```
-
-一键启动：
-
-```bash
-cd frontend
-npm run dev:all
+# 加载环境变量后直接启动（命令行无密码明文）
+source scripts/dev.env && dotnet run --no-launch-profile --project backend/Heimdall.Api/Heimdall.Api.csproj
 ```
 
 ### 关键环境变量
 
-- `HEIMDALL_CONNECTION_STRING` — PostgreSQL + pgvector 连接字符串
+- `HEIMDALL_CONNECTION_STRING` — PostgreSQL 连接字符串
 - `HEIMDALL_AUTH_MODE` — `none` 或 `jwt`
 - `HEIMDALL_JWT_SECRET` — JWT 签名密钥
-- `HEIMDALL_JWT_EXPIRY_HOURS` — Token 过期小时数
-- `HEIMDALL_REGISTRATION_OPEN` — 是否开放注册
+- `HEIMDALL_CODEFIRST_AUTOSYNC` — 启动时是否自动同步表结构（bool）
 - `HEIMDALL_DEFAULT_PROVIDER` — 默认 LLM Provider
-- `HEIMDALL_EMBEDDER_TYPE` — 向量嵌入器类型
 - `HEIMDALL_OLLAMA_CHAT_HOST` — Ollama Chat 地址
-- `HEIMDALL_OLLAMA_EMBED_HOST` — Ollama Embedding 地址
 - `SERVER_BASE_URL` — 前端代理的后端地址
-- `HEIMDALL_DATA_DIR` — Wiki 缓存数据目录
-- `HEIMDALL_STORAGE_DIR` — 仓库克隆暂存目录
-- `HEIMDALL_HTTP_TIMEOUT_MINUTES` — HTTP 超时
-- `HEIMDALL_WIKI_TASK_TIMEOUT_MINUTES` — Wiki 任务超时
+- Provider 密钥：`OPENAI_API_KEY`、`GOOGLE_API_KEY`、`DEEPSEEK_API_KEY` 等
 
-Provider 密钥：`OPENAI_API_KEY`、`GOOGLE_API_KEY`、`OLLAMA_HOST` 等
+完整列表见 `scripts/dev.env.example`。
 
 ## 验证方式
 
@@ -185,27 +200,14 @@ npm run build
 dotnet build backend/Heimdall.Api/Heimdall.Api.csproj
 ```
 
-### 数据库迁移
-
-```bash
-dotnet ef migrations add <Name> \
-  --project backend/Heimdall.Repository \
-  --startup-project backend/Heimdall.Api
-
-dotnet ef database update \
-  --project backend/Heimdall.Repository \
-  --startup-project backend/Heimdall.Api
-```
-
 ### 联调重点
 
 - 首页输入仓库 URL → 调用 `POST /api/repositories/import` → 跳转 `/repositories/{repositoryId}`
 - 仓库页能否加载 Wiki 版本列表、页面树与页面内容
 - `POST /api/repositories/{repositoryId}/wiki/refresh` 是否立即返回 task_id
-- 后台异步 Wiki 生成是否按新管线执行：仓库准备 → 代码索引（本地，无 LLM）→ 结构规划 → 检索增强页面生成 → 质量审查 → 渲染后处理 → 持久化 → 向量嵌入
-- 页面生成是否使用混合检索（BM25 + 向量搜索）注入真实代码片段，而非旧的逐文件 LLM 摘要
+- 后台异步 Wiki 生成管线：仓库准备 → 代码索引 → 结构规划 → 页面生成（BM25 检索注入）→ 质量审查 → 渲染后处理 → 持久化
+- 流式 Chat（SSE）和流式 Ask（`POST /tasks/ask/stream`）是否正常
 - 版本切换器能否切换到指定 Wiki 版本并正确加载页面
-- 问答（Ask）是否继承当前版本上下文并基于双向量检索生成回答
 - Slides / Workshop 页面是否透传 `repositoryVersionId` + `wikiVersionId`
 - 管理后台仪表盘、用户管理、任务监控、Prompt 模板是否正常
 
@@ -215,5 +217,7 @@ dotnet ef database update \
 - 不要引入新的多语言文档与多语言界面资源
 - 不要把 .NET 版本改成非 `.NET 10`
 - 不要引入任何 Python 运行链路（包括脚本、服务、镜像依赖与 CI 步骤）
-- 不要删除数据库已有表（使用增量迁移）
+- 不要删除数据库已有表（通过 SqlSugar CodeFirst 增量同步）
 - 不要创建 Core → Api 方向的项目引用
+- 不要引入 `Microsoft.EntityFrameworkCore.*` 包（已迁移到 SqlSugar）
+- 不要引入自研 `IChatProvider` 实现（已迁移到 MEAI `IChatClient`）

@@ -114,7 +114,7 @@ if [[ "$FRONTEND_ONLY" != "true" ]]; then
     # 等待后端就绪
     echo -n "▸ 等待后端就绪"
     for i in $(seq 1 30); do
-        if curl -sf "$BACKEND_URL/api/processed_projects" > /dev/null 2>&1; then
+        if curl -sf "$BACKEND_URL/api/repositories" > /dev/null 2>&1; then
             echo " ✓ (${i}s)"
             break
         fi
