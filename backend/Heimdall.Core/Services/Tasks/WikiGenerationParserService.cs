@@ -266,14 +266,27 @@ public sealed class WikiGenerationParserService
     {
         var normalized = WikiMarkdownNormalizer.Normalize(response);
 
-        // 尝试 ```json ... ``` 围栏代码块
-        var fencedMatch = Regex.Match(normalized, "```json\\s*(?<json>[\\s\\S]*?)```", RegexOptions.IgnoreCase);
-        if (fencedMatch.Success)
+        // 推理模型（如 MiniMax M2.7）可能在推理文本中包含代码块，取最后一个 ```json 块
+        var fencedMatches = Regex.Matches(normalized, "```json\\s*(?<json>[\\s\\S]*?)```", RegexOptions.IgnoreCase);
+        if (fencedMatches.Count > 0)
         {
-            return TryRepairJson(fencedMatch.Groups["json"].Value.Trim());
+            var lastMatch = fencedMatches[fencedMatches.Count - 1];
+            return TryRepairJson(lastMatch.Groups["json"].Value.Trim());
         }
 
-        // 移除残留的 "json" 前缀（模型可能输出 "json\n{...}"）
+        // 尝试 ``` 围栏代码块（无语言标记）
+        var anyFence = Regex.Matches(normalized, "```\\s*(?<json>[\\s\\S]*?)```", RegexOptions.IgnoreCase);
+        foreach (Match m in anyFence)
+        {
+            var content = m.Groups["json"].Value.Trim();
+            if (content.StartsWith('{') || content.StartsWith('['))
+            {
+                var result = TryRepairJson(content);
+                if (result is not null) return result;
+            }
+        }
+
+        // 移除残留的 "json" 前缀
         if (normalized.StartsWith("json", StringComparison.OrdinalIgnoreCase))
         {
             var trimmed = normalized[4..].TrimStart();
