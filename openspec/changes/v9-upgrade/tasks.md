@@ -136,5 +136,5 @@
 - [x] 18.6 验证 Token 估算在不带 usage 的流式 Provider 上正常工作
 - [ ] 18.7 验证 OpenTelemetry Trace 在控制台/导出器中可见
 - [x] 18.8 手动执行 `/SqlScripts/Init_Tables.sql` 验证脚本可独立建表
-- [ ] 18.9 验证数据库管理后台 Token 统计数据显示正确
+- [x] 18.9 验证数据库管理后台 Token 统计数据显示正确
 - [x] 18.10 执行 `dev-reset.ps1 -Force` 后重新启动，验证全流程正常
