@@ -32,7 +32,7 @@ public sealed class CodeStructureIndexService
     {
         "node_modules", ".git", "bin", "obj", "dist", "build", ".next",
         "__pycache__", ".venv", "venv", "vendor", "target", ".idea", ".vs",
-        ".vscode", "coverage", ".nyc_output", "tmp", "temp", ".cache"
+        ".vscode", "coverage", ".nyc_output", "tmp", "temp", ".cache", ".trae"
     };
 
     // 应跳过的文件扩展名
@@ -90,9 +90,11 @@ public sealed class CodeStructureIndexService
 
             entries.Add(entry);
 
-            // 检测技术栈
+            // 检测技术栈：先按完整文件名匹配（Dockerfile/Makefile），再按扩展名匹配（.csproj/go.mod）
             var fileName = Path.GetFileName(relativePath);
-            if (TechDetectors.TryGetValue(fileName, out var detected))
+            var ext = Path.GetExtension(relativePath);
+            if (TechDetectors.TryGetValue(fileName, out var detected) ||
+                TechDetectors.TryGetValue(ext, out detected))
             {
                 projectType = detected.ProjectType;
                 techStack = detected.TechStack;

@@ -151,7 +151,7 @@ public sealed partial class CodeIndexService
         {
             if (part is ".git" or "node_modules" or "bin" or "obj" or ".vs" or "dist" or "build"
                 or ".next" or "coverage" or ".nyc_output" or "__pycache__" or ".pytest_cache"
-                or "vendor" or "target" or ".gradle")
+                or "vendor" or "target" or ".gradle" or ".trae")
                 return true;
         }
         var ext = Path.GetExtension(relativePath).ToLowerInvariant();
@@ -189,6 +189,8 @@ public sealed partial class CodeIndexService
             ".toml" => "toml",
             ".ml" => "ocaml",
             ".jl" => "julia",
+            ".axaml" or ".xaml" => "xml",
+            ".csproj" or ".props" or ".targets" => "xml",
             _ => "other"
         };
     }

@@ -45,7 +45,21 @@ public class MiniMaxChatClient : IChatClient
         using var doc = JsonDocument.Parse(responseJson);
         var root = doc.RootElement;
 
-        var text = root.GetProperty("choices")[0]
+        // 检查 API 错误
+        if (root.TryGetProperty("base_resp", out var baseResp) &&
+            baseResp.TryGetProperty("status_code", out var sc) && sc.GetInt32() != 0)
+        {
+            var msg = baseResp.TryGetProperty("status_msg", out var sm) ? sm.GetString() : "Unknown";
+            throw new InvalidOperationException($"MiniMax API 错误 (code={sc.GetInt32()}): {msg}");
+        }
+
+        if (!root.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+        {
+            _logger.LogWarning("MiniMax 响应无 choices: {Response}", responseJson[..200]);
+            throw new InvalidOperationException("MiniMax 响应不包含 choices");
+        }
+
+        var text = choices[0]
             .GetProperty("message")
             .GetProperty("content").GetString() ?? string.Empty;
 
