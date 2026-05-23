@@ -7,31 +7,68 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-heimdall}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U heimdall -d heimdall"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  init-db:
+    image: pgvector/pgvector:pg17
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-heimdall}
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        echo "等待 PostgreSQL 就绪..."
+        until pg_isready -h postgres -U heimdall -d heimdall; do sleep 2; done
+        echo "创建扩展..."
+        psql -h postgres -U heimdall -d heimdall -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null || true
+        psql -h postgres -U heimdall -d heimdall -c "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";" 2>/dev/null || true
+        psql -h postgres -U heimdall -d heimdall -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || true
+        echo "数据库初始化完成"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   backend:
-    image: ghcr.io/your-org/heimdall-backend:latest
+    image: ghcr.io/daohunliwei/heimdall-backend:latest
     environment:
-      - ASPNETCORE_URLS=http://0.0.0.0:8001
-      - HEIMDALL_DATA_DIR=/data
-      - HEIMDALL_CONNECTION_STRING=Host=postgres;Port=5432;Database=heimdall;Username=heimdall;Password=${DB_PASSWORD:-heimdall}
-      - HEIMDALL_JWT_SECRET=${JWT_SECRET:-change-me-in-production}
-    ports:
-      - "8001:8001"
+      ASPNETCORE_URLS: http://0.0.0.0:8001
+      ASPNETCORE_ENVIRONMENT: Production
+      HEIMDALL_CONNECTION_STRING: Host=postgres;Port=5432;Database=heimdall;Username=heimdall;Password=${DB_PASSWORD:-heimdall}
+      HEIMDALL_AUTH_MODE: ${AUTH_MODE:-jwt}
+      HEIMDALL_JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      HEIMDALL_REGISTRATION_OPEN: ${REGISTRATION_OPEN:-false}
+      HEIMDALL_CODEFIRST_AUTOSYNC: "true"
+      HEIMDALL_DEFAULT_PROVIDER: ${DEFAULT_PROVIDER:-ollama}
+      HEIMDALL_DATA_DIR: /data
     volumes:
       - heimdall-data:/data
+    ports:
+      - "${BACKEND_PORT:-8001}:8001"
     depends_on:
-      - postgres
+      init-db:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/api/repositories || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   frontend:
-    image: ghcr.io/your-org/heimdall-frontend:latest
+    image: ghcr.io/daohunliwei/heimdall-frontend:latest
     environment:
-      - SERVER_BASE_URL=http://backend:8001
+      SERVER_BASE_URL: http://backend:8001
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   heimdall-data:

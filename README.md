@@ -240,13 +240,15 @@ DEEPSEEK_API_KEY=sk-your-key-here
 | `GET /api/admin/provider-metadata` | Provider 模型元数据 |
 | `GET /api/admin/system-info` | 系统信息摘要 |
 
-## Docker 部署
+## 生产部署
 
 ```bash
-docker build -f docker/backend/Dockerfile -t heimdall-backend:latest .
-docker build -f docker/frontend/Dockerfile -t heimdall-frontend:latest .
 docker compose up -d
 ```
+
+首次启动约 30-60 秒（PostgreSQL → 数据库初始化 → 后端 CodeFirst 建表 → 前端）。
+
+完整部署指南（环境变量、Provider 配置、Nginx 反向代理、备份恢复）：**[部署手册 →](docs/deploy.md)**
 
 ## 故障排查
 
