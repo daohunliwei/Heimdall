@@ -10,16 +10,15 @@ COPY frontend/next.config.ts frontend/tsconfig.json frontend/postcss.config.mjs 
 RUN npm run build
 
 FROM node:20-alpine AS runtime
-WORKDIR /app
-
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
+COPY --from=build /app/.next/standalone /app
+COPY --from=build /app/.next/static /app/frontend/.next/static
+COPY --from=build /app/public /app/frontend/public
 
+WORKDIR /app/frontend
 EXPOSE 3000
 
 CMD ["node", "server.js"]
