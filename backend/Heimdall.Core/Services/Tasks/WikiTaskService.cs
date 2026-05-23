@@ -136,6 +136,7 @@ public sealed class WikiTaskService
             Language = language,
             ProgressPercent = 0,
             ProgressMessage = "任务已创建，等待执行...",
+            ResultJson = "{}",
             // V2 版本字段
             TargetBranch = branch,
             RefreshStrategy = refreshStrategy,

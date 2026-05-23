@@ -26,7 +26,7 @@ public class WikiPageRelation
     [SugarColumn(ColumnName = "relation_type", Length = 32)]
     public string RelationType { get; set; } = "related_to";
 
-    [SugarColumn(ColumnName = "metadata_json", ColumnDataType = "jsonb", IsNullable = true)]
+    [SugarColumn(ColumnName = "metadata_json", IsJson = true, IsNullable = true)]
     public string? MetadataJson { get; set; }
 
     [SugarColumn(ColumnName = "created_at")]

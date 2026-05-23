@@ -53,13 +53,16 @@ public class TaskRepository : ITaskRepository
         }
         catch (Exception)
         {
-            // Another request for the same task already exists; return the existing one
             var existing = await _db.Queryable<TaskRecord>()
                 .FirstAsync(t => t.RepositoryId == task.RepositoryId
                     && t.SourceBranch == task.SourceBranch
                     && t.TaskType == task.TaskType
                     && (t.Status == "pending" || t.Status == "running"));
-            return existing!;
+            if (existing is not null) return existing;
+
+            // 重试一次插入
+            await _db.Insertable(task).ExecuteCommandAsync();
+            return task;
         }
     }
 

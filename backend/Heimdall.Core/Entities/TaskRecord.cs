@@ -47,7 +47,7 @@ public class TaskRecord
     public int TotalPromptTokens { get; set; }
     public int TotalCompletionTokens { get; set; }
 
-    [SugarColumn(ColumnDataType = "jsonb", IsNullable = true)]
+    [SugarColumn(IsJson = true, IsNullable = true)]
     public string? ResultJson { get; set; }
 
     [SugarColumn(ColumnDataType = "text", IsNullable = true)]

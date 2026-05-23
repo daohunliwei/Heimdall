@@ -34,7 +34,7 @@ public class TaskArtifact
     [SugarColumn(ColumnName = "summary", ColumnDataType = "text", IsNullable = true)]
     public string? Summary { get; set; }
 
-    [SugarColumn(ColumnName = "payload_json", ColumnDataType = "jsonb")]
+    [SugarColumn(ColumnName = "payload_json", IsJson = true)]
     public string PayloadJson { get; set; } = "{}";
 
     [SugarColumn(ColumnName = "error_message", ColumnDataType = "text", IsNullable = true)]

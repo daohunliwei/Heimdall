@@ -43,13 +43,13 @@ public class WikiPage
     [SugarColumn(ColumnName = "depth")]
     public int Depth { get; set; }
 
-    [SugarColumn(ColumnName = "outline_json", ColumnDataType = "jsonb", IsNullable = true)]
+    [SugarColumn(ColumnName = "outline_json", IsJson = true, IsNullable = true)]
     public string? OutlineJson { get; set; }
 
     [SugarColumn(ColumnName = "summary", ColumnDataType = "text", IsNullable = true)]
     public string? Summary { get; set; }
 
-    [SugarColumn(ColumnName = "source_coverage_json", ColumnDataType = "jsonb", IsNullable = true)]
+    [SugarColumn(ColumnName = "source_coverage_json", IsJson = true, IsNullable = true)]
     public string? SourceCoverageJson { get; set; }
 
     [SugarColumn(ColumnDataType = "text[]", IsNullable = true)]

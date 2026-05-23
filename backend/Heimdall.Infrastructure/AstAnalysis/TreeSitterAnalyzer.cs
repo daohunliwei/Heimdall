@@ -33,6 +33,24 @@ public class TreeSitterAnalyzer
         ["julia"] = "Julia", ["agda"] = "Agda",
     };
 
+    /// <summary>
+    /// 创建 Language 实例，处理简单构造失败的语言（如 C# 的 native lib 命名不一致）
+    /// </summary>
+    private static Language? CreateLanguage(string tsLang)
+    {
+        try { return new Language(tsLang); }
+        catch { /* 简单构造失败，尝试手动构造 */ }
+
+        // C# 的 native lib 文件名是 tree-sitter-c-sharp，但 simple name "CSharp" 找的是 csharp
+        if (tsLang == "CSharp")
+        {
+            try { return new Language("libtree-sitter-c-sharp", "tree_sitter_c_sharp"); }
+            catch { return null; }
+        }
+
+        return null;
+    }
+
     public bool SupportsLanguage(string detectLang)
     {
         return LanguageMap.ContainsKey(detectLang) && _queries.ContainsKey(detectLang);
@@ -48,7 +66,8 @@ public class TreeSitterAnalyzer
 
         try
         {
-            using var lang = new Language(tsLang);
+            using var lang = CreateLanguage(tsLang);
+            if (lang == null) return AnalyzeWithRegex(filePath, source, language);
             using var parser = new Parser(lang);
             var text = source.Length > 100_000 ? source[..100_000] : source;
             using var tree = parser.Parse(text);
