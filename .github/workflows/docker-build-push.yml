@@ -1,5 +1,9 @@
 name: Heimdall 持续集成与镜像构建
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches: [ main ]
