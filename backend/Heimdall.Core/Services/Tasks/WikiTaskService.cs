@@ -367,6 +367,7 @@ public sealed class WikiTaskService
                     var structureSw = Stopwatch.StartNew();
                     var structureResponse = await _taskLlm.GenerateWithMetricsAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
                     structureRawResponse = structureResponse.Messages.LastOrDefault()?.Text ?? string.Empty;
+                    _logger.LogInformation("[DEBUG 结构规划原始输出]\n{RawResponse}", structureRawResponse);
                     try
                     {
                         var obs = execScope.ServiceProvider.GetRequiredService<ILlmObservabilityService>();
