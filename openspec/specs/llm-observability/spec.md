@@ -1,53 +1,58 @@
 ## MODIFIED Requirements
 
 ### Requirement: LLM 调用级指标收集
-系统 SHALL 对每次 LLM 调用记录结构化指标，包含：TaskId、Stage、Provider、Model、InputTokens、OutputTokens、CacheHitTokens、LatencyMs、FirstTokenLatencyMs、Success、ErrorType、Timestamp。指标 SHALL 持久化到 `llm_call_metrics` 数据库表。**修复**：确保每次调用均记录指标，不允许跳过。
+系统 SHALL 对每次 LLM 调用记录结构化指标。**变更**：新增 `IsStreaming`（是否流式调用）、`IsEstimated`（Token 是否估算值）、`FirstTokenLatencyMs`（首 Token 延迟）字段。指标数据来源从自研 `ChatCompletionResponse.Usage` 改为 MEAI 的 `ChatResponse.Usage`（`UsageDetails`）。
 
-#### Scenario: 成功调用记录指标
-- **WHEN** WikiTaskService 完成一次页面生成 LLM 调用
-- **THEN** 系统记录指标：TaskId=当前任务ID，Stage=page_generation，InputTokens=从 ChatCompletionResponse.Usage.InputTokens 提取，OutputTokens=从 ChatCompletionResponse.Usage.OutputTokens 提取，CacheHitTokens=从 ChatCompletionResponse.Usage.CacheHitTokens 提取，Success=true
-- **AND** 调用 RecordCallAsync 是必须执行的，不可被 try-catch 静默跳过
+#### Scenario: 流式调用记录首 Token 延迟
+- **WHEN** 流式 `GetStreamingResponseAsync` 返回第一个 `ChatResponseUpdate`
+- **THEN** 系统记录 FirstTokenLatencyMs = 第一个 chunk 到达时间 - 请求开始时间
 
-#### Scenario: Provider 不返回 usage 时估算
-- **WHEN** Provider 响应中不包含 token usage 信息
-- **THEN** 系统使用 TokenCounter 对 prompt 文本估算 InputTokens，对响应文本估算 OutputTokens，标注 IsEstimated=true
+#### Scenario: 非流式调用 FirstTokenLatencyMs
+- **WHEN** 非流式 `GetResponseAsync` 完成调用
+- **THEN** FirstTokenLatencyMs 设为等于 LatencyMs
 
-#### Scenario: 失败调用记录指标
-- **WHEN** LLM 调用因超时或 API 错误失败
-- **THEN** 系统记录指标：Success=false，ErrorType=具体错误类型，保留 InputTokens 估算值
+#### Scenario: UsageDetails 导入指标
+- **WHEN** LLM 调用完成并返回 `ChatResponse`
+- **THEN** 从 `response.Usage.InputTokenCount` 读取 InputTokens
+- **AND** 从 `response.Usage.OutputTokenCount` 读取 OutputTokens
+- **AND** 从 `response.Usage.CachedInputTokenCount` 读取 CacheHitTokens
+- **AND** 从 `response.Usage.AdditionalCounts["IsEstimated"]` 读取 IsEstimated 标记
 
-### Requirement: 任务级指标聚合
-系统 SHALL 提供按 TaskId 聚合的指标视图，包含：TotalCalls、TotalInputTokens、TotalOutputTokens、TotalCacheHitTokens、CacheHitRate、AverageLatencyMs、MaxLatencyMs、FailedCalls、EstimatedCost。**修复**：聚合值必须从 `llm_call_metrics` 表的实时数据计算，不得使用硬编码 0。
+### Requirement: Provider 不返回 usage 时估算
+系统 SHALL 在 Provider 响应不包含 token usage 信息时使用 TokenCounter 估算。**变更**：该规则扩展覆盖流式调用场景，流式完成后统一通过 TokenCounter 估算 `InputTokenCount` 和 `OutputTokenCount`。
 
-#### Scenario: 任务完成时汇总指标
-- **WHEN** Wiki 生成任务完成
-- **THEN** 系统从 llm_call_metrics 表查询该任务的所有调用记录，计算聚合指标并持久化
-- **AND** LogTaskSummary 日志中的 Token 数据必须来自聚合查询结果
+#### Scenario: 流式无 usage 字段时估算
+- **WHEN** 流式 LLM 调用完成，最后一个 `ChatResponseUpdate` 不含 `UsageDetails`
+- **THEN** 系统使用 TokenCounter 对完整 prompt 和 response 文本估算 Token
+- **AND** 即使估算失败，也不影响主流程
 
-#### Scenario: Token 统计非零
-- **WHEN** 任务执行了 3 次 LLM 调用，总计 Input=50000, Output=12000
-- **THEN** 管理后台任务列表显示 Token 列值为 50000/12000，而非 0
+#### Scenario: 流式有 usage 字段时直接使用
+- **WHEN** 流式 LLM 调用的最后一个 `ChatResponseUpdate` 包含 `UsageDetails`
+- **THEN** 系统直接采用，不做估算
 
-### Requirement: Provider 响应标准化
-系统 SHALL 为所有 ChatProvider 定义统一的响应模型 `ChatCompletionResponse`，包含：Content、Usage（InputTokens/OutputTokens/CacheHitTokens）、FinishReason、LatencyMs。**新增**：CacheHitTokens 字段从 Provider 响应中提取缓存命中信息。
+## ADDED Requirements
 
-#### Scenario: MiniMax 缓存命中提取
-- **WHEN** MiniMax API 返回 `usage.cache_read_input_tokens` 字段值为 8000
-- **THEN** 系统映射为 Usage.CacheHitTokens=8000
+### Requirement: MEAI OpenTelemetry 自动追踪
+系统 SHALL 通过 `ChatClientBuilder.UseOpenTelemetry()` 中间件自动记录 LLM 调用的 Trace 和 Metrics，无需手动在 Provider 中编码指标收集逻辑。
 
-#### Scenario: Ollama 无缓存信息
-- **WHEN** Ollama API 响应中不包含缓存相关字段
-- **THEN** Usage.CacheHitTokens=0，SupportsCaching 元数据为 false
+#### Scenario: Trace span 自动创建
+- **WHEN** 任意通过 `ChatClientBuilder` 管道发起的 LLM 调用
+- **THEN** OpenTelemetry 中间件自动创建 span，携带 `gen_ai.system`、`gen_ai.request.model`、`gen_ai.usage.input_tokens` 等标准属性
 
-### Requirement: 缓存命中率统计
-系统 SHALL 在任务聚合指标中计算缓存命中率：CacheHitRate = TotalCacheHitTokens / TotalInputTokens。前端 SHALL 在任务详情中展示缓存命中率。
+#### Scenario: 与 LlmCallMetrics 表共存
+- **WHEN** MEAI OpenTelemetry 中间件记录 Trace
+- **THEN** 系统同时将指标持久化到 `llm_call_metrics` 表（用于管理后台查询）
+- **AND** 两条记录通过 `ResponseId` 或 `ConversationId` 关联
 
-#### Scenario: 缓存命中率计算
-- **WHEN** 任务总计 InputTokens=100000，CacheHitTokens=32000
-- **THEN** CacheHitRate=32%，前端显示"缓存命中: 32%"
+### Requirement: 流式调用指标实时记录
+系统 SHALL 在流式调用完成后立即记录指标，非流式调用的指标记录逻辑不变。
 
-## REMOVED Requirements
+#### Scenario: 流式成功调用耗时
+- **WHEN** 流式调用成功完成（所有 `ChatResponseUpdate` 收集完毕）
+- **THEN** 系统记录 LatencyMs = 最后一个 chunk 到达时间 - 请求开始时间
+- **AND** FirstTokenLatencyMs = 第一个 chunk 到达时间 - 请求开始时间
 
-### Requirement: LogTaskSummary 使用硬编码零值
-**Reason**: LogTaskSummary 方法存在 bug，传入硬编码 0 而非真实 LLM 指标数据。已在 commit f9c9aa0 中标记修复但实际仍调用旧签名。
-**Migration**: 删除 LogTaskSummary 的旧签名调用，改用 ILlmObservabilityService.GetTaskSummaryAsync 获取真实数据后记录日志。
+#### Scenario: 流式失败调用指标
+- **WHEN** 流式调用中途因网络或 API 错误失败
+- **THEN** 系统记录 Success=false，ErrorType=具体错误类型
+- **AND** InputTokens 使用请求前的估算值，OutputTokens=0
