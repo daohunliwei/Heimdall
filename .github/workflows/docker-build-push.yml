@@ -26,12 +26,14 @@ jobs:
           cache: 'npm'
 
       - name: 安装前端依赖
+        working-directory: frontend
         run: npm ci
 
       - name: 构建 C# 后端
-        run: dotnet build backend/DeepWiki.Api/DeepWiki.Api.csproj --configuration Release
+        run: dotnet build backend/Heimdall.Api/Heimdall.Api.csproj --configuration Release
 
       - name: 构建 Next.js 前端
+        working-directory: frontend
         run: npm run build
 
   docker-backend:
