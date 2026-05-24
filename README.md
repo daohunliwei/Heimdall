@@ -16,9 +16,7 @@ Heimdall.Repository (数据层)  →  SqlSugar ORM、仓储实现
 Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、仓库源、BM25 搜索、配置、文本工具
 ```
 
-详细架构文档：
-- [`doc/architecture/backend-architecture.md`](doc/architecture/backend-architecture.md) — 后端架构设计
-- [`doc/architecture/frontend-architecture.md`](doc/architecture/frontend-architecture.md) — 前端架构设计
+详细架构文档：[`doc/architecture/architecture.md`](doc/architecture/architecture.md)
 
 ## 目录说明
 
@@ -29,8 +27,7 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、仓库源�
 | `backend/Heimdall.Infrastructure` | 工具层：MEAI IChatClient Provider 适配、仓库源、BM25 搜索、配置、文本工具 |
 | `backend/Heimdall.Repository` | 数据层：SqlSugar 仓储实现（注入 `ISqlSugarClient`） |
 | `frontend/src` | Next.js 前端（App Router） |
-| `SqlScripts` | PostgreSQL 初始化 SQL 脚本（建表/索引/扩展/种子数据） |
-| `doc/architecture` | 架构升级方案与审计清单 |
+| `doc/architecture` | 系统架构设计文档 |
 | `scripts` | 开发脚本：环境配置、启动/停止、数据重置 |
 
 ## 快速开始
@@ -51,7 +48,7 @@ cp scripts/dev.env.example scripts/dev.env
 | `HEIMDALL_CONNECTION_STRING` | PostgreSQL 连接字符串 | `Host=localhost;...` |
 | `HEIMDALL_AUTH_MODE` | 认证模式：`none` / `jwt` | `jwt` |
 | `HEIMDALL_JWT_SECRET` | JWT 签名密钥 | 生产环境必须设置 |
-| `HEIMDALL_CODEFIRST_AUTOSYNC` | 启动时自动同步表结构 | `false` |
+| `HEIMDALL_CODEFIRST_AUTOSYNC` | 启动时自动同步表结构 | `true` |
 | `HEIMDALL_DEFAULT_PROVIDER` | 默认 LLM Provider | `ollama` |
 | `HEIMDALL_OLLAMA_CHAT_HOST` | Ollama Chat 地址 | `http://127.0.0.1:11434` |
 
@@ -78,17 +75,9 @@ bash scripts/dev.sh --backend-only
 
 启动时若 `HEIMDALL_CODEFIRST_AUTOSYNC=true`，会自动同步数据库表结构。首次启动建议开启。
 
-### 3. 回退方案：手动 SQL 建表
+### 3. 回退方案：手动建表
 
-如果 CodeFirst 同步失败，可手动执行 SQL 脚本：
-
-```bash
-psql -h <host> -U <user> -d <database> \
-  -f SqlScripts/Init_Extensions.sql \
-  -f SqlScripts/Init_Tables.sql \
-  -f SqlScripts/Init_Indexes.sql \
-  -f SqlScripts/Init_SeedData.sql
-```
+如果 CodeFirst 同步失败，可通过 SqlSugar `ISqlSugarClient.DbMaintenance` API 导出建表脚本，或启动时设置 `HEIMDALL_CODEFIRST_AUTOSYNC=true` 自动同步。
 
 ## 调试指南
 
@@ -174,7 +163,7 @@ DEEPSEEK_API_KEY=sk-your-key-here
 | `HEIMDALL_AUTH_MODE` | 认证模式：`jwt` / `none` | `jwt` |
 | `HEIMDALL_JWT_SECRET` | JWT 签名密钥 | — |
 | `HEIMDALL_REGISTRATION_OPEN` | 是否开放注册 | `true` |
-| `HEIMDALL_CODEFIRST_AUTOSYNC` | 启动时自动同步表结构 | `false` |
+| `HEIMDALL_CODEFIRST_AUTOSYNC` | 启动时自动同步表结构 | `true` |
 | `HEIMDALL_DEFAULT_PROVIDER` | 默认聊天 Provider | `ollama` |
 | `HEIMDALL_OLLAMA_CHAT_HOST` | Ollama Chat 地址 | `http://127.0.0.1:11434` |
 | `HEIMDALL_LOG_SQL` | 是否输出 SQL 日志 | `false` |
@@ -266,7 +255,7 @@ NpgsqlException: Failed to connect to localhost:5432
 PostgresException: column "xxx" does not exist
 ```
 
-设置 `HEIMDALL_CODEFIRST_AUTOSYNC=true` 重启应用，或手动执行 `SqlScripts/` 中的 SQL 脚本。
+设置 `HEIMDALL_CODEFIRST_AUTOSYNC=true` 重启应用即可自动同步表结构。
 
 ### Provider API Key 未配置
 

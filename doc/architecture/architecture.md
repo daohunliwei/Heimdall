@@ -207,7 +207,9 @@ backend/
 │       ├── Auth/                    ← 认证授权 (2 个服务)
 │       ├── Admin/                   ← 管理统计 (1 个服务)
 │       ├── Search/                  ← 混合检索 (1 个服务)
-│       └── Logging/                 ← 结构化日志 (1 个服务)
+│       ├── Logging/                 ← 结构化日志 (1 个服务)
+│       ├── CodeFirstSyncService.cs  ← 启动时自动同步表结构
+│       └── LlmObservabilityService.cs ← LLM 调用可观测性
 │
 ├── Heimdall.Infrastructure/         ← 工具层
 │   ├── Providers/                   ← MEAI IChatClient Provider
@@ -225,10 +227,7 @@ backend/
 │   └── Models/                      ← 通用模型 (Provider/Configuration/Repository)
 │
 └── Heimdall.Repository/             ← 数据层
-    ├── Repositories/                ← 18 个仓储实现 (注入 ISqlSugarClient)
-    ├── Data/
-    │   └── CodeFirstSyncService.cs  ← 启动时自动同步表结构
-    └── SqlScripts/                  ← SQL 建表脚本 (回退方案)
+    └── Repositories/                ← 18 个仓储实现 (注入 ISqlSugarClient)
 ```
 
 ### 4.4 服务生命周期
@@ -291,14 +290,18 @@ erDiagram
     WikiPage ||--o{ WikiPageRelation : "目标页面"
     WikiPage ||--o{ WikiPage : "父子自引用"
 
-    RepositoryVersion ||--o{ CodeIndexEntry : "代码索引"
-    RepositoryVersion ||--o{ CodeIndexChunk : "索引分块"
+    RepositoryVersion ||--o{ CodeIndexEntry : "文件级索引"
+    RepositoryVersion ||--o{ CodeIndexChunk : "块级索引"
 
     TaskRecord ||--o{ TaskArtifact : "阶段工件"
     TaskRecord ||--o{ TaskLlmCallLog : "LLM 日志"
     TaskRecord ||--o{ LlmCallMetric : "调用指标"
     TaskRecord }o--|| RepositoryVersion : "resolved"
     TaskRecord }o--|| WikiVersion : "result"
+
+    PromptTemplate ||--o{ PromptTemplateHistory : "版本历史"
+    Repository ||--o{ RepositoryPromptOverride : "提示词覆写"
+    PromptTemplate ||--o{ RepositoryPromptOverride : "模板"
 ```
 
 ### 5.3 任务与工件模型
@@ -387,13 +390,11 @@ flowchart TD
 
     WTS --> ROS{"RefreshOrchestrationService<br/>版本发现/策略判断"}
 
-    ROS -->|"刷新当前版本"| REUSE["复用已有 RepositoryVersion"]
-    ROS -->|"刷新最新版本"| DISCOVER["discover 远端 HEAD<br/>→ 创建新 RepositoryVersion"]
-    ROS -->|"强制刷新"| FORCE["即使版本不变<br/>也重建 WikiVersion"]
+    ROS -->|"strategy: current"| REUSE["复用已有 RepositoryVersion"]
+    ROS -->|"strategy: latest"| DISCOVER["discover 远端 HEAD<br/>→ 创建新 RepositoryVersion<br/>(若 ForceRefresh=true 则强制重建)"]
 
     REUSE --> QUEUE["TaskQueueService.EnqueueAsync()<br/>统一后台队列"]
     DISCOVER --> QUEUE
-    FORCE --> QUEUE
 
     QUEUE --> WIKITASK["WikiTaskService 8 阶段流水线"]
 
@@ -515,7 +516,7 @@ V9 用 Microsoft.Extensions.AI (`IChatClient`) 替换了自研 `IChatProvider`�
 graph TD
     FACTORY["ChatClientFactory<br/>(Keyed DI 工厂)"]
 
-    FACTORY --> OPENAI["OpenAiCompatibleClientFactory<br/>单一实现适配 4 种服务"]
+    FACTORY --> OPENAI["OpenAiCompatibleClientFactory<br/>单一实现适配 5 种服务"]
     FACTORY --> BEDROCK["BedrockClientFactory"]
     FACTORY --> CUSTOM["CustomBackends/<br/>自定义 IChatClient 适配器"]
 
@@ -635,7 +636,11 @@ Next.js 通过两层代理连接 .NET 后端 (localhost:8001)：
 **API Routes（需要校验或流式处理）**：
 - `api/chat/stream/route.ts` → SSE 流式透传
 - `api/tasks/[task]/route.ts` → 白名单校验 (wiki/ask/slides/workshop)
+- `api/tasks/ask/stream/route.ts` → Ask 问答 SSE 流式透传
 - `api/auth/status/route.ts` → 认证状态
+- `api/auth/validate/route.ts` → Token 验证
+- `api/models/config/route.ts` → 模型配置（缓存控制）
+- `api/wiki/projects/route.ts` → 已处理项目列表
 
 ### 8.4 版本上下文透传 (V3+)
 
@@ -673,6 +678,12 @@ flowchart LR
 | **LoadingState** | `ui/LoadingState.tsx` | 通用加载态组件（骨架屏） |
 | **ErrorState** | `ui/ErrorState.tsx` | 通用错误态组件（含重试按钮） |
 | **EmptyState** | `ui/EmptyState.tsx` | 通用空态组件（含操作引导） |
+| **ConfigStatusPanel** | `ConfigStatusPanel.tsx` | 当前 Provider/Model 配置状态面板 |
+| **ProviderCard** | `ProviderCard.tsx` | 单个 Provider 信息卡片 |
+| **WikiActionBar** | `wiki/WikiActionBar.tsx` | Wiki 页面操作工具栏（刷新/导出/发布） |
+| **WikiBrowser** | `wiki/WikiBrowser.tsx` | Wiki 浏览容器（侧边栏+内容+工具栏组合） |
+| **WikiContent** | `wiki/WikiContent.tsx` | Wiki 页面正文渲染容器 |
+| **WikiSidebar** | `wiki/WikiSidebar.tsx` | Wiki 侧边栏导航（含版本切换和树形目录） |
 
 ### 8.6 数据流架构
 
@@ -721,6 +732,7 @@ flowchart LR
 |---------|------|
 | `LanguageContext` | 国际化上下文，当前仅支持 `zh`（中文），提供 `messages` 对象 |
 | `AuthContext` | 认证上下文，支持 `none` 模式（自动管理员）和 `jwt` 模式（localStorage Token） |
+| `RepositoryContext` | 仓库上下文，管理当前浏览的 repositoryId/versionId 等全局状态 |
 
 ### 8.9 BFF Rewrite 规则详情（`next.config.ts`）
 
@@ -736,6 +748,8 @@ flowchart LR
 | `/api/auth/status` | `{BASE}/auth/status` | 认证状态 |
 | `/api/auth/validate` | `{BASE}/auth/validate` | 认证验证 |
 | `/api/lang/config` | `{BASE}/lang/config` | 语言配置 |
+| `/api/wiki_cache/:path*` | `{BASE}/api/wiki_cache/:path*` | Wiki 缓存（兼容旧接口） |
+| `/api/wiki_cache` | `{BASE}/api/wiki_cache` | Wiki 缓存（精确匹配） |
 | `/export/wiki/:path*` | `{BASE}/export/wiki/:path*` | Wiki 导出 |
 | `/local_repo/structure` | `{BASE}/local_repo/structure` | 本地仓库结构 |
 
@@ -855,7 +869,8 @@ interface WikiPage {
 
 | 方法 | 路由 | 描述 |
 |------|------|------|
-| `POST` | `/tasks/ask` | AI 问答（支持 DeepResearch，SSE 真流式） |
+| `POST` | `/tasks/ask` | AI 问答（JSON 响应） |
+| `POST` | `/tasks/ask/stream` | AI 流式问答（SSE 真流式） |
 | `POST` | `/tasks/slides` | 生成演示幻灯片 |
 | `POST` | `/tasks/workshop` | 生成工作坊材料 |
 | `GET` | `/tasks/{id}/status` | 查询任务状态 |
@@ -882,6 +897,8 @@ interface WikiPage {
 | `GET` | `/admin/tasks` | 全量任务列表 |
 | `POST` | `/admin/tasks/{id}/retry` | 重试失败任务 |
 | `GET` | `/admin/logging` | 系统日志查询 |
+| `GET` | `/api/admin/provider-metadata` | Provider 模型元数据列表 |
+| `GET` | `/api/admin/system-info` | 系统运行信息摘要 |
 
 ### 9.5 其他
 
@@ -919,9 +936,9 @@ interface WikiPage {
 | `task_llm_call_logs` | TaskLlmCallLog | LLM 调用审计日志（含流式/时延/估算标记） |
 | `llm_call_metrics` | LlmCallMetric | LLM 调用指标详情（IsStreaming/FirstTokenLatencyMs） |
 | `code_index_entries` | CodeIndexEntry | Tree-sitter 文件级索引（路径/语言/符号/依赖） |
-| `code_index_chunks` | CodeIndexChunk | Tree-sitter 块级索引（内容/行范围/块类型） |
+| `code_index_chunks` | CodeIndexChunk | Tree-sitter 块级索引（与 CodeIndexEntry 同文件） |
 | `prompt_templates` | PromptTemplate | Prompt 模板（5 层结构，DB 存储） |
-| `prompt_overrides` | PromptOverride | 仓库级 Prompt 覆写（override/merge/append 策略） |
+| `repository_prompt_overrides` | RepositoryPromptOverride | 仓库级 Prompt 覆写（override/merge/append 策略） |
 | `prompt_template_history` | PromptTemplateHistory | 模板修改历史（含版本号与变更人） |
 | `system_settings` | SystemSetting | 系统设置键值对 |
 | `provider_model_metadata` | ProviderModelMetadataEntity | Provider/Model 元数据（计费/上下文窗口/流式支持） |
@@ -932,7 +949,7 @@ interface WikiPage {
 - **去重**：`SHA256(repository_id + branch + task_type + config_hash)` 作为请求去重键
 - **版本唯一**：`(repository_id, branch_name, commit_sha)` 唯一确定一个 RepositoryVersion
 - **ORM**：SqlSugar CodeFirst，启动时 `CodeFirstSyncService` 自动同步表结构，无迁移文件
-- **回退**：`/SqlScripts/Init_Tables.sql` 提供完整 SQL 建表脚本
+- **回退**：`SqlSugar.DbMaintenance` API 可导出完整建表脚本，用于离线部署恢复
 - **向量索引**：pgvector IVF/HNSW 索引，按 `repository_version_id` / `wiki_version_id` 分区检索
 
 ---
@@ -966,7 +983,8 @@ flowchart LR
 | `HEIMDALL_MAX_CONCURRENT_AGENTS` | 大仓库子 Agent 并发数 | `4` |
 | `HEIMDALL_TOKEN_ESTIMATION_MODE` | Token 统计算法 | `precise` |
 | `HEIMDALL_QUALITY_REGEN_ENABLED` | 弱页面自动重生成 | `true` |
-| `HEIMDALL_DEBUG_MODE` | 调试模式（限制页面数） | `false` |
+| `HEIMDALL_DEBUG_MODE` | 调试模式（限制页面数，按 `DebugWikiPageCount`） | `false` |
+| `HEIMDALL_LOG_SQL` | 输出 SqlSugar SQL 日志到控制台 | `false` |
 | `HEIMDALL_OLLAMA_CHAT_HOST` | Ollama Chat 地址 | 回退 `OLLAMA_HOST` → `http://127.0.0.1:11434` |
 | `HEIMDALL_OLLAMA_EMBED_HOST` | Ollama Embedding 地址 | 回退 `OLLAMA_HOST` → `http://127.0.0.1:11434` |
 
@@ -1020,11 +1038,11 @@ backend/Heimdall.Api/config/
 **理由**：大规模 Wiki 生成耗时数十分钟，整链路重跑成本不可接受。
 **影响**：`TaskRecord` 包含 `CurrentStage`、`LastSuccessfulStage`、`LastArtifactId`、`ResumeCount` 等恢复字段。
 
-### AD7：SqlSugar CodeFirst + SQL 脚本双轨
+### AD7：SqlSugar CodeFirst 自动同步
 
-**决策**：ORM 使用 SqlSugar CodeFirst 自动同步，同时维护完整 SQL 建表脚本作为回退。
-**理由**：CodeFirst 消除迁移文件维护负担，SQL 脚本提供紧急恢复和离线部署能力。
-**影响**：实体变更后需同步更新 `/SqlScripts/Init_Tables.sql`。
+**决策**：ORM 使用 SqlSugar CodeFirst 自动同步表结构，由 `HEIMDALL_CODEFIRST_AUTOSYNC` 环境变量控制。
+**理由**：CodeFirst 消除迁移文件维护负担，`ISqlSugarClient.DbMaintenance` 可导出建表脚本用于离线恢复。
+**影响**：实体变更后只需更新实体类本身（`[SugarTable]`/`[SugarColumn]` 标注），无需手动维护迁移文件。
 
 ### AD8：MEAI IChatClient 标准化 AI 调用
 
@@ -1079,10 +1097,13 @@ backend/Heimdall.Api/config/
 | `SqlSugarCore` | ORM — 替代 EF Core |
 | `Microsoft.Extensions.AI` | 统一 AI 调用抽象 |
 | `Microsoft.Extensions.AI.OpenAI` | OpenAI/OpenRouter/DashScope/DeepSeek IChatClient |
-| `Microsoft.Extensions.AI.Ollama` | Ollama IChatClient |
+| `OllamaSharp` | Ollama API 客户端（自定义 IChatClient 适配器底层） |
 | `Microsoft.AspNetCore.Authentication.JwtBearer` | JWT 认证 |
-| `TreeSitter.DotNet` | 跨语言 AST 引擎（替代 Roslyn-only 方案） |
-| `Npgsql` | PostgreSQL 驱动 |
+| `AWSSDK.Extensions.Bedrock.MEAI` | AWS Bedrock MEAI 集成 |
+| `BCrypt.Net-Next` | 密码哈希 |
+| `Swashbuckle.AspNetCore.Swagger` | Swagger API 文档 |
+| `TreeSitter.DotNet` | 跨语言 AST 引擎（位于 Infrastructure 项目） |
+| `Npgsql` | PostgreSQL 驱动（SqlSugar 传递依赖） |
 
 **npm 核心**：
 
@@ -1122,8 +1143,8 @@ cd frontend && npm run build && npm run lint
 - `doc/architecture/architecture-upgrade-planV3.md`（V3）
 - `doc/architecture/architecture-upgrade-planV4.md`（V4）
 - `doc/architecture/audit-checklist.md`
-- `doc/architecture/backend-architecture.md`
-- `doc/architecture/frontend-architecture.md`
+- `doc/architecture/backend-architecture.md`（已删除，内容已合并）
+- `doc/architecture/frontend-architecture.md`（已删除，内容已合并）
 - `openspec/changes/archive/*/proposal.md`（V5～V9 及后续变更）
 - `openspec/specs/*/spec.md`（所有当前有效 spec）
 

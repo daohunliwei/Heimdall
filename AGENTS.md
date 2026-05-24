@@ -33,29 +33,27 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 - **ORM**：EF Core → SqlSugar。`ISqlSugarClient` (Singleton) 替代 `AppDbContext` (Scoped)。无 DbContext、无 EntityConfigurations、无迁移文件。
 - **Provider**：自研 `IChatProvider` 接口 → MEAI `IChatClient`。`ChatClientFactory` + Keyed DI 替代 `ProviderRegistry`。OpenAI/OpenRouter/DashScope/DeepSeek/Azure 统一走 `OpenAiCompatibleClientFactory`；Ollama/Gemini/MiniMax 为自定义 `IChatClient` 适配器（`Infrastructure/Providers/CustomBackends/`）。
 - **流式**：`IChatClient.GetStreamingResponseAsync()` 真流式 SSE，Chat 和 Ask 端点均已升级。
-- **CodeFirst**：启动时 `CodeFirstSyncService` 扫描 `Core.Entities` 自动同步表结构。`/SqlScripts/` 为回退方案。
+- **CodeFirst**：启动时 `CodeFirstSyncService` 扫描 `Core.Entities` 自动同步表结构。
 - **指标**：`ILlmObservabilityService.RecordCallAsync` 接收 MEAI `UsageDetails`，支持 `IsStreaming`/`FirstTokenLatencyMs`。
 
 ## 目录职责
 
 - `backend/Heimdall.Api`：C# API 入口——控制器、中间件、DTO 模型、Mappings、`Program.cs`
-- `backend/Heimdall.Core`：业务逻辑——`Entities/`（`[SugarTable]` 实体）、`Interfaces/`、`Services/`、`Models/`。`Services/Repository/` 含 `CodeIndexService`（本地代码索引，无 LLM）和 `CodeStructureIndexService`；`Services/Tasks/` 含 `AgentOrchestratorService`（大仓库子代理协调）；`Services/CodeFirstSyncService.cs`（启动时表结构同步）
+- `backend/Heimdall.Core`：业务逻辑——`Entities/`（`[SugarTable]` 实体）、`Interfaces/`、`Services/`、`Models/`。`Services/Repository/` 含 `CodeIndexService`（Tree-sitter AST 代码索引）和 `CodeStructureIndexService`；`Services/Tasks/` 含 `AgentOrchestratorService`（大仓库子代理协调）
 - `backend/Heimdall.Infrastructure`：工具层——`Providers/`（MEAI IChatClient 适配 + `ChatClientFactory` + `OpenAiCompatibleClientFactory` + `BedrockClientFactory`）、`Providers/CustomBackends/`（OllamaChatClient / GeminiChatClient / MiniMaxChatClient）、`Search/`（BM25 搜索引擎）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
 - `backend/Heimdall.Repository`：数据层——`Repositories/`（注入 `ISqlSugarClient`）
 - `frontend/src/app`：Next.js 页面与 API 代理路由（含 `/api/tasks/ask/stream` SSE 代理）
 - `frontend/src/components`：前端组件（`Ask.tsx` 含流式 SSE 支持）
-- `frontend/src/contexts`：Auth/Language 上下文
+- `frontend/src/contexts`：Auth/Language/Repository 上下文
 - `frontend/src/hooks`：自定义 Hook（useTaskStream、useProcessedProjects、useArtifactVersionContext）
 - `frontend/src/messages`：中文界面文案
-- `SqlScripts/`：PostgreSQL 初始化脚本（Init_Tables / Init_Indexes / Init_Extensions / Init_SeedData）
-- `doc/architecture`：架构升级方案与审计清单
+- `doc/architecture`：系统架构设计文档（[`architecture.md`](doc/architecture/architecture.md)）
 
 ## 修改原则
 
 - 所有新增文档、注释、说明文字必须使用中文
 - C# 运行时固定为 `.NET 10`
 - 优先修改 C# 后端与 Next.js 前端，不要引入 Python 业务代码
-- 实体变更后同步更新 `/SqlScripts/Init_Tables.sql`
 - 新服务需在 `Program.cs` 中注册 DI
 
 ## 常见任务入口
@@ -101,8 +99,8 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 
 优先修改：
 
-- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 9 阶段管线编排
-- `backend/Heimdall.Core/Services/Repository/CodeIndexService.cs` — 本地代码索引（正则符号提取，无 LLM）
+- `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 8 阶段管线编排
+- `backend/Heimdall.Core/Services/Repository/CodeIndexService.cs` — Tree-sitter AST 代码索引
 - `backend/Heimdall.Infrastructure/Search/Bm25SearchService.cs` — BM25 精确匹配引擎
 - `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs` — 提示词构建
 - `backend/Heimdall.Core/Services/Prompt/PromptSeedData.cs` — 提示词模板播种
@@ -131,9 +129,7 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 优先修改：
 
 - `backend/Heimdall.Core/Entities/` — 实体定义（`[SugarTable]` + `[SugarColumn]` 属性）
-- `SqlScripts/Init_Tables.sql` — 同步更新建表脚本
-- `SqlScripts/Init_Indexes.sql` — 同步更新索引脚本
-- 启动时 CodeFirst 自动同步（由 `CodeFirst:AutoSync` 配置控制）
+- 启动时 CodeFirst 自动同步（由 `HEIMDALL_CODEFIRST_AUTOSYNC` 环境变量控制）
 
 ## 运行方式
 
@@ -205,7 +201,7 @@ dotnet build backend/Heimdall.Api/Heimdall.Api.csproj
 - 首页输入仓库 URL → 调用 `POST /api/repositories/import` → 跳转 `/repositories/{repositoryId}`
 - 仓库页能否加载 Wiki 版本列表、页面树与页面内容
 - `POST /api/repositories/{repositoryId}/wiki/refresh` 是否立即返回 task_id
-- 后台异步 Wiki 生成管线：仓库准备 → 代码索引 → 结构规划 → 页面生成（BM25 检索注入）→ 质量审查 → 渲染后处理 → 持久化
+- 后台异步 Wiki 生成管线：仓库准备 → 代码索引 → 代码理解 → 结构规划 → 页面生成（BM25+pgvector 混合检索注入）→ 质量审查 → 渲染后处理 → 持久化
 - 流式 Chat（SSE）和流式 Ask（`POST /tasks/ask/stream`）是否正常
 - 版本切换器能否切换到指定 Wiki 版本并正确加载页面
 - Slides / Workshop 页面是否透传 `repositoryVersionId` + `wikiVersionId`

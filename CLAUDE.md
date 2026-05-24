@@ -78,14 +78,12 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 - **Provider 实现**：5 个 OpenAI 兼容走 `OpenAiCompatibleClientFactory`，Ollama/Gemini/MiniMax 自定义适配器
 - **流式**：`IChatClient.GetStreamingResponseAsync()` 真流式 SSE
 - **CodeFirst**：启动时 `CodeFirstSyncService` 自动同步表结构，替代 EF Core 迁移
-- **回退方案**：`/SqlScripts/` 目录提供完整 SQL 建表脚本
 
 ## 修改惯例
 
 - 所有新增文档、注释、说明文字必须使用中文
 - C# 运行时固定为 `.NET 10`
 - 不得引入 Python 业务代码
-- 实体变更后同步更新 `/SqlScripts/Init_Tables.sql`
 - 新服务需在 `Program.cs` 中注册 DI
 - 不要删除数据库已有表（通过 SqlSugar CodeFirst 增量同步）
 - 不要创建 Core → Api 方向的项目引用
@@ -116,11 +114,15 @@ dotnet build backend/Heimdall.Api/Heimdall.Api.csproj
 cd frontend && npm run build && npm run lint
 ```
 
-## Wiki 生成管线（9 阶段）
+## Wiki 生成管线（8 阶段）
 
-仓库准备 → 代码索引（本地，无 LLM）→ 深度代码理解 → 结构规划 → 页面生成（BM25 检索注入）→ 质量审查 → 渲染后处理 → 持久化 → 完成
+仓库准备 → 代码索引（Tree-sitter AST + BM25）→ 代码理解 → 结构规划（三策略）→ 页面生成（BM25+pgvector 混合检索注入）→ 质量审查（含弱页重生成）→ 渲染后处理 → 持久化
 
 核心文件：
 - `backend/Heimdall.Core/Services/Tasks/WikiTaskService.cs` — 管线编排
 - `backend/Heimdall.Core/Services/Tasks/TaskPromptService.cs` — 提示词构建
+- `backend/Heimdall.Core/Services/Repository/CodeIndexService.cs` — Tree-sitter AST 代码索引
 - `backend/Heimdall.Infrastructure/Search/Bm25SearchService.cs` — BM25 检索
+- `backend/Heimdall.Core/Services/Tasks/DeterministicStructurePlanner.cs` — 结构规划（Deterministic/LlmEnhanced）
+
+架构设计文档：[`doc/architecture/architecture.md`](doc/architecture/architecture.md)
