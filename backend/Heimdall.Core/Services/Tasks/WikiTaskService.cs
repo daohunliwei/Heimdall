@@ -30,8 +30,10 @@ public sealed class WikiTaskService
     private readonly IHybridSearchService _hybridSearch;
     private readonly RepositoryAccessService _repoAccess;
     private readonly Infrastructure.Configuration.HeimdallConfigService _configService;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IStructuredLogger _structuredLogger;
+    private readonly DeterministicStructurePlanner _deterministicPlanner;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -45,8 +47,10 @@ public sealed class WikiTaskService
         IHybridSearchService hybridSearch,
         RepositoryAccessService repoAccess,
         Infrastructure.Configuration.HeimdallConfigService configService,
+        Microsoft.Extensions.Configuration.IConfiguration configuration,
         IHostApplicationLifetime appLifetime,
         IStructuredLogger structuredLogger,
+        DeterministicStructurePlanner deterministicPlanner,
         ILogger<WikiTaskService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -61,6 +65,8 @@ public sealed class WikiTaskService
         _configService = configService;
         _appLifetime = appLifetime;
         _structuredLogger = structuredLogger;
+        _configuration = configuration;
+        _deterministicPlanner = deterministicPlanner;
         _logger = logger;
     }
 
@@ -341,6 +347,32 @@ public sealed class WikiTaskService
             }
             else
             {
+                // ── 结构规划策略分发 ──
+                var strategy = ResolveStructurePlanningStrategy();
+
+                if (strategy == StructurePlanningStrategy.Deterministic)
+                {
+                    wikiStructure = _deterministicPlanner.BuildStructure(codeIndexResult, language);
+                    structureRawResponse = System.Text.Json.JsonSerializer.Serialize(wikiStructure);
+                    structureJson = _wikiParser.SerializeStructure(wikiStructure);
+                    await PersistStructureArtifact(artifactRepo, taskRepo, executingTask,
+                        requestId, repoPath, wikiStructure, structureJson, "deterministic", execToken);
+                    await MarkTaskStageAsync(taskRepo, executingTask, "structure_planning", "completed", 35,
+                        $"Deterministic 结构规划完成，共 {wikiStructure.Pages.Count} 个页面", execToken, markStageAsSuccessful: true);
+                }
+                else if (strategy == StructurePlanningStrategy.LlmEnhanced)
+                {
+                    wikiStructure = _deterministicPlanner.BuildSkeleton(codeIndexResult, language);
+                    await PolishSectionsWithLlm(wikiStructure, effectiveProvider, model, customModel, execToken);
+                    structureRawResponse = System.Text.Json.JsonSerializer.Serialize(wikiStructure);
+                    structureJson = _wikiParser.SerializeStructure(wikiStructure);
+                    await PersistStructureArtifact(artifactRepo, taskRepo, executingTask,
+                        requestId, repoPath, wikiStructure, structureJson, "llm_enhanced", execToken);
+                    await MarkTaskStageAsync(taskRepo, executingTask, "structure_planning", "completed", 35,
+                        $"LlmEnhanced 结构规划完成，共 {wikiStructure.Pages.Count} 个页面", execToken, markStageAsSuccessful: true);
+                }
+                else // LlmJson（当前行为，保持不变）
+                {
                 var repositoryDocsSection = BuildRepositoryDocsSection(repositoryDocs);
                 var structurePrompt = _taskPrompt.BuildWikiStructurePromptV7(
                     execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
@@ -435,6 +467,7 @@ public sealed class WikiTaskService
                     $"Wiki 结构生成完成，共 {wikiStructure.Pages.Count} 个页面",
                     execToken,
                     markStageAsSuccessful: true);
+                } // LlmJson 策略结束
             }
 
             var completedBatchKeys = await RestoreCompletedPageBatchesAsync(artifactRepo, executingTask.Id, wikiStructure, execToken);
@@ -1552,6 +1585,64 @@ public sealed class WikiTaskService
         }
 
         return sb.ToString();
+    }
+
+    // ── 结构规划策略 ──
+
+    private StructurePlanningStrategy ResolveStructurePlanningStrategy()
+    {
+        var value = _configuration["StructurePlanning:Strategy"]
+            ?? Environment.GetEnvironmentVariable("HEIMDALL_STRUCTURE_PLANNING_STRATEGY")
+            ?? "Deterministic";
+        return Enum.TryParse<StructurePlanningStrategy>(value, true, out var s)
+            ? s : StructurePlanningStrategy.Deterministic;
+    }
+
+    private async Task PersistStructureArtifact(
+        ITaskArtifactRepository artifactRepo, ITaskRepository taskRepo, TaskRecord task,
+        string requestId, string repoPath, WikiStructureDto structure, string structureJson,
+        string format, CancellationToken ct)
+    {
+        await UpsertTaskArtifactAsync(artifactRepo, taskRepo, task,
+            "planning_artifact", "plan", "structure_planning", 0,
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                request_id = requestId, repository_path = repoPath,
+                structure_format = format, structure_json = structureJson, structure
+            }, ArtifactJsonOptions),
+            $"结构规划完成 ({format})，共 {structure.Pages.Count} 个页面", ct);
+
+        _structuredLogger.LogTaskProgress(task.Id, $"结构规划完成 ({format})", null,
+            structure.Pages.Count, $"共 {structure.Pages.Count} 个页面");
+    }
+
+    private async Task PolishSectionsWithLlm(WikiStructureDto structure,
+        string provider, string? model, string? customModel, CancellationToken ct)
+    {
+        foreach (var section in structure.Sections)
+        {
+            try
+            {
+                var prompt = $"Rewrite this section title and description in Chinese (≤15 chars for title).\nOriginal: {section.Title}\nPages: {string.Join(", ", section.Pages.Take(5))}\n\nReturn JSON: {{\"title\": \"...\", \"description\": \"...\"}}";
+                var response = await _taskLlm.GenerateTextAsync(provider, model, customModel, prompt, ct);
+                var json = ExtractJsonFromResponse(response);
+                if (json == null) continue;
+                var opt = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var polish = System.Text.Json.JsonSerializer.Deserialize<SectionPolishResult>(json, opt);
+                if (polish?.Title != null) section.Title = polish.Title;
+            }
+            catch { /* 润色失败不阻塞 */ }
+        }
+    }
+
+    private static string? ExtractJsonFromResponse(string text)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(text,
+            @"```json\s*([\s\S]*?)```", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (m.Success) return m.Groups[1].Value.Trim();
+        var a = text.IndexOf('{');
+        var b = text.LastIndexOf('}');
+        return a >= 0 && b > a ? text[a..(b + 1)].Trim() : null;
     }
 }
 

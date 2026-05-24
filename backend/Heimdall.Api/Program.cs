@@ -263,6 +263,7 @@ builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IStructuredLogge
 builder.Services.AddSingleton<TaskPromptService>();
 builder.Services.AddSingleton<WikiGenerationParserService>();
 builder.Services.AddSingleton<WikiGlobalConvergenceService>();
+builder.Services.AddSingleton<DeterministicStructurePlanner>();
 builder.Services.AddSingleton<WikiRenderPostProcessor>();
 builder.Services.AddSingleton<WikiTaskService>();
 builder.Services.AddScoped<PromptTemplateService>();
