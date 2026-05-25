@@ -29,7 +29,7 @@
 ### 双版本底座
 
 ```mermaid
-graph TD
+flowchart TD
     Repository[Repository]
     RepositoryVersion[RepositoryVersion]
     WikiSpace[WikiSpace]
@@ -74,6 +74,7 @@ flowchart LR
     Stage1 --> Artifact[写入 TaskArtifact]
     Artifact --> Resume{任务失败后是否恢复}
     Resume -->|是| LastStage[读取 LastSuccessfulStage]
+    Resume -->|否| End[任务结束]
     LastStage --> Replay[加载最近工件并继续后续阶段]
 ```
 

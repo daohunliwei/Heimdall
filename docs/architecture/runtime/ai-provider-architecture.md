@@ -27,7 +27,7 @@
 ## 关键结构
 
 ```mermaid
-graph TD
+flowchart TD
     Factory[ChatClientFactory] --> OpenAI[OpenAI Compatible Factory]
     Factory --> Bedrock[Bedrock Factory]
     Factory --> Custom[Custom Backends]

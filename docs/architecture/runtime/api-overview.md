@@ -38,9 +38,9 @@
 
 ```mermaid
 flowchart LR
-    FE[前端页面] --> Ask[/tasks/ask 或 /tasks/ask/stream/]
-    FE --> Slides[/tasks/slides]
-    FE --> Workshop[/tasks/workshop]
+    FE[前端页面] --> Ask["/tasks/ask 或 /tasks/ask/stream"]
+    FE --> Slides["/tasks/slides"]
+    FE --> Workshop["/tasks/workshop"]
     Ask --> Resolve[解析 repositoryVersionId 与 wikiVersionId]
     Slides --> Resolve
     Workshop --> Resolve

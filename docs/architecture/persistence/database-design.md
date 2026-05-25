@@ -65,8 +65,9 @@ erDiagram
 flowchart LR
     Stage[阶段完成] --> Artifact[写入 task_artifacts]
     Artifact --> Failure{任务失败}
-    Failure -->|恢复| Load[加载最近成功工件]
-    Load --> Continue[继续后续阶段]
+    Failure -->|否| Continue[继续后续阶段]
+    Failure -->|是，恢复| Load[加载最近成功工件]
+    Load --> Continue
 ```
 
 ### 3. 索引与检索持久化流程

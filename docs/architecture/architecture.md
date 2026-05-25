@@ -61,18 +61,18 @@ flowchart LR
 
 | 分组 | 规划文档 | 主题职责 |
 |------|------|------|
-| `overview` | `docs/architecture/overview/system-overview.md` | 系统边界、能力矩阵、全景关系、关键运行路径 |
-| `overview` | `docs/architecture/overview/layered-architecture.md` | 四层架构、依赖规则、目录职责、生命周期 |
-| `overview` | `docs/architecture/overview/domain-model.md` | 版本底座、实体关系、任务工件、索引模型 |
-| `runtime` | `docs/architecture/runtime/wiki-pipeline.md` | 8 阶段 Wiki 管线、结构规划、检索、代码理解、Agent 编排 |
-| `runtime` | `docs/architecture/runtime/ai-provider-architecture.md` | MEAI `IChatClient`、Provider 工厂、模型分层、成本追踪 |
-| `runtime` | `docs/architecture/runtime/frontend-architecture.md` | 路由、组件、BFF、状态流、版本透传 |
-| `runtime` | `docs/architecture/runtime/api-overview.md` | 接口分组、主链路、职责边界、典型调用顺序 |
-| `persistence` | `docs/architecture/persistence/database-design.md` | 表结构、约束、索引、CodeFirst 与恢复策略 |
-| `persistence` | `docs/architecture/persistence/configuration-and-env.md` | 配置优先级、环境变量、配置文件入口 |
-| `governance` | `docs/architecture/governance/architecture-decisions.md` | 架构决策记录（AD/ADR） |
-| `governance` | `docs/architecture/governance/evolution-roadmap.md` | 演进历史、里程碑、未来方向 |
-| `governance` | `docs/architecture/governance/appendix-and-archive.md` | 依赖、调试工作流、归档与附录信息 |
+| `overview` | [系统全景](./overview/system-overview.md) | 系统边界、能力矩阵、全景关系、关键运行路径 |
+| `overview` | [分层架构](./overview/layered-architecture.md) | 四层架构、依赖规则、目录职责、生命周期 |
+| `overview` | [领域模型](./overview/domain-model.md) | 版本底座、实体关系、任务工件、索引模型 |
+| `runtime` | [Wiki 生成管线](./runtime/wiki-pipeline.md) | 8 阶段 Wiki 管线、结构规划、检索、代码理解、Agent 编排 |
+| `runtime` | [AI Provider 架构](./runtime/ai-provider-architecture.md) | MEAI `IChatClient`、Provider 工厂、模型分层、成本追踪 |
+| `runtime` | [前端架构](./runtime/frontend-architecture.md) | 路由、组件、BFF、状态流、版本透传 |
+| `runtime` | [API 总览](./runtime/api-overview.md) | 接口分组、主链路、职责边界、典型调用顺序 |
+| `persistence` | [数据库设计](./persistence/database-design.md) | 表结构、约束、索引、CodeFirst 与恢复策略 |
+| `persistence` | [配置与环境变量](./persistence/configuration-and-env.md) | 配置优先级、环境变量、配置文件入口 |
+| `governance` | [架构决策](./governance/architecture-decisions.md) | 架构决策记录（AD/ADR） |
+| `governance` | [演进路线图](./governance/evolution-roadmap.md) | 演进历史、里程碑、未来方向 |
+| `governance` | [附录与归档](./governance/appendix-and-archive.md) | 依赖、调试工作流、归档与附录信息 |
 
 ---
 
@@ -80,38 +80,38 @@ flowchart LR
 
 ### 4.1 新人上手或架构评审
 
-1. `docs/architecture/architecture.md`
-2. `docs/architecture/overview/system-overview.md`
-3. `docs/architecture/overview/layered-architecture.md`
-4. `docs/architecture/overview/domain-model.md`
-5. `docs/architecture/runtime/wiki-pipeline.md`
-6. `docs/architecture/governance/architecture-decisions.md`
+1. [architecture.md](./architecture.md)
+2. [系统全景](./overview/system-overview.md)
+3. [分层架构](./overview/layered-architecture.md)
+4. [领域模型](./overview/domain-model.md)
+5. [Wiki 生成管线](./runtime/wiki-pipeline.md)
+6. [架构决策](./governance/architecture-decisions.md)
 
 ### 4.2 后端开发
 
-1. `docs/architecture/architecture.md`
-2. `docs/architecture/overview/layered-architecture.md`
-3. `docs/architecture/overview/domain-model.md`
-4. `docs/architecture/runtime/wiki-pipeline.md`
-5. `docs/architecture/runtime/ai-provider-architecture.md`
-6. `docs/architecture/persistence/database-design.md`
-7. `docs/architecture/persistence/configuration-and-env.md`
-8. `docs/architecture/runtime/api-overview.md`
+1. [architecture.md](./architecture.md)
+2. [分层架构](./overview/layered-architecture.md)
+3. [领域模型](./overview/domain-model.md)
+4. [Wiki 生成管线](./runtime/wiki-pipeline.md)
+5. [AI Provider 架构](./runtime/ai-provider-architecture.md)
+6. [数据库设计](./persistence/database-design.md)
+7. [配置与环境变量](./persistence/configuration-and-env.md)
+8. [API 总览](./runtime/api-overview.md)
 
 ### 4.3 前端开发
 
-1. `docs/architecture/architecture.md`
-2. `docs/architecture/overview/system-overview.md`
-3. `docs/architecture/runtime/frontend-architecture.md`
-4. `docs/architecture/runtime/api-overview.md`
-5. `docs/architecture/overview/domain-model.md`
+1. [architecture.md](./architecture.md)
+2. [系统全景](./overview/system-overview.md)
+3. [前端架构](./runtime/frontend-architecture.md)
+4. [API 总览](./runtime/api-overview.md)
+5. [领域模型](./overview/domain-model.md)
 
 ### 4.4 平台治理与演进规划
 
-1. `docs/architecture/architecture.md`
-2. `docs/architecture/governance/architecture-decisions.md`
-3. `docs/architecture/governance/evolution-roadmap.md`
-4. `docs/architecture/governance/appendix-and-archive.md`
+1. [architecture.md](./architecture.md)
+2. [架构决策](./governance/architecture-decisions.md)
+3. [演进路线图](./governance/evolution-roadmap.md)
+4. [附录与归档](./governance/appendix-and-archive.md)
 
 ---
 
@@ -147,5 +147,5 @@ flowchart LR
 
 - 需要查找系统级摘要时，以本入口页为准。
 - 需要查找某一专题的详细设计时，以对应专题文档为准。
-- 需要回看拆分边界、命名规范或迁移背景时，以 `docs/architecture/split-plan.md` 为参考。
+- 需要回看拆分边界、命名规范或迁移背景时，以 [split-plan.md](./split-plan.md) 为参考。
 - 后续若入口页摘要与专题正文出现冲突，应优先修正专题正文，再回看入口页是否需要同步更新摘要。
