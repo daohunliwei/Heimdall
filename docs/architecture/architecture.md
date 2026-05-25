@@ -2,7 +2,7 @@
 
 > 最后更新：2026-05-24 | 基于 V9 架构 + 三策略结构规划 + Tree-sitter AST 引擎
 >
-> 本文档合并了 `doc/architecture/` 下全部历史架构文档（V1～V4 方案、审计清单、前后端设计），并融合 `openspec/` 中 V5～V9 及后续归档变更，是 Heimdall 系统架构的**唯一权威参考**。
+> 本文档是 Heimdall 系统架构的**唯一权威参考**。
 
 ---
 
@@ -89,7 +89,7 @@ timeline
 ## 3. 系统架构全景
 
 ```mermaid
-graph TB
+graph TB 
     subgraph Client["客户端层"]
         FE["Next.js 前端<br/>(localhost:3000)"]
         EXT["外部 API 调用者"]

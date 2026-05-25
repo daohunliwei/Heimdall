@@ -47,7 +47,7 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 - `frontend/src/contexts`：Auth/Language/Repository 上下文
 - `frontend/src/hooks`：自定义 Hook（useTaskStream、useProcessedProjects、useArtifactVersionContext）
 - `frontend/src/messages`：中文界面文案
-- `doc/architecture`：系统架构设计文档（[`architecture.md`](doc/architecture/architecture.md)）
+- `docs/architecture`：系统架构设计文档（[`architecture.md`](docs/architecture/architecture.md)）
 
 ## 修改原则
 

@@ -16,7 +16,7 @@ Heimdall.Repository (数据层)  →  SqlSugar ORM、仓储实现
 Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、仓库源、BM25 搜索、配置、文本工具
 ```
 
-详细架构文档：[`doc/architecture/architecture.md`](doc/architecture/architecture.md)
+详细架构文档：[`docs/architecture/architecture.md`](docs/architecture/architecture.md)
 
 ## 目录说明
 
@@ -27,7 +27,7 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、仓库源�
 | `backend/Heimdall.Infrastructure` | 工具层：MEAI IChatClient Provider 适配、仓库源、BM25 搜索、配置、文本工具 |
 | `backend/Heimdall.Repository` | 数据层：SqlSugar 仓储实现（注入 `ISqlSugarClient`） |
 | `frontend/src` | Next.js 前端（App Router） |
-| `doc/architecture` | 系统架构设计文档 |
+| `docs/architecture` | 系统架构设计文档 |
 | `scripts` | 开发脚本：环境配置、启动/停止、数据重置 |
 
 ## 快速开始

@@ -125,4 +125,4 @@ cd frontend && npm run build && npm run lint
 - `backend/Heimdall.Infrastructure/Search/Bm25SearchService.cs` — BM25 检索
 - `backend/Heimdall.Core/Services/Tasks/DeterministicStructurePlanner.cs` — 结构规划（Deterministic/LlmEnhanced）
 
-架构设计文档：[`doc/architecture/architecture.md`](doc/architecture/architecture.md)
+架构设计文档：[`docs/architecture/architecture.md`](docs/architecture/architecture.md)
