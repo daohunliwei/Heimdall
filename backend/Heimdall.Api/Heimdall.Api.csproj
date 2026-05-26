@@ -14,7 +14,7 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.6.0" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="OllamaSharp" Version="5.4.12" />
-    <PackageReference Include="SqlSugarCore" Version="5.1.4.200" />
+    <PackageReference Include="SqlSugarCore" Version="5.1.4.214" />
     <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="10.1.7" />
   </ItemGroup>
 

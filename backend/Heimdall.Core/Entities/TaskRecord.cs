@@ -14,6 +14,7 @@ public class TaskRecord
     [SugarColumn(ColumnName = "status", Length = 16)]
     public string Status { get; set; } = "pending";
 
+    [SugarColumn(IsNullable = true)]
     public Guid? RepositoryId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(RepositoryId))]
@@ -22,6 +23,7 @@ public class TaskRecord
     [SugarColumn(ColumnName = "source_branch", Length = 128)]
     public string SourceBranch { get; set; } = "main";
 
+    [SugarColumn(IsNullable = true)]
     public Guid? UserId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(UserId))]
@@ -100,7 +102,10 @@ public class TaskRecord
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    [SugarColumn(IsNullable = true)]
     public DateTime? StartedAt { get; set; }
+
+    [SugarColumn(IsNullable = true)]
     public DateTime? CompletedAt { get; set; }
 
     [Navigate(NavigateType.OneToMany, nameof(TaskLlmCallLog.TaskId))]

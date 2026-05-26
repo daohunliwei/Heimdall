@@ -18,6 +18,7 @@ public class PromptTemplateHistory
     [SugarColumn(ColumnDataType = "text")]
     public string TemplateContent { get; set; } = string.Empty;
 
+    [SugarColumn(IsNullable = true)]
     public Guid? ChangedBy { get; set; }
     public DateTime ChangedAt { get; set; } = DateTime.UtcNow;
 }

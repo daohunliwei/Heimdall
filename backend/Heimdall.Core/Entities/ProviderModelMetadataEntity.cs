@@ -19,6 +19,8 @@ public class ProviderModelMetadataEntity
 
     public int MaxContextTokens { get; set; } = 128000;
     public int MaxOutputTokens { get; set; } = 8192;
+
+    [SugarColumn(IsNullable = true)]
     public int? RateLimitPerMinute { get; set; }
 
     [SugarColumn(Length = 10, DecimalDigits = 6, IsNullable = true)]

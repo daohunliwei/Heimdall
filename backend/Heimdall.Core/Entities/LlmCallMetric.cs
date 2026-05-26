@@ -33,6 +33,8 @@ public class LlmCallMetric
 
     public bool IsEstimated { get; set; }
     public bool IsStreaming { get; set; }
+
+    [SugarColumn(IsNullable = true)]
     public int? FirstTokenLatencyMs { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

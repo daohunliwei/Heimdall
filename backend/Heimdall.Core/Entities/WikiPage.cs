@@ -13,6 +13,7 @@ public class WikiPage
     [Navigate(NavigateType.OneToOne, nameof(WikiVersionId))]
     public WikiVersion WikiVersion { get; set; } = null!;
 
+    [SugarColumn(IsNullable = true)]
     public Guid? TaskId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(TaskId))]
@@ -29,6 +30,7 @@ public class WikiPage
     [SugarColumn(ColumnDataType = "text", IsNullable = true)]
     public string? ContentMarkdown { get; set; }
 
+    [SugarColumn(IsNullable = true)]
     public Guid? ParentPageId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(ParentPageId))]
