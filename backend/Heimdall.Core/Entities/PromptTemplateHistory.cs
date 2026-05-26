@@ -8,21 +8,21 @@ public class PromptTemplateHistory
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "PromptTemplateId")]
+    [SugarColumn(ColumnName = "prompt_template_id")]
     public Guid PromptTemplateId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(PromptTemplateId))]
     public PromptTemplate PromptTemplate { get; set; } = null!;
 
-    [SugarColumn(ColumnName = "Version")]
+    [SugarColumn(ColumnName = "version")]
     public int Version { get; set; }
 
-    [SugarColumn(ColumnName = "TemplateContent", ColumnDataType = "text")]
+    [SugarColumn(ColumnName = "template_content", ColumnDataType = "text")]
     public string TemplateContent { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "ChangedBy", IsNullable = true)]
+    [SugarColumn(ColumnName = "changed_by", IsNullable = true)]
     public Guid? ChangedBy { get; set; }
 
-    [SugarColumn(ColumnName = "ChangedAt")]
+    [SugarColumn(ColumnName = "changed_at")]
     public DateTime ChangedAt { get; set; } = DateTime.UtcNow;
 }

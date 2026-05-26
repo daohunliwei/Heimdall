@@ -499,10 +499,11 @@ public sealed class WikiTaskService
             var settingRepo = execScope.ServiceProvider.GetService<ISystemSettingRepository>();
             if (settingRepo != null)
             {
-                var debugEnabled = await settingRepo.GetByKeyAsync("DebugMode.Enabled");
+                var debugSettings = await settingRepo.GetByKeysAsync(new[] { "DebugMode.Enabled", "DebugMode.MaxPages" });
+                var debugEnabled = debugSettings.GetValueOrDefault("DebugMode.Enabled");
                 if (debugEnabled?.Value == "true")
                 {
-                    var maxPagesSetting = await settingRepo.GetByKeyAsync("DebugMode.MaxPages");
+                    var maxPagesSetting = debugSettings.GetValueOrDefault("DebugMode.MaxPages");
                     var maxPages = int.TryParse(maxPagesSetting?.Value, out var mp) ? mp : 5;
                     if (totalPages > maxPages)
                     {

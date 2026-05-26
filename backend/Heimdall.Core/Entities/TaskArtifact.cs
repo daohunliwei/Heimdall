@@ -8,7 +8,7 @@ public class TaskArtifact
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "TaskId")]
+    [SugarColumn(ColumnName = "task_id")]
     public Guid TaskId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(TaskId))]

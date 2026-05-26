@@ -8,15 +8,15 @@ public class SystemSetting
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "Key", Length = 128)]
+    [SugarColumn(ColumnName = "key", Length = 128)]
     public string Key { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "Value", ColumnDataType = "text")]
+    [SugarColumn(ColumnName = "value", ColumnDataType = "text")]
     public string Value { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "Description", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "description", ColumnDataType = "text", IsNullable = true)]
     public string? Description { get; set; }
 
-    [SugarColumn(ColumnName = "UpdatedAt")]
+    [SugarColumn(ColumnName = "updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

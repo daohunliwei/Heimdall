@@ -28,7 +28,7 @@ public class SystemSettingRepository : BaseRepository<SystemSetting>, ISystemSet
             .WhereColumns(it => new { it.Key })
             .ExecuteCommandAsync();
 
-        return (await Context.Queryable<SystemSetting>().FirstAsync(s => s.Key == key))!;
+        return entity;
     }
 
     public async Task SetBatchAsync(Dictionary<string, string> keyValues)

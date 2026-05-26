@@ -37,6 +37,14 @@ public class WikiVersionRepository : BaseRepository<WikiVersion>, IWikiVersionRe
         return await Context.Queryable<WikiVersion>().CountAsync(v => v.WikiSpaceId == wikiSpaceId);
     }
 
+    public async Task<WikiVersion?> GetLatestBySpaceIdAsync(Guid wikiSpaceId)
+    {
+        return await Context.Queryable<WikiVersion>()
+            .Where(v => v.WikiSpaceId == wikiSpaceId)
+            .OrderByDescending(v => v.VersionNo)
+            .FirstAsync();
+    }
+
     public async Task<WikiVersion> AddAsync(WikiVersion version)
     {
         await Context.Insertable(version).ExecuteCommandAsync();

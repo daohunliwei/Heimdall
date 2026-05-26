@@ -8,6 +8,7 @@ public interface IWikiVersionRepository
     Task<List<WikiVersion>> GetBySpaceIdAsync(Guid wikiSpaceId);
     Task<List<WikiVersion>> GetBySpaceIdsAsync(IEnumerable<Guid> spaceIds);
     Task<int> CountBySpaceIdAsync(Guid wikiSpaceId);
+    Task<WikiVersion?> GetLatestBySpaceIdAsync(Guid wikiSpaceId);
     Task<WikiVersion> AddAsync(WikiVersion version);
     Task<WikiVersion> UpdateAsync(WikiVersion version);
 }

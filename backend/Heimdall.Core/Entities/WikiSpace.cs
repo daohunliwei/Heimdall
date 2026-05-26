@@ -8,7 +8,7 @@ public class WikiSpace
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "RepositoryId")]
+    [SugarColumn(ColumnName = "repository_id")]
     public Guid RepositoryId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(RepositoryId))]

@@ -30,9 +30,12 @@ public sealed class ToolCallConfigurationService
             using var scope = _scopeFactory.CreateScope();
             var settingRepo = scope.ServiceProvider.GetRequiredService<ISystemSettingRepository>();
 
-            var global = await IsEnabledAsync(settingRepo, "ToolCall.Enabled");
-            var stage3 = await IsEnabledAsync(settingRepo, "ToolCall.Stage3.Enabled");
-            var stage5 = await IsEnabledAsync(settingRepo, "ToolCall.Stage5.Enabled");
+            var keys = new[] { "ToolCall.Enabled", "ToolCall.Stage3.Enabled", "ToolCall.Stage5.Enabled" };
+            var settings = await settingRepo.GetByKeysAsync(keys);
+
+            var global = string.Equals(settings.GetValueOrDefault("ToolCall.Enabled")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            var stage3 = string.Equals(settings.GetValueOrDefault("ToolCall.Stage3.Enabled")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            var stage5 = string.Equals(settings.GetValueOrDefault("ToolCall.Stage5.Enabled")?.Value, "true", StringComparison.OrdinalIgnoreCase);
 
             return (global, stage3, stage5);
         }
@@ -63,9 +66,4 @@ public sealed class ToolCallConfigurationService
         };
     }
 
-    private static async Task<bool> IsEnabledAsync(ISystemSettingRepository settingRepo, string key)
-    {
-        var setting = await settingRepo.GetByKeyAsync(key);
-        return string.Equals(setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
-    }
 }

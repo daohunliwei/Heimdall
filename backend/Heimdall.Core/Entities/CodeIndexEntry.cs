@@ -8,22 +8,22 @@ public class CodeIndexEntry
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "FilePath", Length = 1024)]
+    [SugarColumn(ColumnName = "file_path", Length = 1024)]
     public string FilePath { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "ModuleName", Length = 256)]
+    [SugarColumn(ColumnName = "module_name", Length = 256)]
     public string ModuleName { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "FileType", Length = 64)]
+    [SugarColumn(ColumnName = "file_type", Length = 64)]
     public string FileType { get; set; } = "source";
 
-    [SugarColumn(ColumnName = "Language", Length = 64, IsNullable = true)]
+    [SugarColumn(ColumnName = "language", Length = 64, IsNullable = true)]
     public string Language { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "SizeBytes")]
+    [SugarColumn(ColumnName = "size_bytes")]
     public long SizeBytes { get; set; }
 
-    [SugarColumn(ColumnName = "ImportanceScore")]
+    [SugarColumn(ColumnName = "importance_score")]
     public int ImportanceScore { get; set; }
 
     [SugarColumn(ColumnName = "exported_symbols", ColumnDataType = "text", IsJson = true)]
@@ -32,16 +32,16 @@ public class CodeIndexEntry
     [SugarColumn(ColumnName = "dependency_hints", ColumnDataType = "text", IsJson = true)]
     public string DependencyHintsJson { get; set; } = "[]";
 
-    [SugarColumn(ColumnName = "CallGraphJson", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "call_graph_json", ColumnDataType = "text", IsNullable = true)]
     public string? CallGraphJson { get; set; }
 
-    [SugarColumn(ColumnName = "DependencyEdgesJson", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "dependency_edges_json", ColumnDataType = "text", IsNullable = true)]
     public string? DependencyEdgesJson { get; set; }
 
-    [SugarColumn(ColumnName = "DesignPatternHints", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "design_pattern_hints", ColumnDataType = "text", IsNullable = true)]
     public string? DesignPatternHints { get; set; }
 
-    [SugarColumn(ColumnName = "RepositoryVersionId")]
+    [SugarColumn(ColumnName = "repository_version_id")]
     public Guid RepositoryVersionId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(RepositoryVersionId))]
@@ -57,19 +57,19 @@ public class CodeIndexChunk
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "Content", ColumnDataType = "text")]
+    [SugarColumn(ColumnName = "content", ColumnDataType = "text")]
     public string Content { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "StartLine")]
+    [SugarColumn(ColumnName = "start_line")]
     public int StartLine { get; set; }
 
-    [SugarColumn(ColumnName = "EndLine")]
+    [SugarColumn(ColumnName = "end_line")]
     public int EndLine { get; set; }
 
-    [SugarColumn(ColumnName = "Language", Length = 64)]
+    [SugarColumn(ColumnName = "language", Length = 64)]
     public string Language { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "CodeIndexEntryId")]
+    [SugarColumn(ColumnName = "code_index_entry_id")]
     public Guid CodeIndexEntryId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(CodeIndexEntryId))]

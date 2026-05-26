@@ -8,51 +8,51 @@ public class TaskLlmCallLog
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "TaskId")]
+    [SugarColumn(ColumnName = "task_id")]
     public Guid TaskId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(TaskId))]
     public TaskRecord Task { get; set; } = null!;
 
-    [SugarColumn(ColumnName = "StepOrder")]
+    [SugarColumn(ColumnName = "step_order")]
     public int StepOrder { get; set; }
 
-    [SugarColumn(ColumnName = "CallType", Length = 32)]
+    [SugarColumn(ColumnName = "call_type", Length = 32)]
     public string CallType { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "Provider", Length = 32, IsNullable = true)]
+    [SugarColumn(ColumnName = "provider", Length = 32, IsNullable = true)]
     public string? Provider { get; set; }
 
-    [SugarColumn(ColumnName = "Model", Length = 64, IsNullable = true)]
+    [SugarColumn(ColumnName = "model", Length = 64, IsNullable = true)]
     public string? Model { get; set; }
 
-    [SugarColumn(ColumnName = "PromptTokens")]
+    [SugarColumn(ColumnName = "prompt_tokens")]
     public int PromptTokens { get; set; }
 
-    [SugarColumn(ColumnName = "CompletionTokens")]
+    [SugarColumn(ColumnName = "completion_tokens")]
     public int CompletionTokens { get; set; }
 
-    [SugarColumn(ColumnName = "TotalTokens")]
+    [SugarColumn(ColumnName = "total_tokens")]
     public int TotalTokens { get; set; }
 
-    [SugarColumn(ColumnName = "RequestPreview", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "request_preview", ColumnDataType = "text", IsNullable = true)]
     public string? RequestPreview { get; set; }
 
-    [SugarColumn(ColumnName = "ResponsePreview", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "response_preview", ColumnDataType = "text", IsNullable = true)]
     public string? ResponsePreview { get; set; }
 
-    [SugarColumn(ColumnName = "LatencyMs")]
+    [SugarColumn(ColumnName = "latency_ms")]
     public int LatencyMs { get; set; }
 
-    [SugarColumn(ColumnName = "IsError")]
+    [SugarColumn(ColumnName = "is_error")]
     public bool IsError { get; set; }
 
-    [SugarColumn(ColumnName = "ErrorMessage", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "error_message", ColumnDataType = "text", IsNullable = true)]
     public string? ErrorMessage { get; set; }
 
-    [SugarColumn(ColumnName = "ToolCallLogsJson", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "tool_call_logs_json", ColumnDataType = "text", IsNullable = true)]
     public string? ToolCallLogsJson { get; set; }
 
-    [SugarColumn(ColumnName = "CreatedAt")]
+    [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

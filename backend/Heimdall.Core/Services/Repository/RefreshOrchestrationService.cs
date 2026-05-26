@@ -104,7 +104,7 @@ public class RefreshOrchestrationService : IRefreshOrchestrationService
         if (space.PublishedWikiVersionId.HasValue)
             return space.PublishedWikiVersionId.Value;
 
-        var versions = await _wikiVersionRepo.GetBySpaceIdAsync(space.Id);
-        return versions.OrderByDescending(v => v.VersionNo).FirstOrDefault()?.Id;
+        var latestVersion = await _wikiVersionRepo.GetLatestBySpaceIdAsync(space.Id);
+        return latestVersion?.Id;
     }
 }

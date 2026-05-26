@@ -17,37 +17,37 @@ public class Repository
     [SugarColumn(ColumnName = "display_name", Length = 512)]
     public string DisplayName { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "Owner", Length = 128)]
+    [SugarColumn(ColumnName = "owner", Length = 128)]
     public string Owner { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "RepoName", Length = 128)]
+    [SugarColumn(ColumnName = "repo_name", Length = 128)]
     public string RepoName { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "RepoType", Length = 16)]
+    [SugarColumn(ColumnName = "repo_type", Length = 16)]
     public string RepoType { get; set; } = "github";
 
-    [SugarColumn(ColumnName = "RepoUrl", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "repo_url", ColumnDataType = "text", IsNullable = true)]
     public string? RepoUrl { get; set; }
 
-    [SugarColumn(ColumnName = "CloneUrl", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "clone_url", ColumnDataType = "text", IsNullable = true)]
     public string? CloneUrl { get; set; }
 
-    [SugarColumn(ColumnName = "DefaultBranch", Length = 128)]
+    [SugarColumn(ColumnName = "default_branch", Length = 128)]
     public string DefaultBranch { get; set; } = "main";
 
-    [SugarColumn(ColumnName = "DefaultLanguage", Length = 8)]
+    [SugarColumn(ColumnName = "default_language", Length = 8)]
     public string DefaultLanguage { get; set; } = "zh";
 
-    [SugarColumn(ColumnName = "Description", ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "description", ColumnDataType = "text", IsNullable = true)]
     public string? Description { get; set; }
 
     [SugarColumn(ColumnName = "is_archived")]
     public bool IsArchived { get; set; }
 
-    [SugarColumn(ColumnName = "CreatedAt")]
+    [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    [SugarColumn(ColumnName = "UpdatedAt")]
+    [SugarColumn(ColumnName = "updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     [Navigate(NavigateType.OneToMany, nameof(TaskRecord.RepositoryId))]

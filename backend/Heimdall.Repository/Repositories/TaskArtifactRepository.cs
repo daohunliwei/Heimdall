@@ -59,9 +59,6 @@ public class TaskArtifactRepository : BaseRepository<TaskArtifact>, ITaskArtifac
             .WhereColumns(it => new { it.TaskId, it.ArtifactType, it.ArtifactKey })
             .ExecuteCommandAsync();
 
-        return (await Context.Queryable<TaskArtifact>()
-            .FirstAsync(a => a.TaskId == artifact.TaskId
-                && a.ArtifactType == artifact.ArtifactType
-                && a.ArtifactKey == artifact.ArtifactKey))!;
+        return artifact;
     }
 }

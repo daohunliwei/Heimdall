@@ -14,28 +14,28 @@ public class User
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(ColumnName = "Username", Length = 64)]
+    [SugarColumn(ColumnName = "username", Length = 64)]
     public string Username { get; set; } = string.Empty;
 
-    [SugarColumn(ColumnName = "Email", Length = 256, IsNullable = true)]
+    [SugarColumn(ColumnName = "email", Length = 256, IsNullable = true)]
     public string? Email { get; set; }
 
-    [SugarColumn(ColumnName = "PasswordHash", Length = 256, IsNullable = true)]
+    [SugarColumn(ColumnName = "password_hash", Length = 256, IsNullable = true)]
     public string? PasswordHash { get; set; }
 
-    [SugarColumn(ColumnName = "Source")]
+    [SugarColumn(ColumnName = "source")]
     public UserSource Source { get; set; } = UserSource.Local;
 
-    [SugarColumn(ColumnName = "Role", Length = 16)]
+    [SugarColumn(ColumnName = "role", Length = 16)]
     public string Role { get; set; } = "Viewer";
 
-    [SugarColumn(ColumnName = "IsActive")]
+    [SugarColumn(ColumnName = "is_active")]
     public bool IsActive { get; set; } = true;
 
-    [SugarColumn(ColumnName = "CreatedAt")]
+    [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    [SugarColumn(ColumnName = "UpdatedAt")]
+    [SugarColumn(ColumnName = "updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     [Navigate(NavigateType.OneToMany, nameof(TaskRecord.UserId))]
