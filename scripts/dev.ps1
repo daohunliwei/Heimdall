@@ -186,6 +186,36 @@ function Build-EnvBlock {
     return $lines -join '; '
 }
 
+function Ensure-FrontendDependencies([hashtable]$pmInfo, [string]$workingDir) {
+    $nextCommand = Join-Path $workingDir 'node_modules\.bin\next.cmd'
+    if (Test-Path -LiteralPath $nextCommand) {
+        return
+    }
+
+    Write-Host '▸ 检测到前端依赖未安装，正在自动安装...' -ForegroundColor Yellow
+
+    $installArgs = if ($pmInfo.Name -eq 'yarn') {
+        @('install')
+    } else {
+        @('install')
+    }
+
+    $process = Start-Process -FilePath $pmInfo.Cmd `
+        -ArgumentList $installArgs `
+        -WorkingDirectory $workingDir `
+        -NoNewWindow `
+        -Wait `
+        -PassThru
+
+    if ($process.ExitCode -ne 0) {
+        throw "前端依赖安装失败，退出码: $($process.ExitCode)"
+    }
+
+    if (-not (Test-Path -LiteralPath $nextCommand)) {
+        throw '前端依赖安装完成，但仍未找到 next 命令，请检查 package.json 与 node_modules 状态'
+    }
+}
+
 # ── Dry Run 模式 ───────────────────────────────────────────
 if ($DryRun) {
     Write-Host ''
@@ -285,6 +315,7 @@ if (-not $FrontendOnly -and -not $NoHealthCheck) {
 # ── 启动前端 ───────────────────────────────────────────────
 $frontendProc = $null
 if (-not $BackendOnly) {
+    Ensure-FrontendDependencies $pm $frontendDir
     Write-Host '▸ 启动前端服务...' -ForegroundColor Green
     $result = Start-InNewWindow 'Heimdall 前端' $frontendDir `
         "$($pm.Name) run dev"
