@@ -31,7 +31,7 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 ### V9 关键变更
 
 - **ORM**：EF Core → SqlSugar。`ISqlSugarClient` (Singleton) 替代 `AppDbContext` (Scoped)。无 DbContext、无 EntityConfigurations、无迁移文件。
-- **Provider**：自研 `IChatProvider` 接口 → MEAI `IChatClient`。`ChatClientFactory` + Keyed DI 替代 `ProviderRegistry`。OpenAI/OpenRouter/DashScope/DeepSeek/Azure 统一走 `OpenAiCompatibleClientFactory`；Ollama/Gemini/MiniMax 为自定义 `IChatClient` 适配器（`Infrastructure/Providers/CustomBackends/`）。
+- **Provider**：自研 `IChatProvider` 接口 → MEAI `IChatClient`。当前统一通过 Keyed DI 获取 `IChatClient`。OpenAI/OpenRouter/DashScope/DeepSeek/Azure 统一走 `OpenAiCompatibleClientFactory`；Ollama/Gemini/MiniMax 为自定义 `IChatClient` 适配器（`Infrastructure/Providers/CustomBackends/`）。
 - **流式**：`IChatClient.GetStreamingResponseAsync()` 真流式 SSE，Chat 和 Ask 端点均已升级。
 - **CodeFirst**：启动时 `CodeFirstSyncService` 扫描 `Core.Entities` 自动同步表结构。
 - **指标**：`ILlmObservabilityService.RecordCallAsync` 接收 MEAI `UsageDetails`，支持 `IsStreaming`/`FirstTokenLatencyMs`。
@@ -40,7 +40,7 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 
 - `backend/Heimdall.Api`：C# API 入口——控制器、中间件、DTO 模型、Mappings、`Program.cs`
 - `backend/Heimdall.Core`：业务逻辑——`Entities/`（`[SugarTable]` 实体）、`Interfaces/`、`Services/`、`Models/`。`Services/Repository/` 含 `CodeIndexService`（Tree-sitter AST 代码索引）和 `CodeStructureIndexService`；`Services/Tasks/` 含 `AgentOrchestratorService`（大仓库子代理协调）
-- `backend/Heimdall.Infrastructure`：工具层——`Providers/`（MEAI IChatClient 适配 + `ChatClientFactory` + `OpenAiCompatibleClientFactory` + `BedrockClientFactory`）、`Providers/CustomBackends/`（OllamaChatClient / GeminiChatClient / MiniMaxChatClient）、`Search/`（BM25 搜索引擎）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
+- `backend/Heimdall.Infrastructure`：工具层——`Providers/`（MEAI IChatClient 适配 + `OpenAiCompatibleClientFactory` + `BedrockClientFactory`）、`Providers/CustomBackends/`（OllamaChatClient / GeminiChatClient / MiniMaxChatClient）、`Search/`（BM25 搜索引擎）、`RepositorySources/`（仓库源）、`Configuration/`、`Utilities/`
 - `backend/Heimdall.Repository`：数据层——`Repositories/`（注入 `ISqlSugarClient`）
 - `frontend/src/app`：Next.js 页面与 API 代理路由（含 `/api/tasks/ask/stream` SSE 代理）
 - `frontend/src/components`：前端组件（`Ask.tsx` 含流式 SSE 支持）

@@ -2,10 +2,9 @@ using System.Text.Json;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Services.Tasks;
 using Heimdall.Infrastructure.Models;
-using Heimdall.Infrastructure.Providers;
-using Heimdall.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Heimdall.Api.Controllers;
 
@@ -13,19 +12,19 @@ namespace Heimdall.Api.Controllers;
 [Route("chat")]
 public class ChatController : ControllerBase
 {
-    private readonly ChatClientFactory _chatClientFactory;
-    private readonly TextUtilityService _textUtility;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ChatMessageBuilderService _chatMessageBuilder;
     private readonly IPromptMergeService _promptMergeService;
     private readonly ILogger<ChatController> _logger;
 
     public ChatController(
-        ChatClientFactory chatClientFactory,
-        TextUtilityService textUtility,
+        IServiceProvider serviceProvider,
+        ChatMessageBuilderService chatMessageBuilder,
         IPromptMergeService promptMergeService,
         ILogger<ChatController> logger)
     {
-        _chatClientFactory = chatClientFactory;
-        _textUtility = textUtility;
+        _serviceProvider = serviceProvider;
+        _chatMessageBuilder = chatMessageBuilder;
         _promptMergeService = promptMergeService;
         _logger = logger;
     }
@@ -60,29 +59,29 @@ public class ChatController : ControllerBase
 
         try
         {
-            var chatClient = _chatClientFactory.GetClient(providerId);
-            var prompt = request.Messages.Count > 0
-                ? request.Messages[^1].Content
-                : "Hello";
+            var chatClient = _serviceProvider.GetRequiredKeyedService<IChatClient>(providerId);
+            var latestUserPrompt = request.Messages
+                .LastOrDefault(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
+                ?.Content;
+            var prompt = !string.IsNullOrWhiteSpace(latestUserPrompt)
+                ? latestUserPrompt
+                : request.Messages.LastOrDefault()?.Content ?? "Hello";
 
             var (systemPrompt, userPrompt) = await _promptMergeService.BuildChatPromptAsync(
                 "chat", providerId, "text",
                 new Dictionary<string, string> { ["question"] = prompt });
 
-            var finalPrompt = string.IsNullOrEmpty(userPrompt) ? prompt : userPrompt;
-
-            var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
-            if (!string.IsNullOrEmpty(systemPrompt))
-            {
-                messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.System, systemPrompt));
-            }
-            messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, finalPrompt));
+            var finalPrompt = string.IsNullOrWhiteSpace(userPrompt) ? prompt : userPrompt;
+            var messages = _chatMessageBuilder.BuildChatMessages(request.Messages, systemPrompt, finalPrompt);
 
             var options = new ChatOptions
             {
-                ModelId = model,
                 MaxOutputTokens = 4096,
             };
+            if (!string.IsNullOrWhiteSpace(model))
+            {
+                options.ModelId = model;
+            }
 
             // 真流式：通过 await foreach 消费 ChatResponseUpdate
             await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options, ct))

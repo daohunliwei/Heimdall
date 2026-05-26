@@ -32,18 +32,13 @@
 - **THEN** `UseResilience()` 中间件按 Polly 指数退避策略自动重试
 - **AND** 原 `LlmRetryPolicy` 服务保留逻辑但改为通过 `UseResilience()` 调用
 
-### Requirement: ChatClientFactory 废弃
-系统 SHALL 将 `ChatClientFactory` 标记为 `[Obsolete]`。所有 `IChatClient` 的查找 SHALL 通过 `IServiceProvider.GetKeyedService<IChatClient>(key)` 直接完成。`TaskLlmService` SHALL 改为注入 `IServiceProvider` 并在运行时通过 `GetKeyedService<IChatClient>(providerId)` 获取客户端。
+### Requirement: Keyed DI 作为唯一客户端获取方式
+系统 SHALL 仅通过 `IServiceProvider.GetRequiredKeyedService<IChatClient>(key)` 获取 `IChatClient`。不再保留 `ChatClientFactory` 作为过渡层。
 
 #### Scenario: 直接 Keyed DI 替代工厂
 - **WHEN** `TaskLlmService` 需要 `IChatClient`
-- **THEN** 通过 `_serviceProvider.GetKeyedService<IChatClient>(providerId)` 获取
-- **AND** 不再调用 `_chatClientFactory.GetClient(providerId)`
-
-#### Scenario: ChatClientFactory 过渡兼容
-- **WHEN** 其他服务调用 `ChatClientFactory.GetClient(providerId)`
-- **THEN** 内部委托给 `_serviceProvider.GetKeyedService<IChatClient>(providerId)`
-- **AND** 记录 Obsolete 警告
+- **THEN** 通过 `_serviceProvider.GetRequiredKeyedService<IChatClient>(providerId)` 获取
+- **AND** 未注册的 Provider 立即抛出配置错误
 
 ## REMOVED Requirements
 

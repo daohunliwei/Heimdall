@@ -33,18 +33,13 @@
 - **AND** LLM 在收到 Tool 列表时自动忽略或返回不支持错误
 - **AND** `FunctionInvokingChatClient` 因没有 `FunctionCallContent` 而直接透传响应
 
-### Requirement: ChatClientFactory 废弃
-系统 SHALL 将 `ChatClientFactory` 标记为 `[Obsolete]`，所有 `IChatClient` 的查找 SHALL 通过 `IServiceProvider.GetKeyedService<IChatClient>(key)` 直接完成。`TaskLlmService` SHALL 改为注入 `[FromKeyedServices(providerId)] IChatClient`。
+### Requirement: Keyed DI 作为唯一客户端获取方式
+系统 SHALL 仅通过 `IServiceProvider.GetRequiredKeyedService<IChatClient>(key)` 获取 `IChatClient`。`TaskLlmService` SHALL 改为注入 `IServiceProvider` 并在运行时按 providerId 解析 Keyed 客户端。
 
-#### Scenario: TaskLlmService 直接注入 IChatClient
+#### Scenario: TaskLlmService 通过 Keyed DI 获取客户端
 - **WHEN** `TaskLlmService` 使用 `providerId = "deepseek"` 发起 LLM 调用
-- **THEN** 系统通过 `[FromKeyedServices("deepseek")] IChatClient` 直接获取构建好的管道客户端
-- **AND** 不再经过 `ChatClientFactory.GetClient("deepseek")`
-
-#### Scenario: ChatClientFactory 过渡兼容
-- **WHEN** 其他服务（如 `AskTaskService`）仍调用 `ChatClientFactory.GetClient(providerId)`
-- **THEN** `ChatClientFactory.GetClient` 内部委托给 `_serviceProvider.GetKeyedService<IChatClient>(providerId)`
-- **AND** 记录 Warning 日志提示使用 `[Obsolete]` API
+- **THEN** 系统通过 `_serviceProvider.GetRequiredKeyedService<IChatClient>("deepseek")` 获取构建好的管道客户端
+- **AND** 未注册的 Provider 直接失败
 
 ### Requirement: 废弃自研日志和重试包装器
 系统 SHALL 删除 `ChatClientBuilderExtensions.cs` 中的 `LoggingChatClient` 和 `RetryChatClient` 内部类，改为使用 MEAI 10.6.0 内置的 `UseOpenTelemetry()` 和 `UseLogging()` 中间件。`LlmRetryPipeline` 服务已移除（MEAI 10.6.0 暂不包含内置 `UseResilience()` 中间件，重试逻辑留待 `Microsoft.Extensions.AI.Resilience` 包发布后集成）。

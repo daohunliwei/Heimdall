@@ -157,7 +157,6 @@ builder.Services.AddSingleton<CodeFirstSyncService>();
 // Infrastructure Layer (Singleton - 无状态)
 builder.Services.AddSingleton<HeimdallConfigService>();
 builder.Services.AddSingleton<TextUtilityService>();
-builder.Services.AddSingleton<ChatClientFactory>();
 
 // Repository Sources
 builder.Services.AddSingleton<IRepositorySource, GitHubRepositorySource>();
@@ -182,61 +181,69 @@ static IChatClient BuildPipeline(IChatClient innerClient, IServiceProvider servi
         .UseLogging()
         .Build(services);
 
+static void RegisterKeyedChatClient(
+    IServiceCollection services,
+    string providerKey,
+    Func<IServiceProvider, IChatClient> factory)
+{
+    services.AddKeyedSingleton<IChatClient>(providerKey, (sp, _) => BuildPipeline(factory(sp), sp));
+}
+
 // OpenAI 兼容 Provider（5 个 → 1 个工厂）
-builder.Services.AddKeyedSingleton<IChatClient>("openai",
-    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openai", config["HEIMDALL_OPENAI_MODEL"] ?? "gpt-4o"), sp));
-builder.Services.AddKeyedSingleton<IChatClient>("openrouter",
-    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openrouter", config["HEIMDALL_OPENROUTER_MODEL"] ?? "openai/gpt-4o"), sp));
-builder.Services.AddKeyedSingleton<IChatClient>("dashscope",
-    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "dashscope", config["HEIMDALL_DASHSCOPE_MODEL"] ?? "qwen-plus"), sp));
-builder.Services.AddKeyedSingleton<IChatClient>("deepseek",
-    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "deepseek", config["HEIMDALL_DEEPSEEK_MODEL"] ?? "deepseek-chat"), sp));
+RegisterKeyedChatClient(builder.Services, "openai",
+    sp => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openai", config["HEIMDALL_OPENAI_MODEL"] ?? "gpt-4o"));
+RegisterKeyedChatClient(builder.Services, "openrouter",
+    sp => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openrouter", config["HEIMDALL_OPENROUTER_MODEL"] ?? "openai/gpt-4o"));
+RegisterKeyedChatClient(builder.Services, "dashscope",
+    sp => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "dashscope", config["HEIMDALL_DASHSCOPE_MODEL"] ?? "qwen-plus"));
+RegisterKeyedChatClient(builder.Services, "deepseek",
+    sp => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "deepseek", config["HEIMDALL_DEEPSEEK_MODEL"] ?? "deepseek-chat"));
 
 // Azure OpenAI
-builder.Services.AddKeyedSingleton<IChatClient>("azure", (sp, _) =>
+RegisterKeyedChatClient(builder.Services, "azure", sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
     var deployment = cfg["HEIMDALL_AZURE_DEPLOYMENT"] ?? "gpt-4o";
-    return BuildPipeline(OpenAiCompatibleClientFactory.CreateAzure(cfg, "azure", deployment), sp);
+    return OpenAiCompatibleClientFactory.CreateAzure(cfg, "azure", deployment);
 });
 
 // AWS Bedrock
-builder.Services.AddKeyedSingleton<IChatClient>("bedrock", (sp, _) =>
-    BuildPipeline(BedrockClientFactory.Create(sp.GetRequiredService<IConfiguration>(),
+RegisterKeyedChatClient(builder.Services, "bedrock", sp =>
+    BedrockClientFactory.Create(sp.GetRequiredService<IConfiguration>(),
         config["HEIMDALL_BEDROCK_MODEL"] ?? "anthropic.claude-sonnet-4-20250514-v1:0",
-        sp.GetRequiredService<ILoggerFactory>()), sp));
+        sp.GetRequiredService<ILoggerFactory>()));
 
 // Ollama
-builder.Services.AddKeyedSingleton<IChatClient>("ollama", (sp, _) =>
+RegisterKeyedChatClient(builder.Services, "ollama", sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
     var host = cfg["HEIMDALL_OLLAMA_CHAT_HOST"] ?? "http://127.0.0.1:11434";
-    var model = cfg["HEIMDALL_OLLAMA_MODEL"] ?? "qwen3:32b";
-    return BuildPipeline(new OllamaChatClient(
+    var model = cfg["HEIMDALL_OLLAMA_MODEL"] ?? "gemma4:e2b";
+    return new OllamaChatClient(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient(), host, model,
-        sp.GetRequiredService<ILogger<OllamaChatClient>>()), sp);
+        sp.GetRequiredService<ILogger<OllamaChatClient>>());
 });
 
 // Google Gemini
-builder.Services.AddKeyedSingleton<IChatClient>("google", (sp, _) =>
+RegisterKeyedChatClient(builder.Services, "google", sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
     var apiKey = cfg["HEIMDALL_GOOGLE_API_KEY"] ?? "";
     var model = cfg["HEIMDALL_GOOGLE_MODEL"] ?? "gemini-2.5-pro";
-    return BuildPipeline(new GeminiChatClient(
+    return new GeminiChatClient(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient(), apiKey, model,
-        sp.GetRequiredService<ILogger<GeminiChatClient>>()), sp);
+        sp.GetRequiredService<ILogger<GeminiChatClient>>());
 });
 
 // MiniMax
-builder.Services.AddKeyedSingleton<IChatClient>("minimax", (sp, _) =>
+RegisterKeyedChatClient(builder.Services, "minimax", sp =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
     var apiKey = cfg["HEIMDALL_MINIMAX_API_KEY"] ?? "";
     var model = cfg["HEIMDALL_MINIMAX_MODEL"] ?? "MiniMax-Text-01";
-    return BuildPipeline(new MiniMaxChatClient(
+    return new MiniMaxChatClient(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient(), apiKey, model,
-        sp.GetRequiredService<ILogger<MiniMaxChatClient>>()), sp);
+        sp.GetRequiredService<ILogger<MiniMaxChatClient>>());
 });
 
 // V9 旧注册方式（保留注释用于回滚参考）：
@@ -280,6 +287,7 @@ builder.Services.AddScoped<TaskRequestUtilityService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<TaskLlmCallLogService>();
 builder.Services.AddScoped<IWikiTaskSubmissionService, WikiTaskSubmissionService>();
+builder.Services.AddSingleton<ChatMessageBuilderService>();
 builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
 builder.Services.AddSingleton<ToolCallConfigurationService>();

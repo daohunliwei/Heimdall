@@ -21,7 +21,7 @@
 | 仓库与版本 | `Repository`、`RepositoryVersion`、`WikiSpace`、`WikiVersion` | 为所有代码快照和知识产物建立稳定锚点 |
 | Wiki 内容 | `WikiPage`、`WikiPageRelation` | 表达页面树、跨页关系和正文内容 |
 | 任务治理 | `TaskRecord`、`TaskArtifact`、`TaskLlmCallLog`、`LlmCallMetric` | 承载异步执行状态、恢复点与调用审计 |
-| 检索索引 | `CodeIndexEntry`、`CodeIndexChunk` | 支撑 Tree-sitter 结果持久化、片段定位和混合检索 |
+| 检索索引 | `CodeIndexEntry`、`CodeIndexChunk` | 支撑 Tree-sitter 结果持久化、片段定位和 `BM25` 检索 |
 | Prompt 治理 | `PromptTemplate`、`PromptTemplateHistory`、`RepositoryPromptOverride` | 管理模板演进、仓库差异化覆写和审计 |
 
 ## 关键结构

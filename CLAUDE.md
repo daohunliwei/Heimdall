@@ -74,7 +74,7 @@ Heimdall.Infrastructure (工具层) →  MEAI IChatClient Provider、配置、�
 ### V9 关键架构变更
 
 - **ORM**：EF Core → SqlSugar（`ISqlSugarClient` 注入仓储层，Singleton 生命周期）
-- **Provider 抽象**：自研 `IChatProvider` → MEAI `IChatClient`（`ChatClientFactory` + Keyed DI）
+- **Provider 抽象**：自研 `IChatProvider` → MEAI `IChatClient`（统一通过 Keyed DI 获取）
 - **Provider 实现**：5 个 OpenAI 兼容走 `OpenAiCompatibleClientFactory`，Ollama/Gemini/MiniMax 自定义适配器
 - **流式**：`IChatClient.GetStreamingResponseAsync()` 真流式 SSE
 - **CodeFirst**：启动时 `CodeFirstSyncService` 自动同步表结构，替代 EF Core 迁移

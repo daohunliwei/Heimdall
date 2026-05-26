@@ -1,23 +1,16 @@
 ## ADDED Requirements
 
-### Requirement: 双路混合检索
-系统 SHALL 在 Wiki 页面生成阶段，对每个页面主题执行 BM25 + pgvector 向量搜索的双路检索。V7 中向量检索 SHALL 真正实现（当前仅 BM25），使用 pgvector 扩展执行 cosine similarity 搜索，结果使用 Reciprocal Rank Fusion (RRF) 算法合并（k=60）。
+### Requirement: 当前阶段的代码检索能力
+系统 SHALL 在 Wiki 页面生成阶段，以 `BM25` 作为代码检索主链路。与 `pgvector`、Embedding、RRF 融合相关的能力不属于当前基线承诺。
 
-#### Scenario: 双路检索融合
+#### Scenario: 基于 BM25 的代码检索
 - **WHEN** 生成"用户认证模块"页面
-- **THEN** 系统同时执行 BM25 搜索和 pgvector 向量搜索，使用 RRF 公式 `score = sum(1/(60 + rank_i))` 合并排序后返回 Top-20 代码片段
+- **THEN** 系统执行 BM25 搜索并返回按相关度排序的 Top-20 代码片段
 
-#### Scenario: 向量检索执行
-- **WHEN** 搜索 query "用户认证流程"
-- **THEN** 系统将 query 通过 EmbeddingProvider 向量化，在 pgvector 的 code_embeddings 表中执行 `<=>` (cosine distance) 搜索，返回最近邻结果
-
-#### Scenario: BM25 和向量搜索结果互补
-- **WHEN** BM25 命中精确类名 `AuthService` 但向量搜索命中语义相关的 `TokenRefreshHandler`
-- **THEN** RRF 合并后两者都出现在最终结果中，精确匹配排名靠前
-
-#### Scenario: 向量数据不可用时降级
-- **WHEN** 首次 Wiki 生成时代码向量嵌入尚未完成（Stage 10 未执行）
-- **THEN** 系统降级为纯 BM25 检索，不阻塞页面生成，日志记录降级原因
+#### Scenario: 文档与实现保持一致
+- **WHEN** 文档 规格或注释描述当前检索能力
+- **THEN** 必须明确说明当前实现以 `BM25` 为准
+- **AND** 不得把双路混合检索写成已落地能力
 
 ### Requirement: 检索结果注入提示词
 系统 SHALL 将检索到的代码片段格式化后注入 Wiki 页面生成的提示词中。V7 中注入量 SHALL 由 ContextPackingService 动态决定（根据模型上下文窗口），不再硬编码 `maxTotalTokens: 20_000`。

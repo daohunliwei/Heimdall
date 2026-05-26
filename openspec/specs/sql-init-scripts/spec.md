@@ -12,7 +12,7 @@
 - **THEN** 所有业务表创建成功，表结构与 SqlSugar Code First 生成的完全一致
 
 ### Requirement: 建表脚本覆盖所有实体表
-`Init_Tables.sql` SHALL 包含所有实体对应的 CREATE TABLE 语句，同时覆盖 pgvector 等 PostgreSQL 扩展类型。
+`Init_Tables.sql` SHALL 包含所有实体对应的 CREATE TABLE 语句，并与当前 PostgreSQL 表结构保持一致。
 
 #### Scenario: 所有业务表创建
 - **WHEN** 执行 `Init_Tables.sql`
@@ -26,11 +26,11 @@
 - **THEN** 所有外键列、常用查询列（如 `task_id`、`repository_id`、`status`、`created_at`）的索引创建成功
 
 ### Requirement: 扩展脚本声明必需扩展
-`Init_Extensions.sql` SHALL 包含 CREATE EXTENSION 语句，声明 pgvector 等 PostgreSQL 扩展。
+`Init_Extensions.sql` SHALL 包含 CREATE EXTENSION 语句，声明当前实际使用的 PostgreSQL 扩展。
 
-#### Scenario: pgvector 扩展启用
+#### Scenario: 扩展脚本与当前实现一致
 - **WHEN** 执行 `Init_Extensions.sql`
-- **THEN** `vector` 扩展启用成功，支持 `vector(n)` 类型
+- **THEN** 脚本仅声明当前运行链路真实依赖的扩展
 
 ### Requirement: 种子数据脚本
 `Init_SeedData.sql` SHALL 包含系统运行必需的基础数据（如默认 Prompt 模板、默认系统设置）。

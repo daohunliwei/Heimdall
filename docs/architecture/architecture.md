@@ -14,7 +14,7 @@ Heimdall 用于把代码仓库自动转换为中文 Wiki、问答内容、演示
 |------|------|
 | **后端** | C# / ASP.NET Core / `.NET 10` |
 | **前端** | Next.js 16（App Router） |
-| **数据库** | PostgreSQL + pgvector |
+| **数据库** | PostgreSQL |
 | **ORM** | SqlSugar（CodeFirst 自动同步，无迁移文件） |
 | **AI 抽象** | Microsoft.Extensions.AI（MEAI）`IChatClient` |
 | **代码分析** | Tree-sitter AST + BM25 全文检索 |
@@ -31,7 +31,7 @@ flowchart LR
     Api --> Infra["Heimdall.Infrastructure<br/>MEAI Provider / BM25 / 仓库源 / 配置"]
     Core --> Infra
     Repo --> Infra
-    Repo --> Pg["PostgreSQL + pgvector<br/>版本、页面、任务、索引、配置"]
+    Repo --> Pg["PostgreSQL<br/>版本、页面、任务、索引、配置"]
     Core --> Worktree["Git 仓库临时工作区<br/>索引与生成阶段暂存"]
 ```
 

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 页面生成提示词使用真实代码
-Wiki 页面生成的提示词 SHALL 包含从混合检索获取的真实代码片段，而非代码摘要。提示词 SHALL 要求 LLM 基于提供的源代码撰写技术文档。
+Wiki 页面生成的提示词 SHALL 包含从当前检索链路获取的真实代码片段，而非代码摘要。提示词 SHALL 要求 LLM 基于提供的源代码撰写技术文档。
 
 #### Scenario: 提示词注入代码片段
 - **WHEN** 系统构建页面生成提示词
@@ -27,7 +27,7 @@ Wiki 页面生成的提示词 SHALL 包含从混合检索获取的真实代码�
 
 #### Scenario: 页面生成模板更新
 - **WHEN** 使用新的页面生成模板
-- **THEN** 模板变量使用 `{{retrieved_code_snippets}}`，内容为混合检索返回的真实代码片段
+- **THEN** 模板变量使用 `{{retrieved_code_snippets}}`，内容为当前检索链路返回的真实代码片段
 
 ### Requirement: 模型感知的提示词变体
 系统 SHALL 根据使用的模型能力自动调整提示词。对于能力较弱的模型（如 7-14B 参数），提示词 SHALL 包含更严格的约束和更少的要求项。

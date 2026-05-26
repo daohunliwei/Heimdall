@@ -36,6 +36,7 @@ public sealed class WikiTaskService
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IStructuredLogger _structuredLogger;
     private readonly DeterministicStructurePlanner _deterministicPlanner;
+    private readonly ToolCallConfigurationService _toolCallConfigurationService;
     private readonly AgentOrchestratorService? _agentOrchestrator;
     private readonly ILogger<WikiTaskService> _logger;
 
@@ -54,6 +55,7 @@ public sealed class WikiTaskService
         IHostApplicationLifetime appLifetime,
         IStructuredLogger structuredLogger,
         DeterministicStructurePlanner deterministicPlanner,
+        ToolCallConfigurationService toolCallConfigurationService,
         ILogger<WikiTaskService> logger,
         AgentOrchestratorService? agentOrchestrator = null)
     {
@@ -71,6 +73,7 @@ public sealed class WikiTaskService
         _structuredLogger = structuredLogger;
         _configuration = configuration;
         _deterministicPlanner = deterministicPlanner;
+        _toolCallConfigurationService = toolCallConfigurationService;
         _agentOrchestrator = agentOrchestrator;
         _logger = logger;
     }
@@ -187,7 +190,7 @@ public sealed class WikiTaskService
             var effectiveProvider = string.IsNullOrWhiteSpace(provider) ? "ollama" : provider;
 
             // 读取 Tool Call 配置
-            var toolCallConf = await GetToolCallConfigAsync(execToken);
+            var toolCallConf = await _toolCallConfigurationService.GetConfigAsync();
 
             await MarkTaskStageAsync(
                 taskRepo,
@@ -269,7 +272,7 @@ public sealed class WikiTaskService
                     execToken, markStageAsSuccessful: true);
             }
 
-            // 构建混合搜索索引（BM25 + 向量嵌入），供页面生成时检索真实代码
+            // 构建 BM25 搜索索引，供页面生成时检索真实代码
             var searchIndexKey = $"repo-{executingTask.Id}";
             await BuildSearchIndexAsync(repoPath, codeIndexResult, searchIndexKey, execToken);
 
@@ -1731,32 +1734,6 @@ public sealed class WikiTaskService
     }
 
     /// <summary>
-    /// 读取 Tool Call 配置（全局 + Stage3 + Stage5 开关）。
-    /// </summary>
-    private async Task<(bool GlobalEnabled, bool Stage3Enabled, bool Stage5Enabled)> GetToolCallConfigAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var settingRepo = scope.ServiceProvider.GetRequiredService<ISystemSettingRepository>();
-
-            var globalSetting = await settingRepo.GetByKeyAsync("ToolCall.Enabled");
-            var stage3Setting = await settingRepo.GetByKeyAsync("ToolCall.Stage3.Enabled");
-            var stage5Setting = await settingRepo.GetByKeyAsync("ToolCall.Stage5.Enabled");
-
-            var global = string.Equals(globalSetting?.Value, "true", StringComparison.OrdinalIgnoreCase);
-            var stage3 = string.Equals(stage3Setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
-            var stage5 = string.Equals(stage5Setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
-
-            return (global, stage3, stage5);
-        }
-        catch
-        {
-            return (false, false, false);
-        }
-    }
-
-    /// <summary>
     /// 根据阶段和配置构建对应的 AIFunction 工具列表。
     /// </summary>
     private async Task<IList<AITool>?> GetStageToolsAsync(
@@ -1767,7 +1744,7 @@ public sealed class WikiTaskService
         CodeIndexResult? codeIndexResult,
         (bool GlobalEnabled, bool Stage3Enabled, bool Stage5Enabled) toolCallConf)
     {
-        if (!toolCallConf.GlobalEnabled)
+        if (!toolCallConf.GlobalEnabled || !await _toolCallConfigurationService.IsStageEnabledAsync(stage))
             return null;
 
         var tools = new List<AITool>();

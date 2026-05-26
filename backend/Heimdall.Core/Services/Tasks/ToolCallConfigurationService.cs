@@ -43,6 +43,26 @@ public sealed class ToolCallConfigurationService
         }
     }
 
+    /// <summary>
+    /// 判断指定阶段是否允许 Tool Call
+    /// 当前仅暴露结构规划与页面生成两个阶段
+    /// </summary>
+    public async Task<bool> IsStageEnabledAsync(string stageName)
+    {
+        var config = await GetConfigAsync();
+        if (!config.GlobalEnabled)
+        {
+            return false;
+        }
+
+        return stageName switch
+        {
+            "structure_planning" => config.Stage3Enabled,
+            "page_generation" => config.Stage5Enabled,
+            _ => false
+        };
+    }
+
     private static async Task<bool> IsEnabledAsync(ISystemSettingRepository settingRepo, string key)
     {
         var setting = await settingRepo.GetByKeyAsync(key);

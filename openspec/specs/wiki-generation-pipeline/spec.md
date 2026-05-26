@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Wiki 生成管线流程
-系统 SHALL 按以下 10 阶段顺序执行 Wiki 生成：仓库准备 → 代码索引（Tree-sitter AST + BM25）→ 深度代码理解（LLM 辅助，含调用图和设计模式检测）→ 结构规划（三策略可选）→ 拓扑序渐进式页面生成（BM25+pgvector 混合检索注入）→ 交叉引用编织 → 质量审查（含弱页重生成）→ 渲染后处理 → 持久化 → 向量嵌入。
+系统 SHALL 按以下 8 阶段顺序执行 Wiki 生成：仓库准备 → 代码索引（Tree-sitter AST + BM25）→ 深度代码理解（LLM 辅助，含调用图和设计模式检测）→ 结构规划（三策略可选）→ 页面生成（基于当前可用检索证据注入）→ 质量审查（含弱页重生成）→ 渲染后处理 → 持久化。
 
 #### Scenario: 标准仓库 Wiki 生成
 - **WHEN** 用户触发 Wiki 刷新
-- **THEN** 系统按 10 阶段顺序执行：Stage 2 执行本地代码索引（无 LLM），Stage 3 执行深度代码理解，Stage 4 输出多层嵌套结构，Stage 5 按 BFS 树形拓扑序生成页面，Stage 6 执行交叉引用编织，Stage 7 执行质量审查
+- **THEN** 系统按 8 阶段顺序执行：Stage 2 执行本地代码索引（无 LLM），Stage 3 执行深度代码理解，Stage 4 输出多层嵌套结构，Stage 5 按 BFS 树形拓扑序生成页面，Stage 6 执行质量审查，Stage 7 执行渲染后处理，Stage 8 持久化结果
 
 #### Scenario: 管线中断恢复
 - **WHEN** 管线在某阶段中断
@@ -16,7 +16,7 @@
 - **THEN** 系统不调用任何 LLM Provider，仅执行 Tree-sitter AST 符号提取和 BM25 索引
 
 ### Requirement: 检索增强页面生成
-页面生成阶段 SHALL 使用混合检索（BM25 + pgvector）从代码索引中获取真实代码片段，注入提示词后由 LLM 生成页面。输出 SHALL 包含真实代码引用（类名、方法签名、关键实现片段），不得包含虚构的示例代码。
+页面生成阶段 SHALL 使用当前已落地的 `BM25` 检索与版本化工件上下文获取真实代码片段，注入提示词后由 LLM 生成页面。输出 SHALL 包含真实代码引用（类名、方法签名、关键实现片段），不得包含虚构的示例代码。
 
 #### Scenario: 页面生成含真实代码
 - **WHEN** 生成用户认证 Wiki 页面
@@ -147,7 +147,7 @@ Wiki 生成管线 SHALL 在结构规划阶段根据 `StructurePlanning.Strategy`
 - **WHEN** 结构规划阶段完成并产出 `WikiStructureDto`
 - **THEN** 系统调用 `AgentOrchestratorService.ShouldUseSubAgents(sourceFileCount)` 评估是否启用子代理
 - **AND** 若启用，后续阶段使用 Orchestrator 路径并行执行
-- **AND** 若不启用，后续阶段使用传统 10 阶段管线顺序执行
+- **AND** 若不启用，后续阶段使用传统 8 阶段管线顺序执行
 
 #### Scenario: 策略变更不影响已运行任务
 - **WHEN** 某任务已开始执行结构规划
