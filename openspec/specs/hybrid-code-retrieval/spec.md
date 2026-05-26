@@ -1,16 +1,19 @@
-## ADDED Requirements
+## Purpose
 
+以 BM25 作为当前代码检索主链路，为 Wiki 页面生成和问答提供按相关度排序的代码片段检索能力。
+## Requirements
 ### Requirement: 当前阶段的代码检索能力
-系统 SHALL 在 Wiki 页面生成阶段，以 `BM25` 作为代码检索主链路。与 `pgvector`、Embedding、RRF 融合相关的能力不属于当前基线承诺。
+系统 SHALL 以当前已落地实现为准，使用 `BM25` 作为代码检索主链路。与 `pgvector`、Embedding、RRF 融合相关的能力不属于本次基线承诺。
 
 #### Scenario: 基于 BM25 的代码检索
-- **WHEN** 生成"用户认证模块"页面
-- **THEN** 系统执行 BM25 搜索并返回按相关度排序的 Top-20 代码片段
+- **WHEN** 页面生成或问答需要搜索与主题相关的代码片段
+- **THEN** 系统执行 `BM25` 检索并返回按相关度排序的结果
+- **AND** 检索结果可结合版本化页面和工件上下文共同注入模型
 
-#### Scenario: 文档与实现保持一致
-- **WHEN** 文档 规格或注释描述当前检索能力
-- **THEN** 必须明确说明当前实现以 `BM25` 为准
-- **AND** 不得把双路混合检索写成已落地能力
+#### Scenario: 文档与注释声明与代码一致
+- **WHEN** 仓库中的文档、规格或代码注释描述当前检索能力
+- **THEN** 应明确说明当前实现为 `BM25` 主导检索
+- **AND** 不得把 `BM25 + pgvector` 混合检索写成已经落地的现状能力
 
 ### Requirement: 检索结果注入提示词
 系统 SHALL 将检索到的代码片段格式化后注入 Wiki 页面生成的提示词中。V7 中注入量 SHALL 由 ContextPackingService 动态决定（根据模型上下文窗口），不再硬编码 `maxTotalTokens: 20_000`。
@@ -37,3 +40,4 @@
 #### Scenario: 部分缓存复用
 - **WHEN** 页面 A 搜索 "UserService auth" 已缓存，页面 B 搜索 "UserService permission"
 - **THEN** BM25 中 "UserService" 部分的倒排索引计算可复用，仅增量计算 "permission" 的评分
+

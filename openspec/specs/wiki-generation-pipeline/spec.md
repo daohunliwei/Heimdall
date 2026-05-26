@@ -1,19 +1,16 @@
-## ADDED Requirements
+## Purpose
 
+定义 Wiki 生成的 8 阶段管线主流程，包括结构规划策略、页面生成、质量审查与版本管理。
+## Requirements
 ### Requirement: Wiki 生成管线流程
-系统 SHALL 按以下 8 阶段顺序执行 Wiki 生成：仓库准备 → 代码索引（Tree-sitter AST + BM25）→ 深度代码理解（LLM 辅助，含调用图和设计模式检测）→ 结构规划（三策略可选）→ 页面生成（基于当前可用检索证据注入）→ 质量审查（含弱页重生成）→ 渲染后处理 → 持久化。
+系统 SHALL 按当前实现描述 Wiki 生成的 8 阶段主流程：仓库准备 → 代码索引 → 代码理解 → 结构规划 → 页面生成 → 质量审查 → 渲染后处理 → 持久化。与向量嵌入、独立向量阶段相关的描述不属于当前已落地能力。
 
 #### Scenario: 标准仓库 Wiki 生成
 - **WHEN** 用户触发 Wiki 刷新
-- **THEN** 系统按 8 阶段顺序执行：Stage 2 执行本地代码索引（无 LLM），Stage 3 执行深度代码理解，Stage 4 输出多层嵌套结构，Stage 5 按 BFS 树形拓扑序生成页面，Stage 6 执行质量审查，Stage 7 执行渲染后处理，Stage 8 持久化结果
-
-#### Scenario: 管线中断恢复
-- **WHEN** 管线在某阶段中断
-- **THEN** 系统恢复时从上一个成功保存的工件阶段继续，复用已完成阶段的产出
-
-#### Scenario: Stage 2 不再调用 LLM
-- **WHEN** 执行代码分析阶段
-- **THEN** 系统不调用任何 LLM Provider，仅执行 Tree-sitter AST 符号提取和 BM25 索引
+- **THEN** 系统按 8 阶段主流程执行
+- **AND** Stage 2 基于 Tree-sitter 和索引构建代码检索底座
+- **AND** Stage 5 基于当前可用的检索证据生成页面
+- **AND** 不要求执行独立的向量嵌入阶段才能完成主流程
 
 ### Requirement: 检索增强页面生成
 页面生成阶段 SHALL 使用当前已落地的 `BM25` 检索与版本化工件上下文获取真实代码片段，注入提示词后由 LLM 生成页面。输出 SHALL 包含真实代码引用（类名、方法签名、关键实现片段），不得包含虚构的示例代码。
@@ -120,8 +117,6 @@ Stage 5 页面生成 SHALL 根据页面的 ContentDepthLevel 使用差异化提�
 - **THEN** 系统按 Stage 1→2→3→4→5→6→7→8 顺序执行
 - **AND** 不创建子代理
 
-## MODIFIED Requirements
-
 ### Requirement: 结构规划阶段
 Wiki 生成管线 SHALL 在结构规划阶段根据 `StructurePlanning.Strategy` 配置选择策略：`LlmJson`（LLM 生成 JSON，默认）使用 LLM 生成 JSON 后解析为 WikiStructureDto；`Deterministic` 使用代码索引数据通过目录级聚合算法直接生成 WikiStructureDto；`LlmEnhanced` 使用算法骨架 + LLM 润色。最终产物均为 `WikiStructureDto`，页面生成阶段无感知。结构规划完成后，若满足子代理触发条件，系统 SHALL 可选择使用 Orchestrator 路径进行后续阶段。
 
@@ -152,3 +147,21 @@ Wiki 生成管线 SHALL 在结构规划阶段根据 `StructurePlanning.Strategy`
 #### Scenario: 策略变更不影响已运行任务
 - **WHEN** 某任务已开始执行结构规划
 - **THEN** 该任务使用开始时的策略配置完成，中途变更不影响
+
+### Requirement: 页面生成使用当前已落地的证据检索能力
+页面生成阶段 SHALL 按当前实现使用 `BM25` 检索、版本化页面与工件上下文注入提示词，输出基于真实代码与版本证据的内容。未实现的向量召回不得写成当前流程的默认步骤。
+
+#### Scenario: 页面生成注入 BM25 与版本化证据
+- **WHEN** 系统生成某个 Wiki 页面
+- **THEN** 提示词证据来自当前可用的 `BM25` 检索结果、版本化页面内容和任务工件摘要
+- **AND** 如果当前代码未提供向量召回，则文档与注释不得声称已执行 `pgvector` 搜索
+
+### Requirement: Stage 3 与 Stage 5 Tool Call 描述保持现状
+系统 SHALL 继续允许 Stage 3 / Stage 5 通过 `ChatOptions.Tools` 增强代码理解与页面生成，但相关说明必须明确其前提是配置开启，而非默认强制执行。
+
+#### Scenario: Tool Call 关闭时主流程仍可运行
+- **WHEN** `ToolCallConfigurationService` 返回 Stage 3 或 Stage 5 关闭
+- **THEN** 系统仍按主流程继续执行
+- **AND** 仅跳过对应阶段的工具增强
+- **AND** 文档中应明确说明这是”可选增强”而不是固定阶段
+

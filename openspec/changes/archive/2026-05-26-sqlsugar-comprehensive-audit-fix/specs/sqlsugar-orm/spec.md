@@ -57,6 +57,8 @@
 - **WHEN** SQL 语句中包含参数值
 - **THEN** 日志中参数名（如 `@p0`）保留，参数值替换为 `?`，输出格式为 `@p0=?`
 
+## ADDED Requirements
+
 ### Requirement: SqlSugar AOP 自动时间戳
 系统 SHALL 为 `SqlSugarScope` 配置 `DataExecuting` AOP 事件，在插入和更新操作时自动维护 `CreatedAt` 和 `UpdatedAt` 字段。
 
@@ -70,6 +72,18 @@
 - **AND** 不修改 `CreatedAt` 的值
 
 ## ADDED Requirements
+
+### Requirement: SqlSugar AOP 自动时间戳
+系统 SHALL 为 `SqlSugarScope` 配置 `DataExecuting` AOP 事件，在插入和更新操作时自动维护 `CreatedAt` 和 `UpdatedAt` 字段。
+
+#### Scenario: 插入时自动设置时间戳
+- **WHEN** 执行 `Insertable<T>()` 操作
+- **THEN** 系统自动将实体的 `CreatedAt` 和 `UpdatedAt` 属性设置为 `DateTime.UtcNow`
+
+#### Scenario: 更新时自动设置 UpdatedAt
+- **WHEN** 执行 `Updateable<T>()` 操作
+- **THEN** 系统自动将实体的 `UpdatedAt` 属性设置为 `DateTime.UtcNow`
+- **AND** 不修改 `CreatedAt` 的值
 
 ### Requirement: 仓储基类 SimpleClient<T> 集成
 系统 SHALL 在 `Heimdall.Repository` 中提供 `BaseRepository<T>` 基类（继承 `SimpleClient<T>`），所有仓储实现 SHALL 继承此基类。

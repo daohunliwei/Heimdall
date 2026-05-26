@@ -1,36 +1,29 @@
-## MODIFIED Requirements
+## Purpose
 
+统一使用 Microsoft.Extensions.AI `IChatClient` 作为 AI 聊天抽象，通过 Keyed DI 和 ChatClientBuilder 管道管理所有 Provider。
+## Requirements
 ### Requirement: 废弃自研 IChatProvider，迁移到 IChatClient
-系统 SHALL 废弃 `Heimdall.Infrastructure.Providers.IChatProvider` 接口及其 `GenerateAsync` / `GenerateWithMetricsAsync` 方法，所有 Provider 实现类改为实现 `Microsoft.Extensions.AI.IChatClient` 接口。Provider 注册方式从 `AddKeyedSingleton<IChatClient>` 改为 `AddChatClient()` + `ChatClientBuilder` 管道模式，每个 Provider 管道 SHALL 包含 `UseFunctionInvocation()`、`UseOpenTelemetry()`、`UseLogging()` 中间件。
+系统 SHALL 继续以 `Microsoft.Extensions.AI.IChatClient` 作为唯一聊天抽象。所有运行时 Provider 获取 SHALL 统一通过 Keyed DI 完成，禁止继续依赖 `ChatClientFactory`、默认客户端 fallback 或其他并行解析方式。
 
-#### Scenario: ChatClientBuilder 管道注册替代手动注册
-- **WHEN** 系统初始化 OpenAI Provider 的 `IChatClient`
-- **THEN** 使用 `AddChatClient(pipeline => { var client = new OpenAIClient(...).GetChatClient(...); return client.AsBuilder().UseFunctionInvocation().UseOpenTelemetry().UseLogging().Build(); })`
-- **AND** 不再使用 `AddKeyedSingleton<IChatClient>(...)` 手动注册
+#### Scenario: 动态 Provider 通过 Keyed DI 获取
+- **WHEN** `ChatController`、`AskTaskService` 或 `TaskLlmService` 需要根据 `providerId` 获取聊天客户端
+- **THEN** 系统通过 `IServiceProvider.GetRequiredKeyedService<IChatClient>(providerId)` 获取
+- **AND** 若指定 Key 未注册，立即抛出配置错误
+- **AND** 不再回退到默认 `IChatClient`
 
-#### Scenario: ChatMessage 替代 ProviderChatRequest
-- **WHEN** 业务层发起 LLM 调用
-- **THEN** 使用 `List<ChatMessage>` 传递对话历史
-- **AND** 使用 `ChatOptions` 传递 Temperature、MaxOutputTokens、ModelId 及 `Tools` 列表
-
-#### Scenario: ChatResponse 替代自研响应模型
-- **WHEN** Provider 返回非流式响应
-- **THEN** 返回 `ChatResponse` 对象，包含 `Messages`、`Usage`（UsageDetails）、`FinishReason`、`ModelId`
+#### Scenario: `ChatClientFactory` 不再参与运行时链路
+- **WHEN** 系统编译并运行最新版本
+- **THEN** 生产代码中不存在对 `ChatClientFactory` 的注入和调用
+- **AND** Provider 生命周期完全由 DI 容器管理
 
 ### Requirement: ChatClientBuilder 中间件管道
-系统 SHALL 在 `Program.cs` 中使用 `ChatClientBuilder` 构建中间件管道，为所有 `IChatClient` 注册统一添加 `FunctionInvocation`、`OpenTelemetry`、`Logging` 中间件。原 `UseOpenTelemetry()` → `UseResilience()` 管道改为 `UseFunctionInvocation()` → `UseOpenTelemetry()` → `UseLogging()`，`UseResilience()` 由 MEAI 内置 Resilience 替换。
+系统 SHALL 继续在 `Program.cs` 中使用统一的 `ChatClientBuilder` 管道为所有 Provider 构建 `IChatClient`，并保持 `UseFunctionInvocation()`、`UseOpenTelemetry()`、`UseLogging()` 的官方用法。Telemetry 能力仅保持当前接入，不作为本次变更扩展目标。
 
-#### Scenario: 新管道顺序
-- **WHEN** 应用启动并注册 AI 服务
-- **THEN** 系统对每个 `IChatClient` 调用 `innerClient.AsBuilder().UseFunctionInvocation().UseOpenTelemetry().UseLogging().Build()`
-- **AND** `UseFunctionInvocation` 在最内层（最先处理 Tool Call 往返）
-- **AND** `UseOpenTelemetry` 包含自动 Trace span 和 Metrics 记录
-- **AND** `UseLogging` 记录请求/响应日志
-
-#### Scenario: 重试行为由 Resilience 处理
-- **WHEN** LLM 调用因 HTTP 429 或 5xx 错误失败
-- **THEN** `UseResilience()` 中间件按 Polly 指数退避策略自动重试
-- **AND** 原 `LlmRetryPolicy` 服务保留逻辑但改为通过 `UseResilience()` 调用
+#### Scenario: Provider 注册方式收敛
+- **WHEN** 应用启动并注册多个 Provider
+- **THEN** 各 Provider 通过统一的 Builder 组装辅助逻辑构建 `IChatClient`
+- **AND** `ModelId`、`Tools`、流式与非流式路径使用一致的配置约定
+- **AND** 不再在不同 Provider 之间保留明显分叉的注册模式
 
 ### Requirement: Keyed DI 作为唯一客户端获取方式
 系统 SHALL 仅通过 `IServiceProvider.GetRequiredKeyedService<IChatClient>(key)` 获取 `IChatClient`。不再保留 `ChatClientFactory` 作为过渡层。
@@ -40,12 +33,12 @@
 - **THEN** 通过 `_serviceProvider.GetRequiredKeyedService<IChatClient>(providerId)` 获取
 - **AND** 未注册的 Provider 立即抛出配置错误
 
-## REMOVED Requirements
+### Requirement: 业务层使用结构化消息与 `ChatOptions`
+系统 SHALL 以 `IReadOnlyList<ChatMessage>` + `ChatOptions` 作为业务层调用 `IChatClient` 的主模型。字符串 Prompt 仅可作为一层便捷包装存在，不得再成为多轮对话与证据注入的主组织方式。
 
-### Requirement: LoggingChatClient 自定义日志包装器
-**Reason**: MEAI 10.6.0 内置 `UseLogging()` 中间件提供等效的请求/响应日志功能。
-**Migration**: 删除 `ChatClientBuilderExtensions.cs` 中的 `LoggingChatClient` 类，改用 `UseLogging()`。
+#### Scenario: 结构化消息成为主入口
+- **WHEN** 业务层发起一次 Chat、Ask 或 Wiki 相关 LLM 调用
+- **THEN** 主入口接收结构化消息列表与 `ChatOptions`
+- **AND** `ChatOptions` 负责承载 `ModelId`、`MaxOutputTokens`、`Temperature` 与 `Tools`
+- **AND** 多轮历史不再被强制折叠为单条用户消息
 
-### Requirement: RetryChatClient 自定义重试包装器
-**Reason**: MEAI 10.6.0 的 `UseResilience()` 中间件提供等效的 Polly 重试功能。
-**Migration**: 删除 `ChatClientBuilderExtensions.cs` 中的 `RetryChatClient` 类，`LlmRetryPipeline` 逻辑通过 `UseResilience()` 注入。

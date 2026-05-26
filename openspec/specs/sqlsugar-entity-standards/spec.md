@@ -1,5 +1,8 @@
-## ADDED Requirements
+# sqlsugar-entity-standards Specification
 
+## Purpose
+TBD - created by archiving change sqlsugar-comprehensive-audit-fix. Update Purpose after archive.
+## Requirements
 ### Requirement: 主键统一使用 UUIDv7
 所有实体 SHALL 使用 `Guid.CreateVersion7()` 作为 `Id` 主键的默认值生成策略，禁止使用 `Guid.NewGuid()`。
 
@@ -49,3 +52,9 @@
 
 ### Requirement: Navigate 关系类型正确性
 实体导航属性 SHALL 使用正确的 `NavigateType` 枚举值，FK-to-PK 的引用关系使用 `OneToOne`（SqlSugar 惯例），集合属性使用 `OneToMany`。
+
+#### Scenario: 导航属性类型验证
+- **WHEN** 实体包含导航属性（如 `Repository`、`WikiPages`）
+- **THEN** 单对象引用导航使用 `NavigateType.OneToOne`
+- **AND** 集合导航属性使用 `NavigateType.OneToMany`
+

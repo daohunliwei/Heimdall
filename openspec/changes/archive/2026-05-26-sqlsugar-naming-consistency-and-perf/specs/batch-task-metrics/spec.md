@@ -35,7 +35,7 @@
 - **AND** 不再对每个设置项单独调用 `SetAsync`
 
 ### Requirement: 全表加载后过滤改为数据库端过滤
-服务层不得加载全表数据后在内存中过滤。
+服务层 SHALL NOT 加载全表数据后在内存中过滤。
 
 #### Scenario: Prompt 模板加载
 - **WHEN** 需要特定分类的 Prompt 模板
@@ -56,7 +56,7 @@
 - **AND** 不再 `GetByIdAsync` + 修改实体 + `UpdateAsync`
 
 ### Requirement: 冗余重复查询消除
-同一次请求内不得对同一数据执行完全相同或可共享的多次查询。
+同一次请求内 SHALL NOT 对同一数据执行完全相同或可共享的多次查询。
 
 #### Scenario: Login 验证
 - **WHEN** 用户登录验证

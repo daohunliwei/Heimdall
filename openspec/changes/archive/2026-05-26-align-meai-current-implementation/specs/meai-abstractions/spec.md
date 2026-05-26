@@ -23,6 +23,8 @@
 - **AND** `ModelId`、`Tools`、流式与非流式路径使用一致的配置约定
 - **AND** 不再在不同 Provider 之间保留明显分叉的注册模式
 
+## ADDED Requirements
+
 ### Requirement: 业务层使用结构化消息与 `ChatOptions`
 系统 SHALL 以 `IReadOnlyList<ChatMessage>` + `ChatOptions` 作为业务层调用 `IChatClient` 的主模型。字符串 Prompt 仅可作为一层便捷包装存在，不得再成为多轮对话与证据注入的主组织方式。
 
@@ -31,9 +33,3 @@
 - **THEN** 主入口接收结构化消息列表与 `ChatOptions`
 - **AND** `ChatOptions` 负责承载 `ModelId`、`MaxOutputTokens`、`Temperature` 与 `Tools`
 - **AND** 多轮历史不再被强制折叠为单条用户消息
-
-## REMOVED Requirements
-
-### Requirement: ChatClientFactory 过渡兼容
-**Reason**: Keyed DI 已经成为当前架构的主路径，继续保留工厂只会延长双轨并存时间。
-**Migration**: 删除 `ChatClientFactory` 的生产代码依赖，并移除对应 DI 注册。
