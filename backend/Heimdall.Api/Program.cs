@@ -114,7 +114,8 @@ var sqlSugarScope = new SqlSugarScope(new ConnectionConfig
     InitKeyType = InitKeyType.Attribute,
     MoreSettings = new ConnMoreSettings
     {
-        PgSqlIsAutoToLower = false
+        PgSqlIsAutoToLower = false,
+        IsNoReadXmlDescription = true
     },
     ConfigureExternalServices = new ConfigureExternalServices
     {
@@ -135,7 +136,7 @@ var sqlSugarScope = new SqlSugarScope(new ConnectionConfig
             {
                 foreach (var p in sugarParams)
                 {
-                    desensitized = desensitized.Replace(p.ParameterName, "***");
+                    desensitized = desensitized.Replace(p.ParameterName, "?");
                 }
             }
             Console.WriteLine($"[SqlSugar] {desensitized}");
@@ -143,6 +144,23 @@ var sqlSugarScope = new SqlSugarScope(new ConnectionConfig
         OnLogExecuted = (sql, pars) =>
         {
             Console.WriteLine("[SqlSugar] SQL 执行完成");
+        },
+        DataExecuting = (_, entityInfo) =>
+        {
+            var entity = entityInfo.EntityValue;
+            if (entity is null) return;
+
+            var type = entity.GetType();
+            if (entityInfo.OperationType == DataFilterType.InsertByObject)
+            {
+                var now = DateTime.UtcNow;
+                type.GetProperty("CreatedAt")?.SetValue(entity, now);
+                type.GetProperty("UpdatedAt")?.SetValue(entity, now);
+            }
+            else if (entityInfo.OperationType == DataFilterType.UpdateByObject)
+            {
+                type.GetProperty("UpdatedAt")?.SetValue(entity, DateTime.UtcNow);
+            }
         }
     }
 });

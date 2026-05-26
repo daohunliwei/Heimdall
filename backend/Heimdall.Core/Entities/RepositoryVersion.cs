@@ -8,6 +8,7 @@ public class RepositoryVersion
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    [SugarColumn(ColumnName = "RepositoryId")]
     public Guid RepositoryId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(RepositoryId))]

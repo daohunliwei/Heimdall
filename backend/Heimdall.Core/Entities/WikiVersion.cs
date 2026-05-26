@@ -8,11 +8,13 @@ public class WikiVersion
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    [SugarColumn(ColumnName = "WikiSpaceId")]
     public Guid WikiSpaceId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(WikiSpaceId))]
     public WikiSpace WikiSpace { get; set; } = null!;
 
+    [SugarColumn(ColumnName = "RepositoryVersionId")]
     public Guid RepositoryVersionId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(RepositoryVersionId))]

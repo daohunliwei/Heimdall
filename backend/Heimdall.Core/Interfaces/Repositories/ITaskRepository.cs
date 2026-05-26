@@ -24,4 +24,7 @@ public interface ITaskRepository
     Task<TaskRecord> UpdateStatusAsync(Guid id, string status, int? progressPercent = null, string? progressMessage = null, string? errorMessage = null);
     Task IncrementTokensAsync(Guid taskId, int promptTokens, int completionTokens);
     Task<(List<TaskRecord> Items, int TotalCount)> GetAllAsync(string? status = null, string? taskType = null, Guid? repositoryId = null, int offset = 0, int limit = 20);
+
+    /// <summary>数据库端聚合查询任务统计，避免全表加载。</summary>
+    Task<(int Total, int Completed, int Failed, int WikiCompleted, long TotalTokens)> GetStatisticsAsync();
 }

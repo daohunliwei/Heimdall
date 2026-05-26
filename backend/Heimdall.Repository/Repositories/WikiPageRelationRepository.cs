@@ -4,33 +4,32 @@ using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
-public class WikiPageRelationRepository : IWikiPageRelationRepository
+public class WikiPageRelationRepository : BaseRepository<WikiPageRelation>, IWikiPageRelationRepository
 {
-    private readonly ISqlSugarClient _db;
-    public WikiPageRelationRepository(ISqlSugarClient db) => _db = db;
+    public WikiPageRelationRepository(ISqlSugarClient db) : base(db) { }
 
     public async Task<List<WikiPageRelation>> GetByVersionIdAsync(Guid wikiVersionId)
     {
-        return await _db.Queryable<WikiPageRelation>()
+        return await Context.Queryable<WikiPageRelation>()
             .Where(r => r.WikiVersionId == wikiVersionId)
             .ToListAsync();
     }
 
     public async Task<List<WikiPageRelation>> GetBySourcePageIdAsync(Guid pageId)
     {
-        return await _db.Queryable<WikiPageRelation>()
+        return await Context.Queryable<WikiPageRelation>()
             .Where(r => r.SourcePageId == pageId)
             .ToListAsync();
     }
 
     public async Task AddRangeAsync(IEnumerable<WikiPageRelation> relations)
     {
-        await _db.Insertable(relations.ToList()).ExecuteCommandAsync();
+        await Context.Insertable(relations.ToList()).PageSize(1000).ExecuteCommandAsync();
     }
 
     public async Task<int> DeleteByVersionIdAsync(Guid wikiVersionId)
     {
-        return await _db.Deleteable<WikiPageRelation>()
+        return await Context.Deleteable<WikiPageRelation>()
             .Where(r => r.WikiVersionId == wikiVersionId)
             .ExecuteCommandAsync();
     }

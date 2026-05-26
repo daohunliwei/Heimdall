@@ -4,30 +4,27 @@ using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
-public class TaskRepository : ITaskRepository
+public class TaskRepository : BaseRepository<TaskRecord>, ITaskRepository
 {
-    private readonly ISqlSugarClient _db;
-
-    public TaskRepository(ISqlSugarClient db)
+    public TaskRepository(ISqlSugarClient db) : base(db)
     {
-        _db = db;
     }
 
     public async Task<TaskRecord?> GetByIdAsync(Guid id)
     {
-        return await _db.Queryable<TaskRecord>()
+        return await Context.Queryable<TaskRecord>()
             .FirstAsync(t => t.Id == id);
     }
 
     public async Task<TaskRecord?> GetByRepoAndBranchAsync(Guid repositoryId, string sourceBranch)
     {
-        return await _db.Queryable<TaskRecord>()
+        return await Context.Queryable<TaskRecord>()
             .FirstAsync(t => t.RepositoryId == repositoryId && t.SourceBranch == sourceBranch);
     }
 
     public async Task<TaskRecord?> GetRunningByRepoAndBranchAsync(Guid repositoryId, string sourceBranch)
     {
-        return await _db.Queryable<TaskRecord>()
+        return await Context.Queryable<TaskRecord>()
             .FirstAsync(t => t.RepositoryId == repositoryId
                 && t.SourceBranch == sourceBranch
                 && t.Status == "running");
@@ -35,7 +32,7 @@ public class TaskRepository : ITaskRepository
 
     public async Task<TaskRecord?> GetPendingByRepoBranchTypeAsync(Guid repositoryId, string sourceBranch, string taskType)
     {
-        return await _db.Queryable<TaskRecord>()
+        return await Context.Queryable<TaskRecord>()
             .FirstAsync(t => t.RepositoryId == repositoryId
                 && t.SourceBranch == sourceBranch
                 && t.TaskType == taskType
@@ -48,12 +45,12 @@ public class TaskRepository : ITaskRepository
         {
             task.CreatedAt = DateTime.UtcNow;
             task.Status = "pending";
-            await _db.Insertable(task).ExecuteCommandAsync();
+            await Context.Insertable(task).ExecuteCommandAsync();
             return task;
         }
         catch (Exception)
         {
-            var existing = await _db.Queryable<TaskRecord>()
+            var existing = await Context.Queryable<TaskRecord>()
                 .FirstAsync(t => t.RepositoryId == task.RepositoryId
                     && t.SourceBranch == task.SourceBranch
                     && t.TaskType == task.TaskType
@@ -61,7 +58,7 @@ public class TaskRepository : ITaskRepository
             if (existing is not null) return existing;
 
             // 重试一次插入
-            await _db.Insertable(task).ExecuteCommandAsync();
+            await Context.Insertable(task).ExecuteCommandAsync();
             return task;
         }
     }
@@ -73,7 +70,7 @@ public class TaskRepository : ITaskRepository
     public async Task<TaskRecord> UpdateAsync(TaskRecord task)
     {
         task.UpdatedAt = DateTime.UtcNow;
-        await _db.Updateable(task).ExecuteCommandAsync();
+        await Context.Updateable(task).ExecuteCommandAsync();
         return task;
     }
 
@@ -84,7 +81,7 @@ public class TaskRepository : ITaskRepository
         {
             try
             {
-                var task = await _db.Queryable<TaskRecord>().FirstAsync(t => t.Id == id)
+                var task = await Context.Queryable<TaskRecord>().FirstAsync(t => t.Id == id)
                     ?? throw new InvalidOperationException($"Task not found: {id}");
 
                 task.Status = status;
@@ -95,7 +92,7 @@ public class TaskRepository : ITaskRepository
                 if (status == "running" && task.StartedAt is null) task.StartedAt = DateTime.UtcNow;
                 if (status is "completed" or "failed") task.CompletedAt = DateTime.UtcNow;
 
-                await _db.Updateable(task).ExecuteCommandAsync();
+                await Context.Updateable(task).ExecuteCommandAsync();
                 return task;
             }
             catch (Exception)
@@ -110,7 +107,7 @@ public class TaskRepository : ITaskRepository
 
     public async Task<TaskRecord?> GetCompletedByHashAsync(string requestHash)
     {
-        return await _db.Queryable<TaskRecord>()
+        return await Context.Queryable<TaskRecord>()
             .Where(t => t.RequestHash == requestHash && t.Status == "completed")
             .OrderByDescending(t => t.CompletedAt)
             .FirstAsync();
@@ -122,7 +119,7 @@ public class TaskRepository : ITaskRepository
     /// </summary>
     public async Task<List<TaskRecord>> GetRecoverableAsync(string taskType)
     {
-        return await _db.Queryable<TaskRecord>()
+        return await Context.Queryable<TaskRecord>()
             .Where(t => t.TaskType == taskType && (t.Status == "pending" || t.Status == "running"))
             .OrderBy(t => t.CreatedAt)
             .ToListAsync();
@@ -130,7 +127,7 @@ public class TaskRepository : ITaskRepository
 
     public async Task IncrementTokensAsync(Guid taskId, int promptTokens, int completionTokens)
     {
-        await _db.Updateable<TaskRecord>()
+        await Context.Updateable<TaskRecord>()
             .SetColumns(t => t.TotalPromptTokens == t.TotalPromptTokens + promptTokens)
             .SetColumns(t => t.TotalCompletionTokens == t.TotalCompletionTokens + completionTokens)
             .Where(t => t.Id == taskId)
@@ -141,7 +138,7 @@ public class TaskRepository : ITaskRepository
         string? status = null, string? taskType = null, Guid? repositoryId = null,
         int offset = 0, int limit = 20)
     {
-        var query = _db.Queryable<TaskRecord>();
+        var query = Context.Queryable<TaskRecord>();
 
         if (!string.IsNullOrWhiteSpace(status))
             query = query.Where(t => t.Status == status);
@@ -158,5 +155,21 @@ public class TaskRepository : ITaskRepository
             .ToListAsync();
 
         return (items, totalCount);
+    }
+
+    public async Task<(int Total, int Completed, int Failed, int WikiCompleted, long TotalTokens)> GetStatisticsAsync()
+    {
+        var stats = await Context.Queryable<TaskRecord>()
+            .Select(it => new
+            {
+                Total = SqlFunc.AggregateCount(it.Id),
+                Completed = SqlFunc.AggregateSum(it.Status == "completed" ? 1 : 0),
+                Failed = SqlFunc.AggregateSum(it.Status == "failed" ? 1 : 0),
+                WikiCompleted = SqlFunc.AggregateSum(it.TaskType == "wiki" && it.Status == "completed" ? 1 : 0),
+                TotalTokens = SqlFunc.AggregateSum(it.TotalPromptTokens + it.TotalCompletionTokens)
+            })
+            .FirstAsync();
+
+        return (stats.Total, stats.Completed, stats.Failed, stats.WikiCompleted, (long)stats.TotalTokens);
     }
 }

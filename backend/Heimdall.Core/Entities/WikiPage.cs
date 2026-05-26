@@ -8,29 +8,31 @@ public class WikiPage
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    [SugarColumn(ColumnName = "WikiVersionId")]
     public Guid WikiVersionId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(WikiVersionId))]
     public WikiVersion WikiVersion { get; set; } = null!;
 
-    [SugarColumn(IsNullable = true)]
+    [SugarColumn(ColumnName = "TaskId", IsNullable = true)]
     public Guid? TaskId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(TaskId))]
     public TaskRecord? Task { get; set; }
 
+    [SugarColumn(ColumnName = "PageOrder")]
     public int PageOrder { get; set; }
 
-    [SugarColumn(ColumnDataType = "text")]
+    [SugarColumn(ColumnName = "Title", ColumnDataType = "text")]
     public string Title { get; set; } = string.Empty;
 
     [SugarColumn(ColumnName = "nav_title", Length = 256, IsNullable = true)]
     public string? NavTitle { get; set; }
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "ContentMarkdown", ColumnDataType = "text", IsNullable = true)]
     public string? ContentMarkdown { get; set; }
 
-    [SugarColumn(IsNullable = true)]
+    [SugarColumn(ColumnName = "ParentPageId", IsNullable = true)]
     public Guid? ParentPageId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(ParentPageId))]
@@ -39,22 +41,22 @@ public class WikiPage
     [SugarColumn(ColumnName = "page_type", Length = 16)]
     public string PageType { get; set; } = "article";
 
-    [SugarColumn(Length = 8)]
+    [SugarColumn(ColumnName = "Importance", Length = 8)]
     public string Importance { get; set; } = "medium";
 
     [SugarColumn(ColumnName = "depth")]
     public int Depth { get; set; }
 
-    [SugarColumn(ColumnName = "outline_json", IsJson = true, IsNullable = true)]
+    [SugarColumn(ColumnName = "outline_json", IsJson = true, ColumnDataType = "text", IsNullable = true)]
     public string? OutlineJson { get; set; }
 
     [SugarColumn(ColumnName = "summary", ColumnDataType = "text", IsNullable = true)]
     public string? Summary { get; set; }
 
-    [SugarColumn(ColumnName = "source_coverage_json", IsJson = true, IsNullable = true)]
+    [SugarColumn(ColumnName = "source_coverage_json", IsJson = true, ColumnDataType = "text", IsNullable = true)]
     public string? SourceCoverageJson { get; set; }
 
-    [SugarColumn(ColumnDataType = "text []", IsArray = true, IsNullable = true)]
+    [SugarColumn(ColumnName = "FilePaths", ColumnDataType = "text []", IsArray = true, IsNullable = true)]
     public string[]? FilePaths { get; set; }
 
     [SugarColumn(ColumnName = "token_count", IsNullable = true)]
@@ -63,7 +65,10 @@ public class WikiPage
     [SugarColumn(ColumnName = "status", Length = 16)]
     public string Status { get; set; } = "ready";
 
+    [SugarColumn(ColumnName = "CreatedAt")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [SugarColumn(ColumnName = "UpdatedAt")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     [Navigate(NavigateType.OneToMany, nameof(WikiPage.ParentPageId))]

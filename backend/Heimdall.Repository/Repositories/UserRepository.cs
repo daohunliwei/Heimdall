@@ -4,31 +4,28 @@ using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
-public class UserRepository : IUserRepository
+public class UserRepository : BaseRepository<User>, IUserRepository
 {
-    private readonly ISqlSugarClient _db;
-
-    public UserRepository(ISqlSugarClient db)
+    public UserRepository(ISqlSugarClient db) : base(db)
     {
-        _db = db;
     }
 
     public async Task<List<User>> GetAllAsync()
     {
-        return await _db.Queryable<User>()
+        return await Context.Queryable<User>()
             .OrderBy(u => u.Username)
             .ToListAsync();
     }
 
     public async Task<User?> GetByIdAsync(Guid id)
     {
-        return await _db.Queryable<User>()
+        return await Context.Queryable<User>()
             .FirstAsync(x => x.Id == id);
     }
 
     public async Task<User?> GetByUsernameAsync(string username)
     {
-        return await _db.Queryable<User>()
+        return await Context.Queryable<User>()
             .FirstAsync(u => u.Username == username);
     }
 
@@ -36,23 +33,23 @@ public class UserRepository : IUserRepository
     {
         user.CreatedAt = DateTime.UtcNow;
         user.UpdatedAt = DateTime.UtcNow;
-        await _db.Insertable(user).ExecuteCommandAsync();
+        await Context.Insertable(user).ExecuteCommandAsync();
         return user;
     }
 
     public async Task<User> UpdateAsync(User user)
     {
         user.UpdatedAt = DateTime.UtcNow;
-        await _db.Updateable(user).ExecuteCommandAsync();
+        await Context.Updateable(user).ExecuteCommandAsync();
         return user;
     }
 
     public async Task<bool> DeleteAsync(Guid id)
     {
-        var user = await _db.Queryable<User>()
+        var user = await Context.Queryable<User>()
             .FirstAsync(x => x.Id == id);
         if (user is null) return false;
-        await _db.Deleteable(user).ExecuteCommandAsync();
+        await Context.Deleteable(user).ExecuteCommandAsync();
         return true;
     }
 }

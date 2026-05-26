@@ -4,49 +4,36 @@ using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
-public class SystemSettingRepository : ISystemSettingRepository
+public class SystemSettingRepository : BaseRepository<SystemSetting>, ISystemSettingRepository
 {
-    private readonly ISqlSugarClient _db;
-
-    public SystemSettingRepository(ISqlSugarClient db)
+    public SystemSettingRepository(ISqlSugarClient db) : base(db)
     {
-        _db = db;
     }
 
     public async Task<SystemSetting?> GetByKeyAsync(string key)
     {
-        return await _db.Queryable<SystemSetting>()
+        return await Context.Queryable<SystemSetting>()
             .FirstAsync(s => s.Key == key);
     }
 
     public async Task<SystemSetting> SetAsync(string key, string value)
     {
-        var existing = await _db.Queryable<SystemSetting>()
-            .FirstAsync(s => s.Key == key);
-
-        if (existing is not null)
+        var entity = new SystemSetting
         {
-            existing.Value = value;
-            existing.UpdatedAt = DateTime.UtcNow;
-            await _db.Updateable(existing).ExecuteCommandAsync();
-        }
-        else
-        {
-            existing = new SystemSetting
-            {
-                Key = key,
-                Value = value,
-                UpdatedAt = DateTime.UtcNow
-            };
-            await _db.Insertable(existing).ExecuteCommandAsync();
-        }
+            Key = key,
+            Value = value,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await Context.Storageable(entity)
+            .WhereColumns(it => new { it.Key })
+            .ExecuteCommandAsync();
 
-        return existing;
+        return (await Context.Queryable<SystemSetting>().FirstAsync(s => s.Key == key))!;
     }
 
     public async Task<List<SystemSetting>> GetAllAsync()
     {
-        return await _db.Queryable<SystemSetting>()
+        return await Context.Queryable<SystemSetting>()
             .OrderBy(s => s.Key)
             .ToListAsync();
     }

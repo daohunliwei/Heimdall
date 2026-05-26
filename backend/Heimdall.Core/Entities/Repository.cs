@@ -17,34 +17,37 @@ public class Repository
     [SugarColumn(ColumnName = "display_name", Length = 512)]
     public string DisplayName { get; set; } = string.Empty;
 
-    [SugarColumn(Length = 128)]
+    [SugarColumn(ColumnName = "Owner", Length = 128)]
     public string Owner { get; set; } = string.Empty;
 
-    [SugarColumn(Length = 128)]
+    [SugarColumn(ColumnName = "RepoName", Length = 128)]
     public string RepoName { get; set; } = string.Empty;
 
-    [SugarColumn(Length = 16)]
+    [SugarColumn(ColumnName = "RepoType", Length = 16)]
     public string RepoType { get; set; } = "github";
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "RepoUrl", ColumnDataType = "text", IsNullable = true)]
     public string? RepoUrl { get; set; }
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "CloneUrl", ColumnDataType = "text", IsNullable = true)]
     public string? CloneUrl { get; set; }
 
-    [SugarColumn(Length = 128)]
+    [SugarColumn(ColumnName = "DefaultBranch", Length = 128)]
     public string DefaultBranch { get; set; } = "main";
 
-    [SugarColumn(Length = 8)]
+    [SugarColumn(ColumnName = "DefaultLanguage", Length = 8)]
     public string DefaultLanguage { get; set; } = "zh";
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "Description", ColumnDataType = "text", IsNullable = true)]
     public string? Description { get; set; }
 
     [SugarColumn(ColumnName = "is_archived")]
     public bool IsArchived { get; set; }
 
+    [SugarColumn(ColumnName = "CreatedAt")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [SugarColumn(ColumnName = "UpdatedAt")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     [Navigate(NavigateType.OneToMany, nameof(TaskRecord.RepositoryId))]

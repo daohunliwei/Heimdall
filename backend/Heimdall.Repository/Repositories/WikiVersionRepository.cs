@@ -4,20 +4,19 @@ using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
-public class WikiVersionRepository : IWikiVersionRepository
+public class WikiVersionRepository : BaseRepository<WikiVersion>, IWikiVersionRepository
 {
-    private readonly ISqlSugarClient _db;
-    public WikiVersionRepository(ISqlSugarClient db) => _db = db;
+    public WikiVersionRepository(ISqlSugarClient db) : base(db) { }
 
     public async Task<WikiVersion?> GetByIdAsync(Guid id)
     {
-        return await _db.Queryable<WikiVersion>()
+        return await Context.Queryable<WikiVersion>()
             .FirstAsync(x => x.Id == id);
     }
 
     public async Task<List<WikiVersion>> GetBySpaceIdAsync(Guid wikiSpaceId)
     {
-        return await _db.Queryable<WikiVersion>()
+        return await Context.Queryable<WikiVersion>()
             .Where(v => v.WikiSpaceId == wikiSpaceId)
             .OrderByDescending(v => v.CreatedAt)
             .ToListAsync();
@@ -25,18 +24,18 @@ public class WikiVersionRepository : IWikiVersionRepository
 
     public async Task<int> CountBySpaceIdAsync(Guid wikiSpaceId)
     {
-        return await _db.Queryable<WikiVersion>().CountAsync(v => v.WikiSpaceId == wikiSpaceId);
+        return await Context.Queryable<WikiVersion>().CountAsync(v => v.WikiSpaceId == wikiSpaceId);
     }
 
     public async Task<WikiVersion> AddAsync(WikiVersion version)
     {
-        await _db.Insertable(version).ExecuteCommandAsync();
+        await Context.Insertable(version).ExecuteCommandAsync();
         return version;
     }
 
     public async Task<WikiVersion> UpdateAsync(WikiVersion version)
     {
-        await _db.Updateable(version).ExecuteCommandAsync();
+        await Context.Updateable(version).ExecuteCommandAsync();
         return version;
     }
 }

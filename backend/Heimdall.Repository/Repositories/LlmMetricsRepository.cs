@@ -4,28 +4,25 @@ using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
-public class LlmMetricsRepository : ILlmMetricsRepository
+public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRepository
 {
-    private readonly ISqlSugarClient _db;
-
-    public LlmMetricsRepository(ISqlSugarClient db)
+    public LlmMetricsRepository(ISqlSugarClient db) : base(db)
     {
-        _db = db;
     }
 
     public async Task AddAsync(LlmCallMetric metric, CancellationToken ct = default)
     {
-        await _db.Insertable(metric).ExecuteCommandAsync(ct);
+        await Context.Insertable(metric).ExecuteCommandAsync(ct);
     }
 
     public async Task AddRangeAsync(IEnumerable<LlmCallMetric> metrics, CancellationToken ct = default)
     {
-        await _db.Insertable(metrics.ToList()).ExecuteCommandAsync(ct);
+        await Context.Insertable(metrics.ToList()).ExecuteCommandAsync(ct);
     }
 
     public async Task<List<LlmCallMetric>> GetByTaskIdAsync(Guid taskId, CancellationToken ct = default)
     {
-        return await _db.Queryable<LlmCallMetric>()
+        return await Context.Queryable<LlmCallMetric>()
             .Where(m => m.TaskId == taskId)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct);
@@ -33,7 +30,7 @@ public class LlmMetricsRepository : ILlmMetricsRepository
 
     public async Task<List<LlmCallMetric>> GetByTimeRangeAsync(DateTime from, DateTime to, CancellationToken ct = default)
     {
-        return await _db.Queryable<LlmCallMetric>()
+        return await Context.Queryable<LlmCallMetric>()
             .Where(m => m.CreatedAt >= from && m.CreatedAt <= to)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct);
@@ -41,7 +38,7 @@ public class LlmMetricsRepository : ILlmMetricsRepository
 
     public async Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default)
     {
-        var metrics = await _db.Queryable<LlmCallMetric>()
+        var metrics = await Context.Queryable<LlmCallMetric>()
             .Where(m => m.TaskId == taskId)
             .ToListAsync(ct);
 
