@@ -48,12 +48,11 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        var valid = await _userService.ValidatePasswordAsync(request.Username, request.Password);
-        if (!valid)
+        var (valid, user) = await _userService.ValidateAndGetUserAsync(request.Username, request.Password);
+        if (!valid || user is null)
             return Unauthorized(new { error = "用户名或密码错误。" });
 
-        var user = await _userService.GetByUsernameAsync(request.Username);
-        if (user is null || !user.IsActive)
+        if (!user.IsActive)
             return Unauthorized(new { error = "账户已被禁用。" });
 
         var token = await _jwtTokenService.GenerateTokenAsync(user);

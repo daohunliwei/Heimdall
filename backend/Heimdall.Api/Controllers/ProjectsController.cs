@@ -29,25 +29,27 @@ public class ProjectsController : ControllerBase
     public async Task<IActionResult> GetProcessedProjects()
     {
         var repos = await _repoRepo.GetAllAsync();
-        var projects = new List<object>();
+        var repoIds = repos.Select(r => r.Id).ToList();
 
-        foreach (var r in repos)
+        // 批量加载所有仓库的 WikiSpace（一次查询）
+        var spaces = await _spaceRepo.GetByRepoIdsAsync(repoIds);
+        var spaceByRepoId = spaces
+            .GroupBy(s => s.RepositoryId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // 批量加载所有空间的最新版本（一次查询）
+        var spaceIds = spaces.Select(s => s.Id).ToList();
+        var allVersions = await _versionRepo.GetBySpaceIdsAsync(spaceIds);
+        var versionBySpaceId = allVersions
+            .GroupBy(v => v.WikiSpaceId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(v => v.VersionNo).First());
+
+        var projects = repos.Select(r =>
         {
-            // 获取默认 WikiSpace 的版本信息
-            var space = await _spaceRepo.GetByRepoLangViewAsync(r.Id, r.DefaultLanguage ?? "zh", "default");
-            string? latestWikiVersionId = null;
-            string? publishedWikiVersionId = null;
-
-            if (space is not null)
-            {
-                publishedWikiVersionId = space.PublishedWikiVersionId?.ToString();
-
-                var versions = await _versionRepo.GetBySpaceIdAsync(space.Id);
-                var latest = versions.OrderByDescending(v => v.VersionNo).FirstOrDefault();
-                latestWikiVersionId = latest?.Id.ToString();
-            }
-
-            projects.Add(new
+            spaceByRepoId.TryGetValue(r.Id, out var space);
+            var latestWikiVersionId = space is not null && versionBySpaceId.TryGetValue(space.Id, out var v) ? v.Id.ToString() : null;
+            var publishedWikiVersionId = space?.PublishedWikiVersionId?.ToString();
+            return (object)new
             {
                 repository_id = r.Id.ToString(),
                 id = r.Id.ToString(),
@@ -61,8 +63,8 @@ public class ProjectsController : ControllerBase
                 default_branch = r.DefaultBranch,
                 latest_wiki_version_id = latestWikiVersionId,
                 published_wiki_version_id = publishedWikiVersionId
-            });
-        }
+            };
+        }).ToList();
 
         return Ok(projects);
     }

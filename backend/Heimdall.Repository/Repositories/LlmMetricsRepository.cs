@@ -36,42 +36,87 @@ public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRe
             .ToListAsync(ct);
     }
 
-    public async Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default)
+    public async Task<Dictionary<Guid, LlmTaskMetricsSummary>> GetSummariesByTaskIdsAsync(IEnumerable<Guid> taskIds, CancellationToken ct = default)
     {
-        var metrics = await Context.Queryable<LlmCallMetric>()
-            .Where(m => m.TaskId == taskId)
+        var ids = taskIds.ToList();
+        if (ids.Count == 0) return new Dictionary<Guid, LlmTaskMetricsSummary>();
+
+        var raw = await Context.Queryable<LlmCallMetric>()
+            .Where(m => ids.Contains(m.TaskId))
+            .Select(m => new
+            {
+                m.TaskId,
+                m.InputTokens,
+                m.OutputTokens,
+                m.CacheHitTokens,
+                m.LatencyMs,
+                m.Success,
+                m.Stage
+            })
             .ToListAsync(ct);
 
-        if (metrics.Count == 0)
+        return raw.GroupBy(r => r.TaskId).ToDictionary(g => g.Key, g =>
         {
-            return new LlmTaskMetricsSummary { TaskId = taskId };
-        }
-
-        var stages = metrics
-            .GroupBy(m => m.Stage)
-            .Select(g => new LlmStageMetrics
+            var list = g.ToList();
+            return new LlmTaskMetricsSummary
             {
-                Stage = g.Key,
-                Calls = g.Count(),
-                InputTokens = g.Sum(m => (long)m.InputTokens),
-                OutputTokens = g.Sum(m => (long)m.OutputTokens),
-                AverageLatencyMs = g.Average(m => m.LatencyMs)
+                TaskId = g.Key,
+                TotalCalls = list.Count,
+                TotalInputTokens = list.Sum(m => (long)m.InputTokens),
+                TotalOutputTokens = list.Sum(m => (long)m.OutputTokens),
+                TotalCacheHitTokens = list.Sum(m => (long)m.CacheHitTokens),
+                CacheHitRate = list.Sum(m => m.InputTokens) > 0
+                    ? (double)list.Sum(m => m.CacheHitTokens) / list.Sum(m => m.InputTokens) : 0,
+                AverageLatencyMs = list.Average(m => m.LatencyMs),
+                MaxLatencyMs = list.Max(m => m.LatencyMs),
+                FailedCalls = list.Count(m => !m.Success)
+            };
+        });
+    }
+
+    public async Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default)
+    {
+        var stats = await Context.Queryable<LlmCallMetric>()
+            .Where(m => m.TaskId == taskId)
+            .Select(m => new
+            {
+                TotalCalls = SqlFunc.AggregateCount(m.TaskId),
+                TotalInput = SqlFunc.AggregateSum((long)m.InputTokens),
+                TotalOutput = SqlFunc.AggregateSum((long)m.OutputTokens),
+                TotalCache = SqlFunc.AggregateSum((long)m.CacheHitTokens),
+                AvgLatency = SqlFunc.AggregateAvg(m.LatencyMs),
+                MaxLatency = SqlFunc.AggregateMax(m.LatencyMs),
+                FailedCount = SqlFunc.AggregateSum(m.Success ? 0 : 1)
             })
-            .ToList();
+            .FirstAsync(ct);
+
+        if (stats.TotalCalls == 0)
+            return new LlmTaskMetricsSummary { TaskId = taskId };
+
+        var stages = await Context.Queryable<LlmCallMetric>()
+            .Where(m => m.TaskId == taskId)
+            .GroupBy(m => m.Stage)
+            .Select(m => new LlmStageMetrics
+            {
+                Stage = m.Stage,
+                Calls = SqlFunc.AggregateCount(m.TaskId),
+                InputTokens = SqlFunc.AggregateSum((long)m.InputTokens),
+                OutputTokens = SqlFunc.AggregateSum((long)m.OutputTokens),
+                AverageLatencyMs = SqlFunc.AggregateAvg(m.LatencyMs)
+            })
+            .ToListAsync(ct);
 
         return new LlmTaskMetricsSummary
         {
             TaskId = taskId,
-            TotalCalls = metrics.Count,
-            TotalInputTokens = metrics.Sum(m => (long)m.InputTokens),
-            TotalOutputTokens = metrics.Sum(m => (long)m.OutputTokens),
-            TotalCacheHitTokens = metrics.Sum(m => (long)m.CacheHitTokens),
-            CacheHitRate = metrics.Sum(m => m.InputTokens) > 0
-                ? (double)metrics.Sum(m => m.CacheHitTokens) / metrics.Sum(m => m.InputTokens)
-                : 0,
-            AverageLatencyMs = metrics.Average(m => m.LatencyMs),
-            MaxLatencyMs = metrics.Max(m => m.LatencyMs),
-            FailedCalls = metrics.Count(m => !m.Success),
+            TotalCalls = stats.TotalCalls,
+            TotalInputTokens = stats.TotalInput,
+            TotalOutputTokens = stats.TotalOutput,
+            TotalCacheHitTokens = stats.TotalCache,
+            CacheHitRate = stats.TotalInput > 0 ? (double)stats.TotalCache / stats.TotalInput : 0,
+            AverageLatencyMs = stats.AvgLatency,
+            MaxLatencyMs = (int)stats.MaxLatency,
+            FailedCalls = stats.FailedCount,
             Stages = stages
         };
     }

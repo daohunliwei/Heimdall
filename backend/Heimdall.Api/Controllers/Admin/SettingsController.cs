@@ -28,10 +28,8 @@ public class SettingsController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> Update([FromBody] List<SystemSettingRequest> requests)
     {
-        foreach (var req in requests)
-        {
-            await _settingRepo.SetAsync(req.Key, req.Value);
-        }
+        var kv = requests.ToDictionary(r => r.Key, r => r.Value);
+        await _settingRepo.SetBatchAsync(kv);
 
         var settings = await _settingRepo.GetAllAsync();
         return Ok(settings);

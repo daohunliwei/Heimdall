@@ -32,16 +32,16 @@ public sealed class DashboardService
     public async Task<DashboardStats> GetDashboardStatsAsync()
     {
         var (totalTasks, completedTasks, failedTasks, totalWikiTasks, totalTokens) = await _taskRepo.GetStatisticsAsync();
-        var allUsers = await _userRepo.GetAllAsync();
-        var allRepos = await _repoConfigRepo.GetAllAsync();
+        var activeUsers = await _userRepo.CountActiveAsync();
+        var totalRepos = await _repoConfigRepo.CountAsync();
 
         return new DashboardStats
         {
             TotalTasks = totalTasks,
             CompletedTasks = completedTasks,
             FailedTasks = failedTasks,
-            ActiveUsers = allUsers.Count(u => u.IsActive),
-            TotalRepositories = allRepos.Count,
+            ActiveUsers = activeUsers,
+            TotalRepositories = totalRepos,
             TotalWikis = totalWikiTasks,
             SuccessRate = totalTasks > 0 ? (double)completedTasks / totalTasks * 100 : 100,
             TotalTokensUsed = totalTokens

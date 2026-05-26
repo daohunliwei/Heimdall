@@ -113,12 +113,11 @@ public class AdminController : ControllerBase
     [HttpGet("debug-config")]
     public async Task<IActionResult> GetDebugConfig()
     {
-        var enabled = await _settingRepo.GetByKeyAsync("DebugMode.Enabled");
-        var maxPages = await _settingRepo.GetByKeyAsync("DebugMode.MaxPages");
+        var dict = await _settingRepo.GetByKeysAsync(new[] { "DebugMode.Enabled", "DebugMode.MaxPages" });
         return Ok(new
         {
-            enabled = enabled?.Value == "true",
-            maxDebugPages = int.TryParse(maxPages?.Value, out var mp) ? mp : 5
+            enabled = dict.TryGetValue("DebugMode.Enabled", out var e) && e?.Value == "true",
+            maxDebugPages = dict.TryGetValue("DebugMode.MaxPages", out var m) && int.TryParse(m?.Value, out var mp) ? mp : 5
         });
     }
 

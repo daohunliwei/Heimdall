@@ -22,6 +22,11 @@ public interface ILlmObservabilityService
     Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default);
 
     /// <summary>
+    /// 批量获取多个任务的指标汇总（一次查询）。
+    /// </summary>
+    Task<Dictionary<Guid, LlmTaskMetricsSummary>> GetSummariesByTaskIdsAsync(IEnumerable<Guid> taskIds, CancellationToken ct = default);
+
+    /// <summary>
     /// 获取指定任务的所有调用记录。
     /// </summary>
     Task<List<LlmCallMetric>> GetTaskMetricsAsync(Guid taskId, CancellationToken ct = default);

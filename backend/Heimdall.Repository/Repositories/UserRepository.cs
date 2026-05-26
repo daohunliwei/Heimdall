@@ -46,10 +46,17 @@ public class UserRepository : BaseRepository<User>, IUserRepository
 
     public async Task<bool> DeleteAsync(Guid id)
     {
-        var user = await Context.Queryable<User>()
-            .FirstAsync(x => x.Id == id);
-        if (user is null) return false;
-        await Context.Deleteable(user).ExecuteCommandAsync();
-        return true;
+        return await Context.Deleteable<User>()
+            .Where(x => x.Id == id).ExecuteCommandAsync() > 0;
+    }
+
+    public async Task<int> CountAsync()
+    {
+        return await Context.Queryable<User>().CountAsync();
+    }
+
+    public async Task<int> CountActiveAsync()
+    {
+        return await Context.Queryable<User>().Where(u => u.IsActive).CountAsync();
     }
 }

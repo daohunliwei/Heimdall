@@ -22,6 +22,16 @@ public class WikiVersionRepository : BaseRepository<WikiVersion>, IWikiVersionRe
             .ToListAsync();
     }
 
+    public async Task<List<WikiVersion>> GetBySpaceIdsAsync(IEnumerable<Guid> spaceIds)
+    {
+        var ids = spaceIds.ToList();
+        if (ids.Count == 0) return new List<WikiVersion>();
+        return await Context.Queryable<WikiVersion>()
+            .Where(v => ids.Contains(v.WikiSpaceId))
+            .OrderByDescending(v => v.VersionNo)
+            .ToListAsync();
+    }
+
     public async Task<int> CountBySpaceIdAsync(Guid wikiSpaceId)
     {
         return await Context.Queryable<WikiVersion>().CountAsync(v => v.WikiSpaceId == wikiSpaceId);

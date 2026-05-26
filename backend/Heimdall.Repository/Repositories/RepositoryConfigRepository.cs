@@ -61,10 +61,20 @@ public class RepositoryConfigRepository : BaseRepository<RepositoryEntity>, IRep
 
     public async Task<bool> DeleteAsync(Guid id)
     {
-        var repository = await Context.Queryable<RepositoryEntity>()
-            .FirstAsync(x => x.Id == id);
-        if (repository is null) return false;
-        await Context.Deleteable(repository).ExecuteCommandAsync();
-        return true;
+        return await Context.Deleteable<RepositoryEntity>()
+            .Where(x => x.Id == id).ExecuteCommandAsync() > 0;
+    }
+
+    public async Task<List<RepositoryEntity>> GetByIdsAsync(IEnumerable<Guid> ids)
+    {
+        var idList = ids.ToList();
+        if (idList.Count == 0) return new List<RepositoryEntity>();
+        return await Context.Queryable<RepositoryEntity>()
+            .Where(r => idList.Contains(r.Id)).ToListAsync();
+    }
+
+    public async Task<int> CountAsync()
+    {
+        return await Context.Queryable<RepositoryEntity>().CountAsync();
     }
 }

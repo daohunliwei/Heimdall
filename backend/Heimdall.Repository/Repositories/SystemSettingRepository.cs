@@ -31,6 +31,27 @@ public class SystemSettingRepository : BaseRepository<SystemSetting>, ISystemSet
         return (await Context.Queryable<SystemSetting>().FirstAsync(s => s.Key == key))!;
     }
 
+    public async Task SetBatchAsync(Dictionary<string, string> keyValues)
+    {
+        var entities = keyValues.Select(kv => new SystemSetting
+        {
+            Key = kv.Key,
+            Value = kv.Value,
+            UpdatedAt = DateTime.UtcNow
+        }).ToList();
+        await Context.Storageable(entities).WhereColumns(it => new { it.Key }).ExecuteCommandAsync();
+    }
+
+    public async Task<Dictionary<string, SystemSetting?>> GetByKeysAsync(IEnumerable<string> keys)
+    {
+        var keyList = keys.ToList();
+        if (keyList.Count == 0) return new Dictionary<string, SystemSetting?>();
+        var settings = await Context.Queryable<SystemSetting>()
+            .Where(s => keyList.Contains(s.Key))
+            .ToListAsync();
+        return keyList.ToDictionary(k => k, k => settings.FirstOrDefault(s => s.Key == k));
+    }
+
     public async Task<List<SystemSetting>> GetAllAsync()
     {
         return await Context.Queryable<SystemSetting>()

@@ -281,6 +281,11 @@ public sealed class TaskQueueService : BackgroundService, ITaskQueueService
             return;
         }
 
+        // 批量加载所有引用的仓库
+        var repoIds = tasks.Where(t => t.RepositoryId.HasValue)
+            .Select(t => t.RepositoryId!.Value).Distinct().ToList();
+        var repoMap = (await repoRepo.GetByIdsAsync(repoIds)).ToDictionary(r => r.Id);
+
         foreach (var task in tasks)
         {
             if (!task.RepositoryId.HasValue)
@@ -289,8 +294,7 @@ public sealed class TaskQueueService : BackgroundService, ITaskQueueService
                 continue;
             }
 
-            var repo = await repoRepo.GetByIdAsync(task.RepositoryId.Value);
-            if (repo is null)
+            if (!repoMap.TryGetValue(task.RepositoryId.Value, out var repo))
             {
                 _logger.LogWarning("跳过仓库不存在的恢复任务 TaskId={TaskId} RepoId={RepoId}", task.Id, task.RepositoryId.Value);
                 continue;

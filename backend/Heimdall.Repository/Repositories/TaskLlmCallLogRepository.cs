@@ -27,13 +27,23 @@ public class TaskLlmCallLogRepository : BaseRepository<TaskLlmCallLog>, ITaskLlm
 
     public async Task<(int PromptTokens, int CompletionTokens)> GetTokenSummaryAsync(Guid taskId)
     {
-        var logs = await Context.Queryable<TaskLlmCallLog>()
+        var result = await Context.Queryable<TaskLlmCallLog>()
             .Where(l => l.TaskId == taskId)
-            .ToListAsync();
+            .Select(l => new
+            {
+                PromptTokens = SqlFunc.AggregateSum(l.PromptTokens),
+                CompletionTokens = SqlFunc.AggregateSum(l.CompletionTokens)
+            })
+            .FirstAsync();
 
-        return (
-            PromptTokens: logs.Sum(l => l.PromptTokens),
-            CompletionTokens: logs.Sum(l => l.CompletionTokens)
-        );
+        return (result.PromptTokens, result.CompletionTokens);
+    }
+
+    public async Task<string?> GetProviderByTaskIdAsync(Guid taskId)
+    {
+        return await Context.Queryable<TaskLlmCallLog>()
+            .Where(l => l.TaskId == taskId)
+            .Select(l => l.Provider)
+            .FirstAsync();
     }
 }

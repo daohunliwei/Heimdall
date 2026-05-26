@@ -10,4 +10,7 @@ public interface ITaskLlmCallLogRepository
 
     /// <summary>Returns (totalPromptTokens, totalCompletionTokens) aggregated across the given task's logs.</summary>
     Task<(int PromptTokens, int CompletionTokens)> GetTokenSummaryAsync(Guid taskId);
+
+    /// <summary>Returns the provider of the first LLM call log for a task, or null.</summary>
+    Task<string?> GetProviderByTaskIdAsync(Guid taskId);
 }

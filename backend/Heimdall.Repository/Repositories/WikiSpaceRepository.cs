@@ -23,6 +23,15 @@ public class WikiSpaceRepository : BaseRepository<WikiSpace>, IWikiSpaceReposito
                 && s.Language == language && s.ViewType == viewType);
     }
 
+    public async Task<List<WikiSpace>> GetByRepoIdsAsync(IEnumerable<Guid> repositoryIds)
+    {
+        var ids = repositoryIds.ToList();
+        if (ids.Count == 0) return new List<WikiSpace>();
+        return await Context.Queryable<WikiSpace>()
+            .Where(s => ids.Contains(s.RepositoryId) && s.ViewType == "default")
+            .ToListAsync();
+    }
+
     public async Task<WikiSpace> AddAsync(WikiSpace space)
     {
         await Context.Insertable(space).ExecuteCommandAsync();
