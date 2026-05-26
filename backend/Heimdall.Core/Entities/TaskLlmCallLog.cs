@@ -40,5 +40,11 @@ public class TaskLlmCallLog
     [SugarColumn(ColumnDataType = "text", IsNullable = true)]
     public string? ErrorMessage { get; set; }
 
+    /// <summary>
+    /// Tool Call 日志集合——记录每次工具调用的详情（JSON 格式）。
+    /// </summary>
+    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    public string? ToolCallLogsJson { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

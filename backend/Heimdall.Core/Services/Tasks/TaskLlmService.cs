@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using Heimdall.Infrastructure.Configuration;
-using Heimdall.Infrastructure.Providers;
 using Heimdall.Infrastructure.Utilities;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services.Tasks;
@@ -12,16 +12,16 @@ namespace Heimdall.Core.Services.Tasks;
 /// </summary>
 public sealed class TaskLlmService
 {
-    private readonly ChatClientFactory _chatClientFactory;
+    private readonly IServiceProvider _serviceProvider;
     private readonly HeimdallConfigService _configService;
     private readonly ILogger<TaskLlmService> _logger;
 
     public TaskLlmService(
-        ChatClientFactory chatClientFactory,
+        IServiceProvider serviceProvider,
         HeimdallConfigService configService,
         ILogger<TaskLlmService> logger)
     {
-        _chatClientFactory = chatClientFactory;
+        _serviceProvider = serviceProvider;
         _configService = configService;
         _logger = logger;
     }
@@ -42,7 +42,8 @@ public sealed class TaskLlmService
     /// </summary>
     public async Task<ChatResponse> GenerateWithMetricsAsync(
         string provider, string? model, string? customModel, string prompt,
-        CancellationToken ct, string? systemPrompt = null)
+        CancellationToken ct, string? systemPrompt = null,
+        IList<AITool>? tools = null)
     {
         var providerId = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
         var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
@@ -55,7 +56,12 @@ public sealed class TaskLlmService
                 $"无法解析 Provider='{providerId}' 的模型。请在请求中指定 model 参数。");
         }
 
-        var chatClient = _chatClientFactory.GetClient(providerId);
+        var chatClient = _serviceProvider.GetKeyedService<IChatClient>(providerId);
+        if (chatClient is null)
+        {
+            throw new InvalidOperationException(
+                $"未找到 Provider '{providerId}' 的 IChatClient 注册");
+        }
         var estimatedPromptTokens = TokenCounter.EstimateTokenCount(prompt);
 
         _logger.LogInformation(
@@ -76,6 +82,11 @@ public sealed class TaskLlmService
             ModelId = effectiveModel,
             MaxOutputTokens = 8192,
         };
+
+        if (tools is { Count: > 0 })
+        {
+            options.Tools = tools;
+        }
 
         try
         {

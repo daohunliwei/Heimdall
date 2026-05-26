@@ -130,7 +130,15 @@ var sqlSugarScope = new SqlSugarScope(new ConnectionConfig
     {
         OnLogExecuting = (sql, pars) =>
         {
-            Console.WriteLine($"[SqlSugar] {sql}");
+            var desensitized = sql;
+            if (pars is SugarParameter[] sugarParams)
+            {
+                foreach (var p in sugarParams)
+                {
+                    desensitized = desensitized.Replace(p.ParameterName, "***");
+                }
+            }
+            Console.WriteLine($"[SqlSugar] {desensitized}");
         },
         OnLogExecuted = (sql, pars) =>
         {
@@ -157,34 +165,46 @@ builder.Services.AddSingleton<IRepositorySource, GitLabRepositorySource>();
 builder.Services.AddSingleton<IRepositorySource, BitbucketRepositorySource>();
 builder.Services.AddSingleton<IRepositorySource, LocalDirectorySource>();
 
-// MEAI Chat Clients — 使用 Keyed Service 按 Provider ID 注册
+// MEAI Chat Clients — 使用 ChatClientBuilder 管道模式注册（10.6.0）
 var config = builder.Configuration;
+
+// 管道配置：UseFunctionInvocation（Tool Call 自动往返）→ UseOpenTelemetry（追踪）→ UseLogging（日志）
+static IChatClient BuildPipeline(IChatClient innerClient, IServiceProvider services) =>
+    innerClient.AsBuilder()
+        .UseFunctionInvocation(configure: o =>
+        {
+            o.MaximumIterationsPerRequest = 8;
+            o.AllowConcurrentInvocation = true;
+            o.TerminateOnUnknownCalls = true;
+            o.MaximumConsecutiveErrorsPerRequest = 5;
+        })
+        .UseOpenTelemetry()
+        .UseLogging()
+        .Build(services);
 
 // OpenAI 兼容 Provider（5 个 → 1 个工厂）
 builder.Services.AddKeyedSingleton<IChatClient>("openai",
-    (sp, _) => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openai", config["HEIMDALL_OPENAI_MODEL"] ?? "gpt-4o"));
+    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openai", config["HEIMDALL_OPENAI_MODEL"] ?? "gpt-4o"), sp));
 builder.Services.AddKeyedSingleton<IChatClient>("openrouter",
-    (sp, _) => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openrouter", config["HEIMDALL_OPENROUTER_MODEL"] ?? "openai/gpt-4o"));
+    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "openrouter", config["HEIMDALL_OPENROUTER_MODEL"] ?? "openai/gpt-4o"), sp));
 builder.Services.AddKeyedSingleton<IChatClient>("dashscope",
-    (sp, _) => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "dashscope", config["HEIMDALL_DASHSCOPE_MODEL"] ?? "qwen-plus"));
+    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "dashscope", config["HEIMDALL_DASHSCOPE_MODEL"] ?? "qwen-plus"), sp));
 builder.Services.AddKeyedSingleton<IChatClient>("deepseek",
-    (sp, _) => OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "deepseek", config["HEIMDALL_DEEPSEEK_MODEL"] ?? "deepseek-chat"));
+    (sp, _) => BuildPipeline(OpenAiCompatibleClientFactory.Create(sp.GetRequiredService<IConfiguration>(), "deepseek", config["HEIMDALL_DEEPSEEK_MODEL"] ?? "deepseek-chat"), sp));
 
-// Azure OpenAI — 使用 OpenAI 兼容 API
+// Azure OpenAI
 builder.Services.AddKeyedSingleton<IChatClient>("azure", (sp, _) =>
 {
     var cfg = sp.GetRequiredService<IConfiguration>();
-    var endpoint = cfg["HEIMDALL_AZURE_ENDPOINT"] ?? "";
-    var apiKey = cfg["HEIMDALL_AZURE_API_KEY"] ?? "";
     var deployment = cfg["HEIMDALL_AZURE_DEPLOYMENT"] ?? "gpt-4o";
-    return OpenAiCompatibleClientFactory.CreateAzure(cfg, "azure", deployment);
+    return BuildPipeline(OpenAiCompatibleClientFactory.CreateAzure(cfg, "azure", deployment), sp);
 });
 
 // AWS Bedrock
 builder.Services.AddKeyedSingleton<IChatClient>("bedrock", (sp, _) =>
-    BedrockClientFactory.Create(sp.GetRequiredService<IConfiguration>(),
+    BuildPipeline(BedrockClientFactory.Create(sp.GetRequiredService<IConfiguration>(),
         config["HEIMDALL_BEDROCK_MODEL"] ?? "anthropic.claude-sonnet-4-20250514-v1:0",
-        sp.GetRequiredService<ILoggerFactory>()));
+        sp.GetRequiredService<ILoggerFactory>()), sp));
 
 // Ollama
 builder.Services.AddKeyedSingleton<IChatClient>("ollama", (sp, _) =>
@@ -192,9 +212,9 @@ builder.Services.AddKeyedSingleton<IChatClient>("ollama", (sp, _) =>
     var cfg = sp.GetRequiredService<IConfiguration>();
     var host = cfg["HEIMDALL_OLLAMA_CHAT_HOST"] ?? "http://127.0.0.1:11434";
     var model = cfg["HEIMDALL_OLLAMA_MODEL"] ?? "qwen3:32b";
-    return new Heimdall.Infrastructure.Providers.CustomBackends.OllamaChatClient(
+    return BuildPipeline(new OllamaChatClient(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient(), host, model,
-        sp.GetRequiredService<ILogger<Heimdall.Infrastructure.Providers.CustomBackends.OllamaChatClient>>());
+        sp.GetRequiredService<ILogger<OllamaChatClient>>()), sp);
 });
 
 // Google Gemini
@@ -203,9 +223,9 @@ builder.Services.AddKeyedSingleton<IChatClient>("google", (sp, _) =>
     var cfg = sp.GetRequiredService<IConfiguration>();
     var apiKey = cfg["HEIMDALL_GOOGLE_API_KEY"] ?? "";
     var model = cfg["HEIMDALL_GOOGLE_MODEL"] ?? "gemini-2.5-pro";
-    return new Heimdall.Infrastructure.Providers.CustomBackends.GeminiChatClient(
+    return BuildPipeline(new GeminiChatClient(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient(), apiKey, model,
-        sp.GetRequiredService<ILogger<Heimdall.Infrastructure.Providers.CustomBackends.GeminiChatClient>>());
+        sp.GetRequiredService<ILogger<GeminiChatClient>>()), sp);
 });
 
 // MiniMax
@@ -214,10 +234,13 @@ builder.Services.AddKeyedSingleton<IChatClient>("minimax", (sp, _) =>
     var cfg = sp.GetRequiredService<IConfiguration>();
     var apiKey = cfg["HEIMDALL_MINIMAX_API_KEY"] ?? "";
     var model = cfg["HEIMDALL_MINIMAX_MODEL"] ?? "MiniMax-Text-01";
-    return new Heimdall.Infrastructure.Providers.CustomBackends.MiniMaxChatClient(
+    return BuildPipeline(new MiniMaxChatClient(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient(), apiKey, model,
-        sp.GetRequiredService<ILogger<Heimdall.Infrastructure.Providers.CustomBackends.MiniMaxChatClient>>());
+        sp.GetRequiredService<ILogger<MiniMaxChatClient>>()), sp);
 });
+
+// V9 旧注册方式（保留注释用于回滚参考）：
+// builder.Services.AddKeyedSingleton<IChatClient>("openai", (sp, _) => ...);
 
 // V8: 嵌入提供器已移除——当前阶段不需要向量化
 
@@ -259,6 +282,7 @@ builder.Services.AddScoped<TaskLlmCallLogService>();
 builder.Services.AddScoped<IWikiTaskSubmissionService, WikiTaskSubmissionService>();
 builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
+builder.Services.AddSingleton<ToolCallConfigurationService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IStructuredLogger, Heimdall.Core.Services.Logging.StructuredLogger>();
 builder.Services.AddSingleton<TaskPromptService>();
 builder.Services.AddSingleton<WikiGenerationParserService>();

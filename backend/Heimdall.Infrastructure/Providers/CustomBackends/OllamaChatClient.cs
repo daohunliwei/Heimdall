@@ -27,6 +27,11 @@ public class OllamaChatClient : IChatClient
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
+        if (options?.Tools is { Count: > 0 })
+        {
+            _logger.LogWarning("Ollama 不支持 Tool Call，忽略 {ToolCount} 个工具", options.Tools.Count);
+        }
+
         var requestBody = BuildRequest(messages, options, stream: false);
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -57,6 +62,11 @@ public class OllamaChatClient : IChatClient
         IEnumerable<ChatMessage> messages, ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        if (options?.Tools is { Count: > 0 })
+        {
+            _logger.LogWarning("Ollama 不支持 Tool Call，忽略 {ToolCount} 个工具", options.Tools.Count);
+        }
+
         var requestBody = BuildRequest(messages, options, stream: true);
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -138,6 +148,15 @@ public class OllamaChatClient : IChatClient
         };
     }
 
+    public ChatClientMetadata Metadata => new("Ollama", new Uri(_baseUrl), _model);
+
+    public TService? GetService<TService>(object? key = null) where TService : class
+        => this as TService;
+
+    object? IChatClient.GetService(Type serviceType, object? serviceKey)
+        => serviceKey is not null ? null
+            : serviceType == typeof(ChatClientMetadata) ? Metadata
+            : serviceType.IsInstanceOfType(this) ? this : null;
+
     void IDisposable.Dispose() { }
-    object? IChatClient.GetService(Type serviceType, object? serviceKey) => null;
 }

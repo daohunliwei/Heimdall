@@ -1,6 +1,7 @@
 using System.Text;
 using Heimdall.Core.Models;
 using Heimdall.Core.Services.Prompt;
+using Heimdall.Core.Services.Repository;
 using Heimdall.Infrastructure.Models;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -42,7 +43,8 @@ public sealed class TaskPromptService
         string languageDisplayName, bool isComprehensiveView,
         CodeUnderstandingResult? codeUnderstanding,
         string generationProfile = "comprehensive",
-        string? repositoryDocsSection = null)
+        string? repositoryDocsSection = null,
+        CodeIndexResult? codeIndex = null)
     {
         var codeInsightSection = "";
         if (codeUnderstanding != null)
@@ -83,6 +85,37 @@ public sealed class TaskPromptService
             {layers}
 
             Call Graph Summary: {codeUnderstanding.CallGraph.NodeCount} methods, {codeUnderstanding.CallGraph.Edges.Count} call edges, max depth {codeUnderstanding.CallGraph.MaxDepth}
+            """;
+        }
+
+        // 追加代码索引统计摘要（AST 产出的模块分布数据）
+        if (codeIndex != null)
+        {
+            var moduleStats = string.Join("\n", codeIndex.ModuleNames.Select(m =>
+            {
+                var count = codeIndex.ModuleFileCounts.TryGetValue(m, out var c) ? c : 0;
+                return $"- {m}: {count} files";
+            }));
+
+            var entryFiles = string.Join("\n", codeIndex.EntryPointFiles.Take(10)
+                .Select(f => $"- {f}"));
+
+            var recPages = CodeStructureIndexService.CalculateRecommendedPageCount(
+                codeIndex.ModuleNames.Count,
+                codeIndex.EntryPointFiles.Count,
+                0, 0); // 模式数和调用图深度由 codeUnderstanding 提供更准确值
+
+            codeInsightSection += $"""
+
+            CODE INDEX STATISTICS (from AST analysis):
+            Module File Distribution:
+            {moduleStats}
+
+            Entry Point Files (top 10):
+            {entryFiles}
+
+            Total: {codeIndex.TotalFileCount} files ({codeIndex.SourceFileCount} source), {codeIndex.ModuleNames.Count} modules.
+            Recommended page count for this repository: {recPages} pages.
             """;
         }
 

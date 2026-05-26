@@ -1,68 +1,60 @@
 ## ADDED Requirements
 
+### Requirement: IChatClient 10.6.0 API 适配
+每个自定义 `IChatClient` 适配器（`OllamaChatClient`、`GeminiChatClient`、`MiniMaxChatClient`）SHALL 实现 10.6.0 `IChatClient` 接口的全部成员，包括 `GetService<T>(object? key)` 方法和 `Metadata` 属性。
+
+#### Scenario: GetService 默认实现
+- **WHEN** 调用 `OllamaChatClient.GetService<ChatClientMetadata>()`
+- **THEN** 返回 `new ChatClientMetadata { ProviderName = "Ollama", ... }`
+- **AND** 对于未知的 `T` 类型，返回 `null`
+
+#### Scenario: Metadata 属性
+- **WHEN** 读取 `OllamaChatClient.Metadata`
+- **THEN** 返回 `ChatClientMetadata` 对象，包含 `ProviderName = "Ollama"`、`ModelId = 当前模型ID`
+
+### Requirement: 自定义适配器 Tool Call 支持检测
+每个自定义适配器 SHALL 在 `GetResponseAsync` / `GetStreamingResponseAsync` 中检测 `ChatOptions.Tools` 是否非空。若适配器底层 Provider 不支持原生 Function Calling，SHALL 记录 Warning 日志并忽略工具列表（不抛异常），确保 `FunctionInvokingChatClient` 中间件可以安全透传。
+
+#### Scenario: Ollama Provider 工具调用降级
+- **WHEN** `OllamaChatClient.GetResponseAsync` 收到 `ChatOptions.Tools` 非空但 Ollama 模型不支持 Tool Call
+- **THEN** 记录 Warning：`Ollama 不支持 Tool Call，忽略工具列表`
+- **AND** 正常发起 LLM 调用（不含 Tools 参数）
+- **AND** 不抛出异常
+
+#### Scenario: Gemini Provider 工具调用支持
+- **WHEN** `GeminiChatClient.GetResponseAsync` 收到 `ChatOptions.Tools` 非空且 Gemini 模型支持 Function Calling
+- **THEN** 将 `AIFunction` 列表转换为 Gemini API 的 `tools.functionDeclarations` 格式
+- **AND** 正常发起 LLM 调用并处理 `functionCall` 响应
+
+## MODIFIED Requirements
+
 ### Requirement: OllamaSharp + IChatClient 适配器
-系统 SHALL 基于 `OllamaSharp` 库实现 `OllamaChatClient : IChatClient`，替代当前的 `OllamaChatProvider`。不使用已废弃的 `Microsoft.Extensions.AI.Ollama` 包。
+系统 SHALL 基于 `OllamaSharp` 库实现 `OllamaChatClient : IChatClient`。额外实现 10.6.0 新增的 `GetService<T>()` 方法和 `Metadata` 属性；检测并处理 `ChatOptions.Tools`。
 
 #### Scenario: 非流式 Ollama 调用
 - **WHEN** 调用 `OllamaChatClient.GetResponseAsync(messages, options, ct)`
 - **THEN** 使用 `OllamaSharp` 的 `IOllamaApiClient.ChatAsync()` 方法
 - **AND** 将 MEAI 的 `ChatMessage[]` 转为 Ollama 的消息格式
-- **AND** 返回 `ChatResponse` 包含 `Usage`（如有 `total_duration` 等 Ollama 元数据，填入 `AdditionalCounts`）
+- **AND** 返回 `ChatResponse` 包含 `Usage`
 
-#### Scenario: 流式 Ollama 调用
-- **WHEN** 调用 `OllamaChatClient.GetStreamingResponseAsync(messages, options, ct)`
-- **THEN** 使用 `OllamaSharp` 的流式 `ChatAsync()` 方法
-- **AND** 每个增量 chunk 通过 `yield return new ChatResponseUpdate { Text = delta }` 返回
-- **AND** 最后一个 chunk 携带结束信号
+#### Scenario: Tool Call 检测与降级（新增）
+- **WHEN** `ChatOptions.Tools` 非空且 Ollama 模型支持 Tool Call
+- **THEN** 转换为 Ollama Chat API 的 `tools` 参数
+- **AND** 若模型不支持，记录 Warning 并忽略工具列表
 
 ### Requirement: Google Gemini IChatClient 适配器
-系统 SHALL 基于 `Google.GenerativeAI` SDK（或手写 HttpClient）实现 `GeminiChatClient : IChatClient`，替代当前的 `GoogleChatProvider`。
+系统 SHALL 实现 `GeminiChatClient : IChatClient`。额外实现 `GetService<T>()`、`Metadata`；支持 Gemini 原生 Function Calling。
 
-#### Scenario: 非流式 Gemini 调用
-- **WHEN** 调用 `GeminiChatClient.GetResponseAsync(messages, options, ct)`
-- **THEN** 将 `ChatMessage[]` 转为 Gemini 的 `contents` 格式（role 映射：system → systemInstruction，user/assistant → contents）
-- **AND** POST 到 `https://generativelanguage.googleapis.com/v1/models/{model}:generateContent`
-- **AND** 解析响应中 `candidates[0].content.parts[0].text`
-- **AND** 从 `usageMetadata` 提取 `promptTokenCount` / `candidatesTokenCount` / `totalTokenCount`
-
-#### Scenario: 流式 Gemini 调用
-- **WHEN** 调用 `GeminiChatClient.GetStreamingResponseAsync(messages, options, ct)`
-- **THEN** POST 到 `streamGenerateContent` 端点
-- **AND** 逐行读取 SSE 流，解析 JSON 提取 `candidates[0].content.parts[0].text` 增量
-- **AND** 通过 `yield return new ChatResponseUpdate { Text = delta }` 返回
+#### Scenario: Tool Call 支持（新增）
+- **WHEN** `ChatOptions.Tools` 非空
+- **THEN** 转换为 Gemini API 的 `tools[].functionDeclarations` 格式
+- **AND** 解析响应中的 `functionCall` 并包装为 `FunctionCallContent`
 
 ### Requirement: MiniMax IChatClient 适配器
-系统 SHALL 实现 `MiniMaxChatClient : IChatClient`，替代当前的 `MiniMaxChatProvider`。
+系统 SHALL 实现 `MiniMaxChatClient : IChatClient`。额外实现 `GetService<T>()` 和 `Metadata`。
 
 #### Scenario: 非流式 MiniMax 调用
 - **WHEN** 调用 `MiniMaxChatClient.GetResponseAsync(messages, options, ct)`
 - **THEN** POST 到 MiniMax Chat Completion API
 - **AND** 解析 `choices[0].message.content`
-- **AND** 从 `usage` 提取 `prompt_tokens`（→ InputTokenCount）、`completion_tokens`（→ OutputTokenCount）
-- **AND** 从 `usage.prompt_tokens_details.cached_tokens` 或 `usage.cache_read_input_tokens` 提取 → CachedInputTokenCount
-
-#### Scenario: 流式 MiniMax 调用
-- **WHEN** 调用 `MiniMaxChatClient.GetStreamingResponseAsync(messages, options, ct)`
-- **THEN** 请求体中 `"stream": true`
-- **AND** 解析 SSE 事件流，提取 `choices[0].delta.content` 增量
-- **AND** 最后一个 chunk 如有 usage 信息，填充到 `ChatResponseUpdate.AdditionalProperties`
-
-### Requirement: 自定义 Backend 的 ChatOptions 扩展参数传递
-系统 SHALL 通过 `ChatOptions.AdditionalProperties` 传递 Provider 特有的扩展参数（如 DeepSeek 的 `thinking`、MiniMax 的 `max_completion_tokens` 等），自定义 `IChatClient` 适配器负责读取并映射到 API 请求。
-
-#### Scenario: DeepSeek thinking 参数传递
-- **WHEN** 业务层设置 `ChatOptions.AdditionalProperties["thinking"] = new { type = "enabled" }`
-- **THEN** OpenAI Backend 将该属性映射为 API 请求体中的 `"thinking": { "type": "enabled" }`
-
-#### Scenario: MiniMax max_completion_tokens 传递
-- **WHEN** 业务层设置 `ChatOptions.MaxOutputTokens = 196608`
-- **THEN** `MiniMaxChatClient` 将该值映射为 API 请求体中的 `"max_completion_tokens": 196608`
-
-### Requirement: 自定义 Backend 的 DI 集成
-每个自定义 `IChatClient` 适配器 SHALL 通过工厂方法注册到 DI 容器，并被 `ChatClientBuilder` 中间件管道包裹。
-
-#### Scenario: OllamaChatClient DI 注册
-- **WHEN** 应用启动
-- **THEN** `OllamaChatClient` 作为 `IChatClient` 的 Singleton 实例注册
-- **AND** 通过 `ChatClientBuilder` 包裹 OpenTelemetry 和重试中间件
-- **AND** 最终的 `IChatClient` 注册到 DI 容器供 `ProviderRegistry` 或等效服务使用
+- **AND** 提取 usage 信息

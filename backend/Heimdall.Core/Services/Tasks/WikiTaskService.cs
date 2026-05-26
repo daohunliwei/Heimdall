@@ -7,9 +7,11 @@ using Heimdall.Core.Models;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Services.Search;
+using Heimdall.Core.Tools;
 using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Search;
 using Heimdall.Infrastructure.Services;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -34,6 +36,7 @@ public sealed class WikiTaskService
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IStructuredLogger _structuredLogger;
     private readonly DeterministicStructurePlanner _deterministicPlanner;
+    private readonly AgentOrchestratorService? _agentOrchestrator;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -51,7 +54,8 @@ public sealed class WikiTaskService
         IHostApplicationLifetime appLifetime,
         IStructuredLogger structuredLogger,
         DeterministicStructurePlanner deterministicPlanner,
-        ILogger<WikiTaskService> logger)
+        ILogger<WikiTaskService> logger,
+        AgentOrchestratorService? agentOrchestrator = null)
     {
         _scopeFactory = scopeFactory;
         _taskLlm = taskLlm;
@@ -67,6 +71,7 @@ public sealed class WikiTaskService
         _structuredLogger = structuredLogger;
         _configuration = configuration;
         _deterministicPlanner = deterministicPlanner;
+        _agentOrchestrator = agentOrchestrator;
         _logger = logger;
     }
 
@@ -180,6 +185,9 @@ public sealed class WikiTaskService
             var executingTask = await taskRepo.GetByIdAsync(task.Id)
                 ?? throw new InvalidOperationException($"任务不存在：{task.Id}");
             var effectiveProvider = string.IsNullOrWhiteSpace(provider) ? "ollama" : provider;
+
+            // 读取 Tool Call 配置
+            var toolCallConf = await GetToolCallConfigAsync(execToken);
 
             await MarkTaskStageAsync(
                 taskRepo,
@@ -352,7 +360,8 @@ public sealed class WikiTaskService
 
                 if (strategy == StructurePlanningStrategy.Deterministic)
                 {
-                    wikiStructure = _deterministicPlanner.BuildStructure(codeIndexResult, language);
+                    wikiStructure = _deterministicPlanner.BuildStructure(codeIndexResult, language,
+                        maxPages: recommendedPageCount * 3 / 2); // recommendedPageCount × 1.5
                     structureRawResponse = System.Text.Json.JsonSerializer.Serialize(wikiStructure);
                     structureJson = _wikiParser.SerializeStructure(wikiStructure);
                     await PersistStructureArtifact(artifactRepo, taskRepo, executingTask,
@@ -362,7 +371,8 @@ public sealed class WikiTaskService
                 }
                 else if (strategy == StructurePlanningStrategy.LlmEnhanced)
                 {
-                    wikiStructure = _deterministicPlanner.BuildSkeleton(codeIndexResult, language);
+                    wikiStructure = _deterministicPlanner.BuildSkeleton(codeIndexResult, language,
+                        maxPages: recommendedPageCount * 3 / 2);
                     await PolishSectionsWithLlm(wikiStructure, effectiveProvider, model, customModel, execToken);
                     structureRawResponse = System.Text.Json.JsonSerializer.Serialize(wikiStructure);
                     structureJson = _wikiParser.SerializeStructure(wikiStructure);
@@ -377,7 +387,7 @@ public sealed class WikiTaskService
                 var structurePrompt = _taskPrompt.BuildWikiStructurePromptV7(
                     execOwner, execRepo, localStructure.FileTree, localStructure.Readme,
                     langDisplay, comprehensive, codeUnderstanding, generationProfile,
-                    repositoryDocsSection);
+                    repositoryDocsSection, codeIndex: codeIndexResult);
 
                 await MarkTaskStageAsync(
                     taskRepo,
@@ -397,7 +407,8 @@ public sealed class WikiTaskService
                 {
                     structureAttemptCount++;
                     var structureSw = Stopwatch.StartNew();
-                    var structureResponse = await _taskLlm.GenerateWithMetricsAsync(effectiveProvider, model, customModel, structurePrompt, execToken);
+                    var structureTools = await GetStageToolsAsync("structure_planning", repoPath, searchIndexKey, codeUnderstanding, codeIndexResult, toolCallConf);
+                    var structureResponse = await _taskLlm.GenerateWithMetricsAsync(effectiveProvider, model, customModel, structurePrompt, execToken, tools: structureTools);
                     structureRawResponse = structureResponse.Messages.LastOrDefault()?.Text ?? string.Empty;
                     try
                     {
@@ -407,7 +418,8 @@ public sealed class WikiTaskService
                     }
                     catch { /* 指标记录失败不影响主流程 */ }
                     await LogLlmCallAsync(task.Id, 0, "structure_generation", effectiveProvider, model ?? customModel,
-                        structurePrompt, structureRawResponse, (int)structureSw.ElapsedMilliseconds, false);
+                        structurePrompt, structureRawResponse, (int)structureSw.ElapsedMilliseconds, false,
+                        toolCallLogsJson: ExtractToolCallLogs(structureResponse));
 
                     wikiStructure = _wikiParser.ParseStructure(structureRawResponse, comprehensive);
 
@@ -516,6 +528,18 @@ public sealed class WikiTaskService
 
             var totalBatchCount = Math.Max(1, (int)Math.Ceiling(totalPages / (double)effectiveBatchSize));
 
+            // ── AgentOrchestrator 触发检查 ──
+            var useOrchestrator = _agentOrchestrator != null
+                && _agentOrchestrator.ShouldUseSubAgents(codeIndexResult.SourceFileCount);
+            if (useOrchestrator)
+            {
+                _logger.LogInformation(
+                    "[Wiki] 大仓库检测（{FileCount} 文件），可能启用子代理模式 TaskId={TaskId}",
+                    codeIndexResult.SourceFileCount, task.Id);
+                // TODO: 完整 Orchestrator 实现将在后续迭代中完成
+                // 当前标记为可用但暂不自动启用，保持传统管线路径
+            }
+
             // V4: 跨页面上下文收集器——将已生成页面摘要注入后续页面 prompt
             var generatedPageContexts = new List<(string Title, string Summary)>();
 
@@ -618,8 +642,9 @@ public sealed class WikiTaskService
                     try
                     {
                         // 使用带指标的调用，记录 Token 消耗
+                        var pageTools = await GetStageToolsAsync("page_generation", repoPath, searchIndexKey, codeUnderstanding, codeIndexResult, toolCallConf);
                         var pageResponseObj = await _taskLlm.GenerateWithMetricsAsync(
-                            effectiveProvider, model, customModel, pagePrompt, execToken);
+                            effectiveProvider, model, customModel, pagePrompt, execToken, tools: pageTools);
                         var pageResponse = pageResponseObj.Messages.LastOrDefault()?.Text ?? string.Empty;
 
                         try
@@ -632,7 +657,8 @@ public sealed class WikiTaskService
                         catch { /* 指标记录失败不应中断主流程 */ }
 
                         try { await LogLlmCallAsync(task.Id, stepOrder, "page_generation", effectiveProvider, model ?? customModel,
-                            pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false); } catch { }
+                            pagePrompt, pageResponse, (int)pageSw.ElapsedMilliseconds, false,
+                            toolCallLogsJson: ExtractToolCallLogs(pageResponseObj)); } catch { }
                         _structuredLogger.LogTaskProgress(task.Id, "页面生成", stepOrder, totalPages,
                             $"{page.Title} | {effectiveProvider}/{model ?? customModel} | {pageSw.ElapsedMilliseconds}ms | In={pageResponseObj.Usage?.InputTokenCount ?? 0} Out={pageResponseObj.Usage?.OutputTokenCount ?? 0}");
 
@@ -1162,7 +1188,7 @@ public sealed class WikiTaskService
 
     private async Task LogLlmCallAsync(Guid taskId, int stepOrder, string callType,
         string? provider, string? model, string prompt, string response, int latencyMs,
-        bool isError, string? errorMsg = null)
+        bool isError, string? errorMsg = null, string? toolCallLogsJson = null)
     {
         using var scope = _scopeFactory.CreateScope();
         var logRepo = scope.ServiceProvider.GetRequiredService<ITaskLlmCallLogRepository>();
@@ -1185,13 +1211,72 @@ public sealed class WikiTaskService
             ResponsePreview = response,
             LatencyMs = latencyMs,
             IsError = isError,
-            ErrorMessage = errorMsg
+            ErrorMessage = errorMsg,
+            ToolCallLogsJson = toolCallLogsJson
         };
 
         await logRepo.AddAsync(log);
 
         // 使用原子 SQL 更新累计 token，避免跨 scope 并发冲突
         await taskRepo.IncrementTokensAsync(taskId, promptTokens, completionTokens);
+    }
+
+    /// <summary>
+    /// 从 ChatResponse 中提取 Tool Call 日志（JSON 格式）。
+    /// </summary>
+    private static string? ExtractToolCallLogs(ChatResponse response)
+    {
+        var toolCallEntries = new List<object>();
+        var roundIndex = 0;
+
+        foreach (var msg in response.Messages)
+        {
+            if (msg.Role == ChatRole.Assistant)
+            {
+                var callItems = msg.Contents.OfType<FunctionCallContent>().ToList();
+                if (callItems.Count > 0) roundIndex++;
+
+                foreach (var fc in callItems)
+                {
+                    var args = fc.Arguments ?? new Dictionary<string, object?>();
+                    // 脱敏：截断过长的参数值
+                    var sanitizedArgs = new Dictionary<string, object?>();
+                    foreach (var kvp in args)
+                    {
+                        var raw = kvp.Value?.ToString() ?? "";
+                        sanitizedArgs[kvp.Key] = raw.Length > 500 ? raw[..500] + "..." : raw;
+                    }
+
+                    toolCallEntries.Add(new
+                    {
+                        Round = roundIndex,
+                        ToolName = fc.Name,
+                        Arguments = sanitizedArgs,
+                        CallId = fc.CallId
+                    });
+                }
+            }
+            else if (msg.Role == ChatRole.Tool)
+            {
+                var resultItems = msg.Contents.OfType<FunctionResultContent>().ToList();
+                foreach (var fr in resultItems)
+                {
+                    var resultStr = fr.Result?.ToString() ?? "";
+                    toolCallEntries.Add(new
+                    {
+                        Round = roundIndex,
+                        Type = "FunctionResult",
+                        ResultLength = resultStr.Length,
+                        HasError = fr.Exception != null,
+                        CallId = fr.CallId
+                    });
+                }
+            }
+        }
+
+        if (toolCallEntries.Count == 0) return null;
+
+        return System.Text.Json.JsonSerializer.Serialize(toolCallEntries);
     }
 
     /// <summary>
@@ -1593,9 +1678,9 @@ public sealed class WikiTaskService
     {
         var value = _configuration["StructurePlanning:Strategy"]
             ?? Environment.GetEnvironmentVariable("HEIMDALL_STRUCTURE_PLANNING_STRATEGY")
-            ?? "Deterministic";
+            ?? "LlmJson";
         return Enum.TryParse<StructurePlanningStrategy>(value, true, out var s)
-            ? s : StructurePlanningStrategy.Deterministic;
+            ? s : StructurePlanningStrategy.LlmJson;
     }
 
     private async Task PersistStructureArtifact(
@@ -1643,6 +1728,93 @@ public sealed class WikiTaskService
         var a = text.IndexOf('{');
         var b = text.LastIndexOf('}');
         return a >= 0 && b > a ? text[a..(b + 1)].Trim() : null;
+    }
+
+    /// <summary>
+    /// 读取 Tool Call 配置（全局 + Stage3 + Stage5 开关）。
+    /// </summary>
+    private async Task<(bool GlobalEnabled, bool Stage3Enabled, bool Stage5Enabled)> GetToolCallConfigAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var settingRepo = scope.ServiceProvider.GetRequiredService<ISystemSettingRepository>();
+
+            var globalSetting = await settingRepo.GetByKeyAsync("ToolCall.Enabled");
+            var stage3Setting = await settingRepo.GetByKeyAsync("ToolCall.Stage3.Enabled");
+            var stage5Setting = await settingRepo.GetByKeyAsync("ToolCall.Stage5.Enabled");
+
+            var global = string.Equals(globalSetting?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            var stage3 = string.Equals(stage3Setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            var stage5 = string.Equals(stage5Setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
+
+            return (global, stage3, stage5);
+        }
+        catch
+        {
+            return (false, false, false);
+        }
+    }
+
+    /// <summary>
+    /// 根据阶段和配置构建对应的 AIFunction 工具列表。
+    /// </summary>
+    private async Task<IList<AITool>?> GetStageToolsAsync(
+        string stage,
+        string repoPath,
+        string searchIndexKey,
+        CodeUnderstandingResult? codeUnderstanding,
+        CodeIndexResult? codeIndexResult,
+        (bool GlobalEnabled, bool Stage3Enabled, bool Stage5Enabled) toolCallConf)
+    {
+        if (!toolCallConf.GlobalEnabled)
+            return null;
+
+        var tools = new List<AITool>();
+
+        if (stage == "structure_planning" && toolCallConf.Stage3Enabled)
+        {
+            // Stage 3 工具：调用图查询 + 类定义检索
+            if (codeUnderstanding?.CallGraph is { } cg)
+            {
+                var callGraphDict = await Task.Run(() => BuildCallGraphDict(cg));
+                tools.Add(QueryCallGraphTool.Create(callGraphDict));
+            }
+            if (codeIndexResult?.Entries is { Count: > 0 })
+            {
+                tools.Add(RetrieveClassDefinitionTool.Create(codeIndexResult.Entries));
+            }
+        }
+        else if (stage == "page_generation" && toolCallConf.Stage5Enabled)
+        {
+            // Stage 5 工具：文件读取 + 符号搜索
+            tools.Add(ReadCodeFileTool.Create(repoPath));
+            tools.Add(SearchSymbolsTool.Create(_hybridSearch, searchIndexKey));
+        }
+
+        return tools.Count > 0 ? tools : null;
+    }
+
+    /// <summary>
+    /// 从 CallGraph 构建字典格式，供 QueryCallGraphTool 使用。
+    /// </summary>
+    private static Dictionary<string, (List<string> callers, List<string> callees)> BuildCallGraphDict(
+        CallGraph cg)
+    {
+        var dict = new Dictionary<string, (List<string>, List<string>)>();
+
+        foreach (var edge in cg.Edges)
+        {
+            if (!dict.ContainsKey(edge.CallerSymbol))
+                dict[edge.CallerSymbol] = (new List<string>(), new List<string>());
+            if (!dict.ContainsKey(edge.CalleeSymbol))
+                dict[edge.CalleeSymbol] = (new List<string>(), new List<string>());
+
+            dict[edge.CalleeSymbol].Item1.Add($"{edge.CallerSymbol} ({edge.CallType}, 置信度 {edge.Confidence:F2})");
+            dict[edge.CallerSymbol].Item2.Add($"{edge.CalleeSymbol} ({edge.CallType}, 置信度 {edge.Confidence:F2})");
+        }
+
+        return dict;
     }
 }
 

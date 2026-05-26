@@ -50,8 +50,8 @@
 
 #### Scenario: SQL 执行日志记录
 - **WHEN** SqlSugar 执行任意 SQL 语句
-- **THEN** 系统通过 `OnLogExecuting` 以 Debug 级别记录完整 SQL 语句和参数值
-- **AND** 通过 `OnLogExecuted` 以 Debug 级别记录执行耗时
+- **THEN** 系统通过 `OnLogExecuting` 记录 SQL 语句（参数值替换为 `***` 脱敏）
+- **AND** 通过 `OnLogExecuted` 记录执行完成标记
 
 #### Scenario: SQL 日志脱敏
 - **WHEN** SQL 语句中包含敏感信息（如密码、Token）

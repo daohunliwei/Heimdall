@@ -8,6 +8,7 @@ namespace Heimdall.Infrastructure.Providers;
 /// <summary>
 /// ChatClient 工厂 — 根据 Provider ID 创建并缓存 IChatClient 实例（替代原 ProviderRegistry）
 /// </summary>
+[Obsolete("使用 IServiceProvider.GetKeyedService<IChatClient>() 直接获取")]
 public class ChatClientFactory
 {
     private readonly ConcurrentDictionary<string, IChatClient> _clients = new();

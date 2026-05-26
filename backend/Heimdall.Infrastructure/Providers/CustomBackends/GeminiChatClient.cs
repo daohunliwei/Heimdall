@@ -39,10 +39,36 @@ public class GeminiChatClient : IChatClient
         using var doc = JsonDocument.Parse(responseJson);
         var root = doc.RootElement;
 
-        var text = root.GetProperty("candidates")[0]
-            .GetProperty("content")
-            .GetProperty("parts")[0]
-            .GetProperty("text").GetString() ?? string.Empty;
+        var candidate = root.GetProperty("candidates")[0];
+        var candidateContent = candidate.GetProperty("content");
+        var parts = candidateContent.GetProperty("parts");
+
+        // 构建响应消息，支持 Function Call 和文本内容
+        var contents = new List<AIContent>();
+        foreach (var part in parts.EnumerateArray())
+        {
+            if (part.TryGetProperty("functionCall", out var funcCall))
+            {
+                var name = funcCall.GetProperty("name").GetString() ?? string.Empty;
+                var argsJson = funcCall.TryGetProperty("args", out var argsProp)
+                    ? argsProp.GetRawText()
+                    : "{}";
+
+                contents.Add(new FunctionCallContent(name, argsJson));
+            }
+            else if (part.TryGetProperty("text", out var textProp))
+            {
+                var text = textProp.GetString() ?? string.Empty;
+                if (!string.IsNullOrEmpty(text))
+                    contents.Add(new TextContent(text));
+            }
+        }
+
+        // 如果没有 AIContent，回退到纯文本
+        if (contents.Count == 0)
+        {
+            contents.Add(new TextContent(parts[0].TryGetProperty("text", out var t) ? t.GetString() ?? "" : ""));
+        }
 
         var usage = new UsageDetails();
         if (root.TryGetProperty("usageMetadata", out var usageMeta))
@@ -55,7 +81,7 @@ public class GeminiChatClient : IChatClient
                 usage.TotalTokenCount = ttc.GetInt32();
         }
 
-        return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
+        return new ChatResponse(new ChatMessage(ChatRole.Assistant, contents))
         {
             Usage = usage,
             ResponseId = Guid.NewGuid().ToString(),
@@ -126,11 +152,48 @@ public class GeminiChatClient : IChatClient
         var systemMessages = msgList.Where(m => m.Role == ChatRole.System).ToList();
         var conversationMessages = msgList.Where(m => m.Role != ChatRole.System).ToList();
 
-        var contents = conversationMessages.Select(m => new
+        var contents = new List<object>();
+
+        foreach (var m in conversationMessages)
         {
-            role = m.Role == ChatRole.User ? "user" : "model",
-            parts = new[] { new { text = m.Text ?? string.Empty } }
-        }).ToList();
+            var role = m.Role == ChatRole.User ? "user" : "model";
+            var parts = new List<object>();
+
+            // 检查是否包含 FunctionCallContent（工具调用请求）
+            foreach (var content in m.Contents)
+            {
+                if (content is FunctionCallContent fcc)
+                {
+                    parts.Add(new
+                    {
+                        functionCall = new
+                        {
+                            name = fcc.Name,
+                            args = fcc.Arguments ?? new Dictionary<string, object?>()
+                        }
+                    });
+                }
+                else if (content is FunctionResultContent frc)
+                {
+                    parts.Add(new
+                    {
+                        functionResponse = new
+                        {
+                            name = frc.CallId ?? "unknown",
+                            response = new { result = frc.Result ?? string.Empty }
+                        }
+                    });
+                }
+            }
+
+            // 如果没有 Function 内容，使用文本
+            if (parts.Count == 0)
+            {
+                parts.Add(new { text = m.Text ?? string.Empty });
+            }
+
+            contents.Add(new { role, parts });
+        }
 
         var requestObj = new Dictionary<string, object>
         {
@@ -152,11 +215,45 @@ public class GeminiChatClient : IChatClient
             if (options.MaxOutputTokens.HasValue) generationConfig["maxOutputTokens"] = options.MaxOutputTokens.Value;
             if (options.TopP.HasValue) generationConfig["topP"] = options.TopP.Value;
             if (generationConfig.Count > 0) requestObj["generationConfig"] = generationConfig;
+
+            // Gemini Function Calling 支持
+            if (options.Tools is { Count: > 0 })
+            {
+                var functionDeclarations = new List<object>();
+                foreach (var tool in options.Tools)
+                {
+                    if (tool is AIFunction func)
+                    {
+                        functionDeclarations.Add(new
+                        {
+                            name = func.Name,
+                            description = func.Description ?? string.Empty,
+                        });
+                    }
+                }
+
+                if (functionDeclarations.Count > 0)
+                {
+                    requestObj["tools"] = new[]
+                    {
+                        new { functionDeclarations }
+                    };
+                }
+            }
         }
 
         return requestObj;
     }
 
+    public ChatClientMetadata Metadata => new("Google Gemini", new Uri("https://generativelanguage.googleapis.com"), _model);
+
+    public TService? GetService<TService>(object? key = null) where TService : class
+        => this as TService;
+
+    object? IChatClient.GetService(Type serviceType, object? serviceKey)
+        => serviceKey is not null ? null
+            : serviceType == typeof(ChatClientMetadata) ? Metadata
+            : serviceType.IsInstanceOfType(this) ? this : null;
+
     void IDisposable.Dispose() { }
-    object? IChatClient.GetService(Type serviceType, object? serviceKey) => null;
 }

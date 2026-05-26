@@ -52,7 +52,7 @@ public class WikiPage
     [SugarColumn(ColumnName = "source_coverage_json", IsJson = true, IsNullable = true)]
     public string? SourceCoverageJson { get; set; }
 
-    [SugarColumn(ColumnDataType = "text[]", IsNullable = true)]
+    [SugarColumn(ColumnDataType = "text []", IsArray = true, IsNullable = true)]
     public string[]? FilePaths { get; set; }
 
     [SugarColumn(ColumnName = "token_count", IsNullable = true)]

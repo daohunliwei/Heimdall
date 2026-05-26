@@ -15,7 +15,7 @@ public class MiniMaxChatClient : IChatClient
     private readonly string _apiKey;
     private readonly string _model;
     private readonly ILogger<MiniMaxChatClient> _logger;
-    private const string BaseUrl = "https://api.minimax.chat/v1";
+    private const string BaseUrl = "https://api.minimaxi.com/v1";
 
     public MiniMaxChatClient(HttpClient httpClient, string apiKey, string model, ILogger<MiniMaxChatClient> logger)
     {
@@ -28,11 +28,16 @@ public class MiniMaxChatClient : IChatClient
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
+        if (options?.Tools is { Count: > 0 })
+        {
+            _logger.LogWarning("MiniMax 暂不支持 Tool Call，忽略 {ToolCount} 个工具", options.Tools.Count);
+        }
+
         var requestBody = BuildRequest(messages, options, stream: false);
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/text/chatcompletion_v2")
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/chat/completions")
         {
             Content = content
         };
@@ -89,11 +94,16 @@ public class MiniMaxChatClient : IChatClient
         IEnumerable<ChatMessage> messages, ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        if (options?.Tools is { Count: > 0 })
+        {
+            _logger.LogWarning("MiniMax 暂不支持 Tool Call，忽略 {ToolCount} 个工具", options.Tools.Count);
+        }
+
         var requestBody = BuildRequest(messages, options, stream: true);
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/text/chatcompletion_v2")
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/chat/completions")
         {
             Content = content
         };
@@ -165,6 +175,15 @@ public class MiniMaxChatClient : IChatClient
         };
     }
 
+    public ChatClientMetadata Metadata => new("MiniMax", new Uri(BaseUrl), _model);
+
+    public TService? GetService<TService>(object? key = null) where TService : class
+        => this as TService;
+
+    object? IChatClient.GetService(Type serviceType, object? serviceKey)
+        => serviceKey is not null ? null
+            : serviceType == typeof(ChatClientMetadata) ? Metadata
+            : serviceType.IsInstanceOfType(this) ? this : null;
+
     void IDisposable.Dispose() { }
-    object? IChatClient.GetService(Type serviceType, object? serviceKey) => null;
 }

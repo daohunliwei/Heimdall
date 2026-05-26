@@ -11,8 +11,8 @@
     <PackageReference Include="AWSSDK.Extensions.Bedrock.MEAI" Version="4.0.3.4" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="9.4.3-preview.1.25230.7" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.4.3-preview.1.25230.7" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.6.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="OllamaSharp" Version="5.4.12" />
     <PackageReference Include="SqlSugarCore" Version="5.1.4.200" />
     <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="10.1.7" />
