@@ -28,7 +28,9 @@ public class PromptOverrideRepository : BaseRepository<RepositoryPromptOverride>
     public async Task<RepositoryPromptOverride?> GetByRepoAndTemplateAsync(Guid repositoryId, Guid templateId)
     {
         return await Context.Queryable<RepositoryPromptOverride>()
-            .FirstAsync(o => o.RepositoryId == repositoryId && o.PromptTemplateId == templateId);
+            .Where(o => o.RepositoryId == repositoryId && o.PromptTemplateId == templateId && o.IsEnabled)
+            .OrderByDescending(o => o.Priority)
+            .FirstAsync();
     }
 
     public async Task<RepositoryPromptOverride> AddAsync(RepositoryPromptOverride override_)

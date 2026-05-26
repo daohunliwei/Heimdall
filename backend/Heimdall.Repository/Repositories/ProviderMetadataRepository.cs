@@ -38,11 +38,22 @@ public class ProviderMetadataRepository : BaseRepository<ProviderModelMetadataEn
 
     public async Task SeedDefaultsAsync(Dictionary<string, (string provider, string model, object metadata)> defaults, CancellationToken ct = default)
     {
+        var keys = defaults.Values.Select(d => (d.provider, d.model)).ToList();
+        if (keys.Count == 0) return;
+
+        // 一次批量查询检查所有已存在的键
+        var existingPairs = await Context.Queryable<ProviderModelMetadataEntity>()
+            .Where(x => keys.Select(k => k.provider).Contains(x.ProviderKey)
+                && keys.Select(k => k.model).Contains(x.ModelName))
+            .Select(x => new { x.ProviderKey, x.ModelName })
+            .ToListAsync(ct);
+
+        var existingSet = existingPairs.Select(x => (x.ProviderKey, x.ModelName)).ToHashSet();
+
         foreach (var (_, (provider, model, _)) in defaults)
         {
-            var exists = await Context.Queryable<ProviderModelMetadataEntity>()
-                .AnyAsync(x => x.ProviderKey == provider && x.ModelName == model);
-            if (!exists) continue;
+            if (existingSet.Contains((provider, model))) continue;
+            // 默认条目不存在——此方法仅用于检查缺失项，实际插入由上层 PromptSeedData 执行
         }
     }
 }
