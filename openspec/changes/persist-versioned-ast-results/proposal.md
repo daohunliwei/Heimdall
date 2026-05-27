@@ -21,8 +21,8 @@
 
 ## Impact
 
-- **数据模型**: 新增 AST 版本主记录与明细记录；扩展 `WikiVersion` 以追踪依赖的 AST 版本
+- **数据模型**: 新增 `AstVersion` 单表（单行全量 JSON + 轻量索引字段）；扩展 `WikiVersion` 以追踪依赖的 AST 版本
 - **后端服务**: 影响 `CodeIndexService`、`CodeUnderstandingService`、`WikiTaskService`、`VersionedKnowledgeService`
-- **仓储层**: 新增 AST 版本读写仓储与查询路径，补齐批量写入和复用逻辑
+- **仓储层**: 新增 AST 版本读写仓储，单次事务写入
 - **任务链路**: AST 持久化需要进入 Wiki 主链路的可观测阶段和结果摘要
 - **后续能力**: 为完整语法树、调用图和其他动态渲染页面提供稳定数据底座

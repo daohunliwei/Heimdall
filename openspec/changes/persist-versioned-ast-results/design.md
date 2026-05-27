@@ -38,29 +38,28 @@ Heimdall 当前已经完成基于 Tree-sitter 的 AST 解析，`TreeSitterAnalyz
 
 **替代方案**：在 `RepositoryVersion` 上直接增加 AST JSON 字段或单一 `AstVersionId`。不采用，因为这会隐式假设一个代码快照永远只有一份 AST 结果，不利于后续重建与并存。
 
-### 决策 2：AST 版本采用“主记录 + 文件明细 + 关系明细”的分层存储，而不是单表大 JSON
+### 决策 2：AST 版本采用”单行主记录 + 全量 JSON + 轻量结构化搜索字段”，而不是多表拆分
 
-**选择**：AST 持久化按三层组织：
+**选择**：AST 持久化为单表 `AstVersion`，一个 `RepositoryVersion` + 解析配置对应一行数据：
 
 ```text
 RepositoryVersion
-    └─ AstVersion
-         ├─ AstFile
-         ├─ AstSymbol
-         ├─ AstCallEdge
-         ├─ AstDependencyEdge
-         ├─ AstChunk
-         └─ AstPatternHint
+    └─ AstVersion (单行)
+         ├── result_json          — 完整序列化的 AstFileResult[]，不可丢失
+         ├── symbol_names_json    — [{name, kind, file}] 轻量符号索引
+         ├── file_list_json       — [{path, language, symbol_count}] 文件清单
+         ├── total_files / total_symbols / total_call_edges / total_chunks — 统计
+         └── config_fingerprint / status / error_message — 元信息
 ```
 
-必要时允许在文件级保存“语法树投影 JSON”，但符号、调用边、依赖边、分块和模式提示采用可查询的结构化明细。
-
 **理由**：
-- 后续语法树展示、调用图查询、符号级搜索都需要结构化查询能力
-- 单表大 JSON 虽然写入简单，但检索、统计、按文件恢复和后续局部复用成本过高
-- 结构化分层更符合现有 SqlSugar 仓储风格，也便于统计数量与状态
+- Wiki 生成当前只需要整体加载结果做 BM25+pgvector 检索，不是逐符号 SQL 查询
+- 单行写入 = 单次 INSERT，天然事务安全，无需跨表协调
+- 远期语法树/调用图可视化可通过 `result_json` 全量加载后内存查询，RepoVersion 粒度可控（通常几十到几百个文件）
+- `symbol_names_json` 和 `file_list_json` 提供 PostgreSQL JSONB 索引能力，覆盖轻量搜索场景
+- 避免明细表行数爆炸（中型仓库可达 10 万+ 符号/边行）
 
-**替代方案**：把所有 AST 数据序列化到任务工件或单个 JSON 列。仅适合作为恢复快照，不适合作为长期能力底座。
+**替代方案**：拆分为 AstFile / AstSymbol / AstCallEdge 等多张明细表。写入复杂、需要跨表事务、查询 JOIN 开销大，且当前没有逐符号 SQL 查询的用例。不采用。
 
 ### 决策 3：AST 版本的唯一性由“RepositoryVersion + 解析配置指纹”定义，而不是仅按 commit 去重
 
@@ -113,22 +112,22 @@ RepositoryVersion
 
 ## Risks / Trade-offs
 
-- **[Risk] 数据量显著增长**：AST 文件、符号、调用边等明细会明显增加表规模 -> **Mitigation**：按 AST 版本分层建表并建立必要索引，只保留展示和追溯所需的核心字段
+- **[Risk] 数据量可控**：单行 `result_json` 对一个中型仓库（~500 源文件）约产生 5-20 MB JSON，属于 PostgreSQL TEXT 列正常范围 -> **Mitigation**：按需压缩或限制单文件分析深度；只保留 Wiki 生成和可视化所需的核心字段
 - **[Risk] 持久化写入耗时增加**：Wiki 主链路前置 AST 落库会拉长执行时间 -> **Mitigation**：优先设计批量写入与复用路径，相同快照命中时直接复用现有 AST 版本
 - **[Risk] 旧数据无法立即补齐 AstVersionId**：已有 `WikiVersion` 可能没有 AST 绑定 -> **Mitigation**：本次按新链路优先，不要求历史数据回填；历史版本缺失时按“不可追溯旧版本”处理
 - **[Trade-off] 冗余存储 AstVersionId**：`WikiVersion` 直接存储 `AstVersionId` 属于依赖快照冗余 -> **Mitigation**：接受该冗余，换取稳定追溯与多 AST 版本并存能力
 
 ## Migration Plan
 
-1. 新增 AST 版本主记录与明细表
+1. 新增 `AstVersion` 单表实体，包含主键、版本绑定、配置指纹、统计字段、`result_json`、轻量索引 JSON 列
 2. 为 `WikiVersion` 增加 `ast_version_id` 字段并支持空值迁移
-3. 落地 AST 仓储与写入服务，先打通独立持久化路径
+3. 落地 AST 仓储与写入服务，打通单次事务写入路径
 4. 调整 Wiki 主链路，在持久化 `WikiVersion` 前解析或复用 AST 版本
 5. 调整任务结果、版本化知识读取与相关摘要输出，补充 AST 版本元信息
 6. 完成测试后，新生成的 Wiki 全部写入 AST 依赖版本；历史数据不强制回填
 
 ## Open Questions
 
-- AST 文件级“语法树投影”采用完全展开节点表，还是保存可渲染 JSON 快照后再配合结构化明细混合使用
-- AST 版本是否需要单独的“当前推荐版本”语义，供非精确追溯场景快速读取
+- ~~AST 文件级”语法树投影”采用完全展开节点表，还是保存可渲染 JSON 快照~~ **已决策**：采用单行 `result_json` 存储完整快照，不展开节点表。当前无逐节点查询需求，远期可视化通过全量加载 + 内存查询实现。
+- AST 版本是否需要单独的”当前推荐版本”语义，供非精确追溯场景快速读取
 - 后续问答、Slides、Workshop 是否在同一轮改造中直接消费 `AstVersionId`，还是先只完成 Wiki 绑定

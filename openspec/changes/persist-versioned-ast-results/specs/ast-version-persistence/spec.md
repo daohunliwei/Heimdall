@@ -14,18 +14,19 @@
 - **THEN** 系统复用已有成功的 AST 版本
 - **AND** 不创建语义重复的有效 AST 版本
 
-### Requirement: AST 明细必须完整落库
-系统 SHALL 持久化未来动态渲染和版本追溯所需的 AST 明细数据。持久化范围 SHALL 至少覆盖文件级语法树投影、符号、调用边、依赖边、声明级分块与模式提示。
+### Requirement: AST 结果以单行全量 JSON 落库并暴露轻量搜索字段
+系统 SHALL 将一次完整 AST 解析的全量结果序列化到单行 `AstVersion` 记录的 `result_json` 字段中，覆盖所有文件的语法树投影、符号、调用边、依赖边、声明级分块与模式提示。同时 SHALL 提供 `symbol_names_json`、`file_list_json` 等轻量结构化字段，用于无需反序列化全量 JSON 的快速搜索。
 
-#### Scenario: 单文件解析结果提交
-- **WHEN** 系统完成某个源码文件的 AST 解析并提交到目标 AST 版本
-- **THEN** 系统保存该文件的语法树投影结果
-- **AND** 同时保存该文件关联的符号、调用边、依赖边、声明级分块和模式提示
+#### Scenario: 完整解析结果落库
+- **WHEN** 系统完成目标 `RepositoryVersion` 下所有源码文件的 AST 解析
+- **THEN** 系统将全量 `AstFileResult[]` 序列化写入单条 `AstVersion` 记录的 `result_json`
+- **AND** 同步写入 `symbol_names_json`（符号名/类型/文件清单）和 `file_list_json`（文件路径/语言/符号数）
+- **AND** 同步写入统计字段：`total_files`、`total_symbols`、`total_call_edges`、`total_chunks`
 
 #### Scenario: AST 版本进入成功态
 - **WHEN** 某个 AST 版本被标记为成功
-- **THEN** 该版本可查询到文件数、符号数、调用边数、依赖边数和分块数
-- **AND** 后续无需重新解析源码即可恢复语法树和调用图展示所需的核心数据
+- **THEN** 该版本 `result_json` 包含所有文件的完整解析结果
+- **AND** 无需重新解析源码即可从 `result_json` 恢复任意文件的符号、调用边、分块和模式提示
 
 ### Requirement: AST 结果支持按分支和提交多版本共存
 系统 SHALL 支持同一仓库在不同分支、不同提交以及不同解析配置上的 AST 版本长期共存，并能稳定定位到目标版本。
