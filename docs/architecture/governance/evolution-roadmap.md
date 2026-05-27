@@ -29,10 +29,10 @@
 
 | 阶段 | 代表版本 | 关键变化 |
 |------|------|------|
-| 基础建设期 | V1 | PostgreSQL + pgvector、四层分离、JWT + RBAC、管理后台 |
+| 基础建设期 | V1 | PostgreSQL、四层分离、JWT + RBAC、管理后台 |
 | 版本化成型期 | V2 | `repositoryId` 路由、`RepositoryVersion`、`WikiVersion` |
 | 任务闭环期 | V3 | 统一队列、阶段工件、Markdown 优先、派生内容并轨 |
-| 深度分析期 | V4-V8 | Prompt 治理、深度代码理解、混合检索、质量闭环、任务恢复 |
+| 深度分析期 | V4-V8 | Prompt 治理、深度代码理解、检索增强探索、质量闭环、任务恢复 |
 | 架构现代化期 | V9 | SqlSugar、MEAI、CodeFirst 自动同步、真流式 SSE |
 | 后 V9 增强期 | Post-V9 | Tree-sitter AST、三策略结构规划、DeepSeek、仓库文档注入 |
 
@@ -46,7 +46,7 @@ timeline
     V1 : 数据基础设施与四层分离
     V2 : 双版本底座与 repositoryId
     V3 : 统一任务队列与阶段工件
-    V4-V8 : 深度分析、混合检索、可观测性、质量闭环
+    V4-V8 : 深度分析、检索增强探索、可观测性、质量闭环
     V9 : SqlSugar + MEAI + 真流式 SSE
     Post-V9 : Tree-sitter AST + 三策略结构规划
 ```

@@ -7,14 +7,11 @@ namespace Heimdall.Repository.Repositories;
 /// <summary>
 /// Wiki 页面仓储实现。V4：已移除旧 WikiId 相关查询，所有页面读写统一通过 WikiVersionId。
 /// </summary>
-public class WikiPageRepository : IWikiPageRepository
+public class WikiPageRepository : BaseRepository<WikiPage>, IWikiPageRepository
 {
-    private readonly ISqlSugarClient _db;
-
     /// <summary>初始化仓储</summary>
-    public WikiPageRepository(ISqlSugarClient db)
+    public WikiPageRepository(ISqlSugarClient db) : base(db)
     {
-        _db = db;
     }
 
     /// <summary>
@@ -25,7 +22,7 @@ public class WikiPageRepository : IWikiPageRepository
     /// <returns>页面列表（按 PageOrder 排序）</returns>
     public async Task<List<WikiPage>> GetByWikiVersionIdAsync(Guid wikiVersionId)
     {
-        return await _db.Queryable<WikiPage>()
+        return await Context.Queryable<WikiPage>()
             .Where(p => p.WikiVersionId == wikiVersionId)
             .OrderBy(p => p.PageOrder)
             .ToListAsync();
@@ -36,7 +33,7 @@ public class WikiPageRepository : IWikiPageRepository
     {
         page.CreatedAt = DateTime.UtcNow;
         page.UpdatedAt = DateTime.UtcNow;
-        await _db.Insertable(page).ExecuteCommandAsync();
+        await Context.Insertable(page).ExecuteCommandAsync();
         return page;
     }
 
@@ -49,7 +46,7 @@ public class WikiPageRepository : IWikiPageRepository
             page.CreatedAt = DateTime.UtcNow;
             page.UpdatedAt = DateTime.UtcNow;
         }
-        await _db.Insertable(pageList).ExecuteCommandAsync();
+        await Context.Insertable(pageList).PageSize(1000).ExecuteCommandAsync();
         return pageList;
     }
 
@@ -57,7 +54,7 @@ public class WikiPageRepository : IWikiPageRepository
     public async Task<WikiPage> UpdateAsync(WikiPage page)
     {
         page.UpdatedAt = DateTime.UtcNow;
-        await _db.Updateable(page).ExecuteCommandAsync();
+        await Context.Updateable(page).ExecuteCommandAsync();
         return page;
     }
 }

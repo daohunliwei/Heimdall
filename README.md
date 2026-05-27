@@ -2,7 +2,7 @@
 
 Heimdall 是一个 AI 驱动的代码仓库智能文档系统，将任意 Git 仓库自动转换为结构化的中文 Wiki 文档、问答、演示文稿与训练营材料。
 
-**技术栈**：C# / ASP.NET Core (.NET 10) + Next.js 16 (App Router) + PostgreSQL/pgvector + SqlSugar + Microsoft.Extensions.AI
+**技术栈**：C# / ASP.NET Core (.NET 10) + Next.js 16 (App Router) + PostgreSQL + SqlSugar + Microsoft.Extensions.AI
 
 ## 架构
 

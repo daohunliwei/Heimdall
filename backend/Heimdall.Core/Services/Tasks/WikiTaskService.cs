@@ -5,6 +5,7 @@ using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
 using Heimdall.Core.Interfaces.Services;
+using Heimdall.Core.Services;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Services.Search;
 using Heimdall.Core.Tools;
@@ -36,7 +37,9 @@ public sealed class WikiTaskService
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly IStructuredLogger _structuredLogger;
     private readonly DeterministicStructurePlanner _deterministicPlanner;
+    private readonly ToolCallConfigurationService _toolCallConfigurationService;
     private readonly AgentOrchestratorService? _agentOrchestrator;
+    private readonly AstPersistenceService _astPersistence;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -54,6 +57,8 @@ public sealed class WikiTaskService
         IHostApplicationLifetime appLifetime,
         IStructuredLogger structuredLogger,
         DeterministicStructurePlanner deterministicPlanner,
+        ToolCallConfigurationService toolCallConfigurationService,
+        AstPersistenceService astPersistence,
         ILogger<WikiTaskService> logger,
         AgentOrchestratorService? agentOrchestrator = null)
     {
@@ -71,6 +76,8 @@ public sealed class WikiTaskService
         _structuredLogger = structuredLogger;
         _configuration = configuration;
         _deterministicPlanner = deterministicPlanner;
+        _toolCallConfigurationService = toolCallConfigurationService;
+        _astPersistence = astPersistence;
         _agentOrchestrator = agentOrchestrator;
         _logger = logger;
     }
@@ -187,7 +194,7 @@ public sealed class WikiTaskService
             var effectiveProvider = string.IsNullOrWhiteSpace(provider) ? "ollama" : provider;
 
             // 读取 Tool Call 配置
-            var toolCallConf = await GetToolCallConfigAsync(execToken);
+            var toolCallConf = await _toolCallConfigurationService.GetConfigAsync();
 
             await MarkTaskStageAsync(
                 taskRepo,
@@ -269,7 +276,7 @@ public sealed class WikiTaskService
                     execToken, markStageAsSuccessful: true);
             }
 
-            // 构建混合搜索索引（BM25 + 向量嵌入），供页面生成时检索真实代码
+            // 构建 BM25 搜索索引，供页面生成时检索真实代码
             var searchIndexKey = $"repo-{executingTask.Id}";
             await BuildSearchIndexAsync(repoPath, codeIndexResult, searchIndexKey, execToken);
 
@@ -496,10 +503,11 @@ public sealed class WikiTaskService
             var settingRepo = execScope.ServiceProvider.GetService<ISystemSettingRepository>();
             if (settingRepo != null)
             {
-                var debugEnabled = await settingRepo.GetByKeyAsync("DebugMode.Enabled");
+                var debugSettings = await settingRepo.GetByKeysAsync(new[] { "DebugMode.Enabled", "DebugMode.MaxPages" });
+                var debugEnabled = debugSettings.GetValueOrDefault("DebugMode.Enabled");
                 if (debugEnabled?.Value == "true")
                 {
-                    var maxPagesSetting = await settingRepo.GetByKeyAsync("DebugMode.MaxPages");
+                    var maxPagesSetting = debugSettings.GetValueOrDefault("DebugMode.MaxPages");
                     var maxPages = int.TryParse(maxPagesSetting?.Value, out var mp) ? mp : 5;
                     if (totalPages > maxPages)
                     {
@@ -836,6 +844,35 @@ public sealed class WikiTaskService
                 execToken,
                 markStageAsSuccessful: true);
 
+            // AST 版本解析与持久化（Wiki 生成的前置依赖）
+            Guid? astVersionId = null;
+            try
+            {
+                var repoVersionRepo = execScope.ServiceProvider.GetRequiredService<IRepositoryVersionRepository>();
+                RepositoryVersion? repoVersion = null;
+                if (executingTask.ResolvedRepositoryVersionId.HasValue)
+                {
+                    repoVersion = await repoVersionRepo.GetByIdAsync(executingTask.ResolvedRepositoryVersionId.Value);
+                }
+
+                repoVersion ??= await repoVersionRepo.GetLatestByRepoBranchAsync(
+                    executingTask.RepositoryId ?? Guid.Empty, branch);
+
+                if (repoVersion != null)
+                {
+                    var astVersion = await _astPersistence.ResolveOrCreateAsync(
+                        repoVersion, repoPath, branch, repoVersion.CommitSha, execToken);
+                    astVersionId = astVersion.Id;
+                    _logger.LogInformation("AST 版本已解析 AstVersionId={AstVersionId} for RepoVersion={RepoVersionId}",
+                        astVersionId, repoVersion.Id);
+                }
+            }
+            catch (Exception astEx)
+            {
+                _logger.LogError(astEx, "AST 持久化失败，阻断 Wiki 成功落库");
+                throw;
+            }
+
             await MarkTaskStageAsync(
                 taskRepo,
                 executingTask,
@@ -853,6 +890,7 @@ public sealed class WikiTaskService
                 language,
                 branch,
                 generationProfile,
+                astVersionId,
                 execToken);
 
             await MarkTaskStageAsync(
@@ -879,7 +917,8 @@ public sealed class WikiTaskService
                 persistenceResult.RepositoryVersionId,
                 persistenceResult.WikiVersionId,
                 debugTruncated,
-                debugOriginalPageCount);
+                debugOriginalPageCount,
+                astVersionId);
             await taskRepo.UpdateAsync(executingTask);
 
             var maxDepth = wikiStructure.Pages.Any() ? wikiStructure.Pages.Max(p => p.Depth) : 0;
@@ -1140,6 +1179,7 @@ public sealed class WikiTaskService
         string language,
         string branch,
         string generationProfile,
+        Guid? astVersionId,
         CancellationToken cancellationToken)
     {
         return await executionRepository.PersistWikiProjectionAsync(
@@ -1149,6 +1189,7 @@ public sealed class WikiTaskService
             language,
             branch,
             generationProfile,
+            astVersionId,
             cancellationToken);
     }
 
@@ -1165,7 +1206,8 @@ public sealed class WikiTaskService
         Guid repositoryVersionId,
         Guid wikiVersionId,
         bool debugTruncated = false,
-        int debugOriginalPageCount = 0)
+        int debugOriginalPageCount = 0,
+        Guid? astVersionId = null)
     {
         return System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -1174,6 +1216,7 @@ public sealed class WikiTaskService
             page_count = structure.Pages.Count,
             repository_version_id = repositoryVersionId,
             wiki_version_id = wikiVersionId,
+            ast_version_id = astVersionId,
             debug_truncated = debugTruncated ? true : (bool?)null,
             debug_original_page_count = debugTruncated ? debugOriginalPageCount : (int?)null,
             pages = structure.Pages.Select(p => new
@@ -1731,32 +1774,6 @@ public sealed class WikiTaskService
     }
 
     /// <summary>
-    /// 读取 Tool Call 配置（全局 + Stage3 + Stage5 开关）。
-    /// </summary>
-    private async Task<(bool GlobalEnabled, bool Stage3Enabled, bool Stage5Enabled)> GetToolCallConfigAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var settingRepo = scope.ServiceProvider.GetRequiredService<ISystemSettingRepository>();
-
-            var globalSetting = await settingRepo.GetByKeyAsync("ToolCall.Enabled");
-            var stage3Setting = await settingRepo.GetByKeyAsync("ToolCall.Stage3.Enabled");
-            var stage5Setting = await settingRepo.GetByKeyAsync("ToolCall.Stage5.Enabled");
-
-            var global = string.Equals(globalSetting?.Value, "true", StringComparison.OrdinalIgnoreCase);
-            var stage3 = string.Equals(stage3Setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
-            var stage5 = string.Equals(stage5Setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
-
-            return (global, stage3, stage5);
-        }
-        catch
-        {
-            return (false, false, false);
-        }
-    }
-
-    /// <summary>
     /// 根据阶段和配置构建对应的 AIFunction 工具列表。
     /// </summary>
     private async Task<IList<AITool>?> GetStageToolsAsync(
@@ -1767,7 +1784,7 @@ public sealed class WikiTaskService
         CodeIndexResult? codeIndexResult,
         (bool GlobalEnabled, bool Stage3Enabled, bool Stage5Enabled) toolCallConf)
     {
-        if (!toolCallConf.GlobalEnabled)
+        if (!toolCallConf.GlobalEnabled || !await _toolCallConfigurationService.IsStageEnabledAsync(stage))
             return null;
 
         var tools = new List<AITool>();

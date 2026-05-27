@@ -44,10 +44,18 @@ public sealed class UserService
 
     public async Task<bool> ValidatePasswordAsync(string username, string password)
     {
+        var (valid, _) = await ValidateAndGetUserAsync(username, password);
+        return valid;
+    }
+
+    /// <summary>验证密码并返回用户对象，避免调用方重复查询。</summary>
+    public async Task<(bool Valid, User? User)> ValidateAndGetUserAsync(string username, string password)
+    {
         var user = await _userRepo.GetByUsernameAsync(username);
         if (user is null || user.PasswordHash is null)
-            return false;
+            return (false, null);
 
-        return BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
+        var valid = BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
+        return (valid, valid ? user : null);
     }
 }

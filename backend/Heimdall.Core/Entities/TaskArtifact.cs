@@ -8,6 +8,7 @@ public class TaskArtifact
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    [SugarColumn(ColumnName = "task_id")]
     public Guid TaskId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(TaskId))]
@@ -34,7 +35,7 @@ public class TaskArtifact
     [SugarColumn(ColumnName = "summary", ColumnDataType = "text", IsNullable = true)]
     public string? Summary { get; set; }
 
-    [SugarColumn(ColumnName = "payload_json", IsJson = true)]
+    [SugarColumn(ColumnName = "payload_json", IsJson = true, ColumnDataType = "text")]
     public string PayloadJson { get; set; } = "{}";
 
     [SugarColumn(ColumnName = "error_message", ColumnDataType = "text", IsNullable = true)]

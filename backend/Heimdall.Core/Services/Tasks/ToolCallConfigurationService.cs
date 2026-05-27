@@ -30,9 +30,12 @@ public sealed class ToolCallConfigurationService
             using var scope = _scopeFactory.CreateScope();
             var settingRepo = scope.ServiceProvider.GetRequiredService<ISystemSettingRepository>();
 
-            var global = await IsEnabledAsync(settingRepo, "ToolCall.Enabled");
-            var stage3 = await IsEnabledAsync(settingRepo, "ToolCall.Stage3.Enabled");
-            var stage5 = await IsEnabledAsync(settingRepo, "ToolCall.Stage5.Enabled");
+            var keys = new[] { "ToolCall.Enabled", "ToolCall.Stage3.Enabled", "ToolCall.Stage5.Enabled" };
+            var settings = await settingRepo.GetByKeysAsync(keys);
+
+            var global = string.Equals(settings.GetValueOrDefault("ToolCall.Enabled")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            var stage3 = string.Equals(settings.GetValueOrDefault("ToolCall.Stage3.Enabled")?.Value, "true", StringComparison.OrdinalIgnoreCase);
+            var stage5 = string.Equals(settings.GetValueOrDefault("ToolCall.Stage5.Enabled")?.Value, "true", StringComparison.OrdinalIgnoreCase);
 
             return (global, stage3, stage5);
         }
@@ -43,9 +46,24 @@ public sealed class ToolCallConfigurationService
         }
     }
 
-    private static async Task<bool> IsEnabledAsync(ISystemSettingRepository settingRepo, string key)
+    /// <summary>
+    /// 判断指定阶段是否允许 Tool Call
+    /// 当前仅暴露结构规划与页面生成两个阶段
+    /// </summary>
+    public async Task<bool> IsStageEnabledAsync(string stageName)
     {
-        var setting = await settingRepo.GetByKeyAsync(key);
-        return string.Equals(setting?.Value, "true", StringComparison.OrdinalIgnoreCase);
+        var config = await GetConfigAsync();
+        if (!config.GlobalEnabled)
+        {
+            return false;
+        }
+
+        return stageName switch
+        {
+            "structure_planning" => config.Stage3Enabled,
+            "page_generation" => config.Stage5Enabled,
+            _ => false
+        };
     }
+
 }

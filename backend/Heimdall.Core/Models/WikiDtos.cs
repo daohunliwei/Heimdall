@@ -47,7 +47,7 @@ public class WikiPageDto
     public List<string> FilePaths { get; set; } = new();
 
     /// <summary>
-    /// 页面搜索关键词——供混合检索引擎在生成时检索真实代码片段。
+    /// 页面搜索关键词——供当前检索链路在生成时检索真实代码片段。
     /// </summary>
     public List<string> SearchKeywords { get; set; } = new();
 

@@ -113,12 +113,11 @@ public class AdminController : ControllerBase
     [HttpGet("debug-config")]
     public async Task<IActionResult> GetDebugConfig()
     {
-        var enabled = await _settingRepo.GetByKeyAsync("DebugMode.Enabled");
-        var maxPages = await _settingRepo.GetByKeyAsync("DebugMode.MaxPages");
+        var dict = await _settingRepo.GetByKeysAsync(new[] { "DebugMode.Enabled", "DebugMode.MaxPages" });
         return Ok(new
         {
-            enabled = enabled?.Value == "true",
-            maxDebugPages = int.TryParse(maxPages?.Value, out var mp) ? mp : 5
+            enabled = dict.TryGetValue("DebugMode.Enabled", out var e) && e?.Value == "true",
+            maxDebugPages = dict.TryGetValue("DebugMode.MaxPages", out var m) && int.TryParse(m?.Value, out var mp) ? mp : 5
         });
     }
 
@@ -208,9 +207,9 @@ public class AdminController : ControllerBase
         {
             ["认证模式"] = new { value = _configService.GetAuthMode(), source = ResolveSource("HEIMDALL_AUTH_MODE") },
             ["开放注册"] = new { value = _configService.GetRegistrationOpen() ? "是" : "否", source = ResolveSource("HEIMDALL_REGISTRATION_OPEN") },
-            ["管线版本"] = new { value = "10 阶段（最新）", source = "default" },
+            ["管线版本"] = new { value = "8 阶段（当前）", source = "default" },
             ["默认 Provider"] = new { value = _configService.GetDefaultProvider(), source = ResolveSource("HEIMDALL_DEFAULT_PROVIDER") },
-            ["嵌入器类型"] = new { value = _configService.GetEmbedderType(), source = ResolveSource("HEIMDALL_EMBEDDER_TYPE") },
+            ["嵌入器类型"] = new { value = "当前未启用独立嵌入链路", source = ResolveSource("HEIMDALL_EMBEDDER_TYPE") },
             ["上下文填充比例"] = new { value = $"{(_configService.GetContextFillRatio() * 100):F0}%", source = "default" }
         };
 

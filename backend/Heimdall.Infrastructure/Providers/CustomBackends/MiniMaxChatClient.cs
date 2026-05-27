@@ -158,6 +158,7 @@ public class MiniMaxChatClient : IChatClient
 
     private object BuildRequest(IEnumerable<ChatMessage> messages, ChatOptions? options, bool stream)
     {
+        var effectiveModel = options?.ModelId ?? _model;
         var msgList = messages.Select(m => new
         {
             role = m.Role == ChatRole.System ? "system" : m.Role == ChatRole.User ? "user" : "assistant",
@@ -166,7 +167,7 @@ public class MiniMaxChatClient : IChatClient
 
         return new
         {
-            model = _model,
+            model = effectiveModel,
             messages = msgList,
             stream,
             temperature = options?.Temperature ?? 0.7f,

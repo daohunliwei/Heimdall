@@ -71,7 +71,7 @@ docker compose logs -f
 docker compose ps
 ```
 
-启动过程：PostgreSQL → 数据库初始化（pgvector 扩展）→ 后端（CodeFirst 自动建表）→ 前端。
+启动过程：PostgreSQL → 数据库初始化（当前实际依赖的扩展）→ 后端（CodeFirst 自动建表）→ 前端。
 
 首次启动约需 30-60 秒（包括镜像拉取）。
 

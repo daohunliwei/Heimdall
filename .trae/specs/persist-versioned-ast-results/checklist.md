@@ -1,0 +1,11 @@
+- [ ] AST 主版本记录可追溯到 `repository_id`、`repository_version_id`、`branch_name`、`commit_sha` 与解析配置
+- [ ] AST 明细持久化能够完整表达文件级语法树投影、符号、调用边、依赖边、声明级分块与设计模式提示
+- [ ] 同一仓库同一分支不同 `commit_sha` 的 AST 结果可长期共存
+- [ ] 同一仓库不同分支的 AST 结果可长期共存且互不覆盖
+- [ ] 同一 `RepositoryVersion` 使用相同解析配置重复执行时不会产生重复有效 AST 版本
+- [ ] AST 持久化失败不会留下可被下游引用的成功版本
+- [ ] `WikiVersion` 可明确追溯其依赖的 AST 版本标识
+- [ ] 任务结果摘要、工件摘要或版本化知识读取路径可返回 AST 版本元信息
+- [ ] 后续动态渲染完整语法树与调用图所需的核心数据已能直接从数据库恢复
+- [ ] `dotnet build backend/Heimdall.Api/Heimdall.Api.csproj` 被纳入实施阶段验收
+- [ ] 新增或修改的实体、仓储、服务注释完备且使用中文

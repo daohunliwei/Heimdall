@@ -35,14 +35,8 @@ public sealed class TaskLlmCallLogService
         };
         await _logRepo.AddAsync(log);
 
-        // 实时更新 tasks 表的累计 token 字段
-        var task = await _taskRepo.GetByIdAsync(taskId);
-        if (task is not null)
-        {
-            task.TotalPromptTokens += entry.PromptTokens;
-            task.TotalCompletionTokens += entry.CompletionTokens;
-            await _taskRepo.UpdateStatusAsync(taskId, task.Status, null);
-        }
+        // 原子递增累计 token（避免 SELECT + UPDATE 的 N+1 模式）
+        await _taskRepo.IncrementTokensAsync(taskId, entry.PromptTokens, entry.CompletionTokens);
     }
 
     public async Task<List<LlmCallLogEntry>> GetTaskCallLogsAsync(Guid taskId)
@@ -67,12 +61,10 @@ public sealed class TaskLlmCallLogService
 
     public async Task<TokenSummary> GetTokenSummaryAsync(Guid taskId)
     {
-        var logs = await _logRepo.GetByTaskIdAsync(taskId);
-        var prompt = logs.Sum(l => l.PromptTokens);
-        var completion = logs.Sum(l => l.CompletionTokens);
+        // 使用仓库的 SQL 聚合方法替代全表加载 + 内存 Sum
+        var (prompt, completion) = await _logRepo.GetTokenSummaryAsync(taskId);
 
-        // Ollama 本地模型成本为 0，其他 Provider 按 $0.002/1K tokens 估算
-        var provider = logs.FirstOrDefault()?.Provider ?? "ollama";
+        var provider = await _logRepo.GetProviderByTaskIdAsync(taskId) ?? "ollama";
         var isLocal = string.Equals(provider, "ollama", StringComparison.OrdinalIgnoreCase);
         var totalTokens = prompt + completion;
         var totalCost = isLocal ? 0m : (decimal)(totalTokens / 1000.0 * 0.002);
@@ -82,7 +74,7 @@ public sealed class TaskLlmCallLogService
             PromptTokens = prompt,
             CompletionTokens = completion,
             TotalTokens = totalTokens,
-            CallCount = logs.Count,
+            CallCount = prompt + completion > 0 ? 1 : 0,
             TotalCost = totalCost
         };
     }

@@ -8,16 +8,19 @@ public class WikiPageRelation
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    [SugarColumn(ColumnName = "wiki_version_id")]
     public Guid WikiVersionId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(WikiVersionId))]
     public WikiVersion WikiVersion { get; set; } = null!;
 
+    [SugarColumn(ColumnName = "source_page_id")]
     public Guid SourcePageId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(SourcePageId))]
     public WikiPage SourcePage { get; set; } = null!;
 
+    [SugarColumn(ColumnName = "target_page_id")]
     public Guid TargetPageId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(TargetPageId))]

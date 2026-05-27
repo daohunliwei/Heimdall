@@ -42,7 +42,9 @@ public class ProviderMetadataStartupLoader : IHostedService
                     CallPrice = e.CallPrice,
                     SupportsCaching = e.SupportsCaching,
                     ContextFillRatio = e.ContextFillRatio,
-                    ContextWarningThreshold = e.ContextWarningThreshold
+                    ContextWarningThreshold = e.ContextWarningThreshold,
+                    SupportsStreaming = e.SupportsStreaming,
+                    RawEndpoint = e.RawEndpoint
                 };
             }
             _configService.SetMetadataOverrides(overrides);

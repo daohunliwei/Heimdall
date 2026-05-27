@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Heimdall.Infrastructure.Configuration;
 using Heimdall.Infrastructure.Utilities;
 using Microsoft.Extensions.AI;
@@ -33,7 +34,37 @@ public sealed class TaskLlmService
         string provider, string? model, string? customModel, string prompt,
         CancellationToken ct, string? systemPrompt = null)
     {
-        var response = await GenerateWithMetricsAsync(provider, model, customModel, prompt, ct, systemPrompt);
+        var messages = new List<ChatMessage>();
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            messages.Add(new ChatMessage(ChatRole.System, systemPrompt));
+        }
+
+        messages.Add(new ChatMessage(ChatRole.User, prompt));
+
+        var response = await GenerateWithMetricsAsync(
+            provider,
+            model,
+            customModel,
+            messages,
+            new ChatOptions(),
+            ct);
+        return response.Messages.LastOrDefault()?.Text ?? string.Empty;
+    }
+
+    /// <summary>
+    /// 基于结构化消息生成文本
+    /// 该入口是当前推荐主路径
+    /// </summary>
+    public async Task<string> GenerateTextAsync(
+        string provider,
+        string? model,
+        string? customModel,
+        IReadOnlyList<ChatMessage> messages,
+        ChatOptions? options,
+        CancellationToken ct)
+    {
+        var response = await GenerateWithMetricsAsync(provider, model, customModel, messages, options, ct);
         return response.Messages.LastOrDefault()?.Text ?? string.Empty;
     }
 
@@ -45,42 +76,17 @@ public sealed class TaskLlmService
         CancellationToken ct, string? systemPrompt = null,
         IList<AITool>? tools = null)
     {
-        var providerId = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
-        var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
-            : !string.IsNullOrWhiteSpace(customModel) ? customModel
-            : null;
-
-        if (string.IsNullOrWhiteSpace(effectiveModel))
-        {
-            throw new InvalidOperationException(
-                $"无法解析 Provider='{providerId}' 的模型。请在请求中指定 model 参数。");
-        }
-
-        var chatClient = _serviceProvider.GetKeyedService<IChatClient>(providerId);
-        if (chatClient is null)
-        {
-            throw new InvalidOperationException(
-                $"未找到 Provider '{providerId}' 的 IChatClient 注册");
-        }
-        var estimatedPromptTokens = TokenCounter.EstimateTokenCount(prompt);
-
-        _logger.LogInformation(
-            "[LLM] 调用开始 Provider={Provider} Model={Model} PromptTokens(est)={PromptTokens}",
-            providerId, effectiveModel, estimatedPromptTokens);
-
-        var sw = Stopwatch.StartNew();
-
         var messages = new List<ChatMessage>();
-        if (!string.IsNullOrEmpty(systemPrompt))
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
             messages.Add(new ChatMessage(ChatRole.System, systemPrompt));
         }
+
         messages.Add(new ChatMessage(ChatRole.User, prompt));
 
         var options = new ChatOptions
         {
-            ModelId = effectiveModel,
-            MaxOutputTokens = 8192,
+            MaxOutputTokens = 8192
         };
 
         if (tools is { Count: > 0 })
@@ -88,9 +94,47 @@ public sealed class TaskLlmService
             options.Tools = tools;
         }
 
+        return await GenerateWithMetricsAsync(provider, model, customModel, messages, options, ct);
+    }
+
+    /// <summary>
+    /// 带完整指标的结构化消息调用
+    /// 统一由 ChatOptions 承载模型与工具参数
+    /// </summary>
+    public async Task<ChatResponse> GenerateWithMetricsAsync(
+        string provider,
+        string? model,
+        string? customModel,
+        IReadOnlyList<ChatMessage> messages,
+        ChatOptions? options,
+        CancellationToken ct)
+    {
+        var providerId = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
+        var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
+            : !string.IsNullOrWhiteSpace(customModel) ? customModel
+            : ResolveDefaultModel(providerId);
+
+        if (string.IsNullOrWhiteSpace(effectiveModel))
+        {
+            throw new InvalidOperationException(
+                $"无法解析 Provider='{providerId}' 的模型。请在请求中指定 model 参数。");
+        }
+
+        var chatClient = _serviceProvider.GetRequiredKeyedService<IChatClient>(providerId);
+        var estimatedPromptTokens = EstimateMessageTokens(messages);
+
+        _logger.LogInformation(
+            "[LLM] 调用开始 Provider={Provider} Model={Model} PromptTokens(est)={PromptTokens}",
+            providerId, effectiveModel, estimatedPromptTokens);
+
+        var sw = Stopwatch.StartNew();
+        var effectiveOptions = options ?? new ChatOptions();
+        effectiveOptions.ModelId = effectiveModel;
+        effectiveOptions.MaxOutputTokens ??= 8192;
+
         try
         {
-            var response = await chatClient.GetResponseAsync(messages, options, ct);
+            var response = await chatClient.GetResponseAsync(messages, effectiveOptions, ct);
             sw.Stop();
 
             var usage = response.Usage ?? new UsageDetails();
@@ -119,8 +163,38 @@ public sealed class TaskLlmService
         var providerId = !string.IsNullOrWhiteSpace(provider) ? provider : "ollama";
         var effectiveModel = !string.IsNullOrWhiteSpace(model) ? model
             : !string.IsNullOrWhiteSpace(customModel) ? customModel
-            : string.Empty;
+            : ResolveDefaultModel(providerId) ?? string.Empty;
         return (providerId, effectiveModel);
+    }
+
+    /// <summary>
+    /// 从生成器配置中解析 Provider 默认模型
+    /// 未配置时返回 null，由调用方决定是否继续抛错
+    /// </summary>
+    private string? ResolveDefaultModel(string providerId)
+    {
+        var generatorConfig = _configService.GetGeneratorConfig();
+        return generatorConfig.Providers.TryGetValue(providerId, out var definition)
+            ? definition.DefaultModel
+            : null;
+    }
+
+    /// <summary>
+    /// 估算结构化消息的输入 Token
+    /// 仅用于日志观测
+    /// </summary>
+    private static int EstimateMessageTokens(IEnumerable<ChatMessage> messages)
+    {
+        var builder = new StringBuilder();
+        foreach (var message in messages)
+        {
+            if (!string.IsNullOrWhiteSpace(message.Text))
+            {
+                builder.AppendLine(message.Text);
+            }
+        }
+
+        return TokenCounter.EstimateTokenCount(builder.ToString());
     }
 
     private static decimal EstimateCallCost(string provider, long? inputTokens, long? outputTokens)

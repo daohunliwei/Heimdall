@@ -21,6 +21,9 @@ public interface ILlmMetricsRepository
 
     /// <summary>按 TaskId 聚合 Token 消耗统计。</summary>
     Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default);
+
+    /// <summary>批量获取多个任务的聚合指标（一次 GROUP BY 查询）。</summary>
+    Task<Dictionary<Guid, LlmTaskMetricsSummary>> GetSummariesByTaskIdsAsync(IEnumerable<Guid> taskIds, CancellationToken ct = default);
 }
 
 /// <summary>

@@ -79,8 +79,13 @@ public sealed class VersionedKnowledgeService : IVersionedKnowledgeService
             options.WikiVersionId,
             repositoryVersion?.Id);
 
-        repositoryVersion ??= await _repositoryVersionRepository.GetByIdAsync(wikiVersion.RepositoryVersionId)
-            ?? throw new InvalidOperationException($"未找到与 WikiVersion 绑定的 RepositoryVersion：{wikiVersion.RepositoryVersionId}");
+        // wikiVersion 的 RepositoryVersion 已通过 ResolveWikiVersionAsync 加载时的条件查询保证存在
+        // 此处仅在未显式指定 repositoryVersion 时补查（fallback 场景，极少走至此分支）
+        if (repositoryVersion is null)
+        {
+            repositoryVersion ??= await _repositoryVersionRepository.GetByIdAsync(wikiVersion.RepositoryVersionId)
+                ?? throw new InvalidOperationException($"未找到与 WikiVersion 绑定的 RepositoryVersion：{wikiVersion.RepositoryVersionId}");
+        }
 
         if (repositoryVersion.RepositoryId != repository.Id)
             throw new InvalidOperationException("RepositoryVersion 与请求仓库不匹配。");
@@ -228,30 +233,25 @@ public sealed class VersionedKnowledgeService : IVersionedKnowledgeService
         var wikiSpace = await _wikiSpaceRepository.GetByRepoLangViewAsync(repositoryId, language, "default")
             ?? throw new InvalidOperationException($"仓库 {repositoryId} 在语言 {language} 下不存在可用的 WikiSpace。");
 
-        var versions = await _wikiVersionRepository.GetBySpaceIdAsync(wikiSpace.Id);
-        if (versions.Count == 0)
-            throw new InvalidOperationException($"仓库 {repositoryId} 在语言 {language} 下尚未生成 WikiVersion。");
-
         WikiVersion? selectedVersion = null;
 
         if (repositoryVersionId.HasValue)
         {
-            selectedVersion = versions
+            selectedVersion = (await _wikiVersionRepository.GetBySpaceIdAsync(wikiSpace.Id))
                 .Where(version => version.RepositoryVersionId == repositoryVersionId.Value)
                 .OrderByDescending(version => version.VersionNo)
-                .ThenByDescending(version => version.CreatedAt)
                 .FirstOrDefault();
         }
 
         if (selectedVersion is null && wikiSpace.PublishedWikiVersionId.HasValue)
         {
-            selectedVersion = versions.FirstOrDefault(version => version.Id == wikiSpace.PublishedWikiVersionId.Value);
+            selectedVersion = await _wikiVersionRepository.GetByIdAsync(wikiSpace.PublishedWikiVersionId.Value);
         }
 
-        selectedVersion ??= versions
-            .OrderByDescending(version => version.VersionNo)
-            .ThenByDescending(version => version.CreatedAt)
-            .First();
+        selectedVersion ??= await _wikiVersionRepository.GetLatestBySpaceIdAsync(wikiSpace.Id);
+
+        if (selectedVersion is null)
+            throw new InvalidOperationException($"仓库 {repositoryId} 在语言 {language} 下尚未生成 WikiVersion。");
 
         return (selectedVersion, wikiSpace);
     }

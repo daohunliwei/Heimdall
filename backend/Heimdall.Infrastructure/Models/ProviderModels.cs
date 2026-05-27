@@ -58,6 +58,12 @@ public class ProviderModelMetadata
 
     /// <summary>上下文警戒阈值（0-1），默认 0.90。超过此比例时输出警告并截断低优先级内容。</summary>
     public double ContextWarningThreshold { get; set; } = 0.90;
+
+    /// <summary>是否支持流式输出，默认 true。</summary>
+    public bool SupportsStreaming { get; set; } = true;
+
+    /// <summary>OpenAI 兼容 API 的自定义 endpoint URL（覆盖默认端点）。</summary>
+    public string? RawEndpoint { get; set; }
 }
 
 public class ChatCompletionRequest

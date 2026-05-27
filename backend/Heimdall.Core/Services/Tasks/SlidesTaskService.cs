@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -6,18 +7,22 @@ using Microsoft.Extensions.Logging;
 namespace Heimdall.Core.Services.Tasks;
 
 /// <summary>
-/// Slides 派生任务服务实现。
-/// 该实现基于版本化页面与新工件构建演示文稿输入，而不再直接绕过版本层消费旧 Wiki 聚合数据。
+/// Slides 派生任务服务实现
+/// 该实现基于版本化页面与任务工件派生演示文稿规划和单页 HTML 内容
 /// </summary>
 public sealed class SlidesTaskService : ISlidesTaskService
 {
+    private static readonly Regex OrderedListLineRegex = new(
+        @"^\s*(\d+)[\.\)]\s*(.+?)\s*$",
+        RegexOptions.Compiled);
+
     private readonly IVersionedKnowledgeService _versionedKnowledgeService;
     private readonly TaskLlmService _taskLlmService;
     private readonly TaskPromptService _taskPromptService;
     private readonly ILogger<SlidesTaskService> _logger;
 
     /// <summary>
-    /// 初始化 Slides 派生任务服务。
+    /// 初始化 Slides 派生任务服务
     /// </summary>
     public SlidesTaskService(
         IVersionedKnowledgeService versionedKnowledgeService,
@@ -32,7 +37,7 @@ public sealed class SlidesTaskService : ISlidesTaskService
     }
 
     /// <summary>
-    /// 生成演示文稿。
+    /// 生成演示文稿规划与单页幻灯片 HTML
     /// </summary>
     public async Task<SlidesTaskExecutionResult> GenerateAsync(
         SlidesTaskExecutionRequest request,
@@ -42,49 +47,56 @@ public sealed class SlidesTaskService : ISlidesTaskService
 
         var knowledgeContext = await _versionedKnowledgeService.ResolveAsync(request.Options, cancellationToken);
         var languageDisplayName = ResolveLanguageDisplayName(knowledgeContext.EffectiveLanguage);
-        var promptCorpus = BuildSlidesCorpusMarkdown(knowledgeContext);
+        var corpus = BuildSlidesCorpusMarkdown(knowledgeContext);
 
         var planPrompt = _taskPromptService.BuildSlidesPlanPrompt(
             knowledgeContext.Repository.Owner,
             knowledgeContext.Repository.RepoName,
-            promptCorpus,
+            corpus,
             languageDisplayName);
-        var planText = await _taskLlmService.GenerateTextAsync(
+
+        var plan = await _taskLlmService.GenerateTextAsync(
             request.Options.Provider ?? "ollama",
             request.Options.Model,
             request.Options.CustomModel,
             planPrompt,
             cancellationToken);
 
-        var slideDefinitions = ParseSlidePlan(planText);
-        var slideReferenceContext = TrimToLength(promptCorpus, 32_000);
-        var generatedSlides = new List<GeneratedSlideResult>();
-
-        for (var index = 0; index < slideDefinitions.Count; index++)
+        var outlines = ParseSlideOutlines(plan);
+        if (outlines.Count == 0)
         {
+            throw new InvalidOperationException("Slides 规划结果为空，无法生成幻灯片");
+        }
+
+        var slides = new List<GeneratedSlideResult>(outlines.Count);
+        for (var index = 0; index < outlines.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var outline = outlines[index];
             var slidePrompt = _taskPromptService.BuildSlidePrompt(
                 knowledgeContext.Repository.Owner,
                 knowledgeContext.Repository.RepoName,
-                slideDefinitions[index].Title,
-                BuildSlideDescription(slideDefinitions[index].Description, knowledgeContext),
+                outline.Title,
+                outline.Description,
                 index + 1,
-                slideDefinitions.Count,
-                slideReferenceContext,
+                outlines.Count,
+                corpus,
                 languageDisplayName);
 
-            var slideHtml = await _taskLlmService.GenerateTextAsync(
+            var html = await _taskLlmService.GenerateTextAsync(
                 request.Options.Provider ?? "ollama",
                 request.Options.Model,
                 request.Options.CustomModel,
                 slidePrompt,
                 cancellationToken);
 
-            generatedSlides.Add(new GeneratedSlideResult
+            slides.Add(new GeneratedSlideResult
             {
                 Id = $"slide-{index + 1}",
-                Title = slideDefinitions[index].Title,
-                Content = slideDefinitions[index].Description,
-                Html = CleanHtmlResponse(slideHtml)
+                Title = outline.Title,
+                Content = outline.Description,
+                Html = html.Trim()
             });
         }
 
@@ -92,24 +104,25 @@ public sealed class SlidesTaskService : ISlidesTaskService
             "Slides 派生任务完成 RepositoryVersionId={RepositoryVersionId} WikiVersionId={WikiVersionId} SlideCount={SlideCount}",
             knowledgeContext.RepositoryVersion.Id,
             knowledgeContext.WikiVersion.Id,
-            generatedSlides.Count);
+            slides.Count);
 
         return new SlidesTaskExecutionResult
         {
-            Plan = planText,
-            Slides = generatedSlides,
+            Plan = plan,
+            Slides = slides,
             RepositoryVersionId = knowledgeContext.RepositoryVersion.Id,
             WikiVersionId = knowledgeContext.WikiVersion.Id
         };
     }
 
     /// <summary>
-    /// 构建 Slides 使用的统一知识语料。
+    /// 构建 Slides 使用的统一知识语料
     /// </summary>
     private string BuildSlidesCorpusMarkdown(VersionedKnowledgeContext knowledgeContext)
     {
         var artifactContext = _versionedKnowledgeService.BuildArtifactContextMarkdown(knowledgeContext, 10_000);
-        var pageContext = _versionedKnowledgeService.BuildPageContextMarkdown(knowledgeContext, 12, 36_000);
+        var pageContext = _versionedKnowledgeService.BuildPageContextMarkdown(knowledgeContext, 18, 45_000);
+
         var builder = new StringBuilder();
         builder.AppendLine("# 版本化演示文稿输入");
         builder.AppendLine($"- 仓库：{knowledgeContext.Repository.DisplayName}");
@@ -117,6 +130,7 @@ public sealed class SlidesTaskService : ISlidesTaskService
         builder.AppendLine($"- CommitSha：{knowledgeContext.RepositoryVersion.CommitSha}");
         builder.AppendLine($"- WikiVersionId：{knowledgeContext.WikiVersion.Id}");
         builder.AppendLine($"- WikiVersionNo：{knowledgeContext.WikiVersion.VersionNo}");
+        builder.AppendLine($"- 页面数：{knowledgeContext.Pages.Count}");
         builder.AppendLine();
         builder.AppendLine(artifactContext);
         builder.AppendLine();
@@ -125,80 +139,81 @@ public sealed class SlidesTaskService : ISlidesTaskService
     }
 
     /// <summary>
-    /// 解析幻灯片规划文本。
+    /// 解析模型返回的演示文稿规划文本
+    /// 优先识别有序列表，并提取标题与简述
     /// </summary>
-    private static List<(string Title, string Description)> ParseSlidePlan(string planText)
+    private static List<SlideOutline> ParseSlideOutlines(string plan)
     {
-        var result = new List<(string Title, string Description)>();
-        var lines = planText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var line in lines)
+        var outlines = new List<SlideOutline>();
+        if (string.IsNullOrWhiteSpace(plan))
         {
-            var trimmed = line.Trim();
-            var match = System.Text.RegularExpressions.Regex.Match(
-                trimmed,
-                @"^\d+[\.\)]\s*(?:\*\*)?(.+?)(?:\*\*)?\s*[-–—:]\s*(.+)$");
-            if (match.Success)
+            return outlines;
+        }
+
+        foreach (var rawLine in plan.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var match = OrderedListLineRegex.Match(rawLine);
+            if (!match.Success)
             {
-                var title = match.Groups[1].Value.Trim();
-                var description = match.Groups[2].Value.Trim();
-                if (!string.IsNullOrWhiteSpace(title))
-                    result.Add((title, description));
+                continue;
             }
-            else if (!string.IsNullOrWhiteSpace(trimmed) && char.IsDigit(trimmed[0]) && result.Count < 8)
+
+            var content = match.Groups[2].Value.Trim();
+            if (string.IsNullOrWhiteSpace(content))
             {
-                var cleaned = System.Text.RegularExpressions.Regex.Replace(trimmed, @"^\d+[\.\)]\s*\*?\*?", "");
-                cleaned = cleaned.Replace("**", string.Empty).Trim();
-                if (cleaned.Length > 3 && cleaned.Length < 120)
-                    result.Add((cleaned, string.Empty));
+                continue;
+            }
+
+            outlines.Add(ParseSingleOutline(content, outlines.Count + 1));
+        }
+
+        return outlines;
+    }
+
+    /// <summary>
+    /// 解析单条规划项，尽量拆出标题和描述
+    /// </summary>
+    private static SlideOutline ParseSingleOutline(string content, int index)
+    {
+        var normalized = content.Trim().TrimStart('-', '*').Trim();
+        normalized = normalized.Replace('“', '"').Replace('”', '"');
+
+        var quotedTitleMatch = Regex.Match(normalized, "\"([^\"]+)\"");
+        if (quotedTitleMatch.Success)
+        {
+            var title = NormalizeTitle(quotedTitleMatch.Groups[1].Value, index);
+            var description = normalized.Replace(quotedTitleMatch.Value, string.Empty).Trim(' ', '-', ':', '：', '—');
+            return new SlideOutline(title, string.IsNullOrWhiteSpace(description) ? title : description);
+        }
+
+        var separators = new[] { " - ", " — ", " – ", ": ", "： " };
+        foreach (var separator in separators)
+        {
+            var parts = normalized.Split(separator, 2, StringSplitOptions.TrimEntries);
+            if (parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]))
+            {
+                return new SlideOutline(
+                    NormalizeTitle(parts[0], index),
+                    string.IsNullOrWhiteSpace(parts[1]) ? parts[0] : parts[1]);
             }
         }
 
-        if (result.Count == 0)
-        {
-            result.Add(("项目概览", "整体介绍与核心功能"));
-            result.Add(("架构设计", "系统架构与技术选型"));
-        }
-
-        return result;
+        return new SlideOutline(
+            NormalizeTitle(normalized, index),
+            normalized);
     }
 
     /// <summary>
-    /// 组合单页幻灯片描述。
+    /// 规范化标题，避免空标题进入后续生成链路
     /// </summary>
-    private static string BuildSlideDescription(
-        string description,
-        VersionedKnowledgeContext knowledgeContext)
+    private static string NormalizeTitle(string title, int index)
     {
-        var versionSummary = $"请显式体现 RepositoryVersion {knowledgeContext.RepositoryVersion.CommitSha[..Math.Min(8, knowledgeContext.RepositoryVersion.CommitSha.Length)]} 与 WikiVersion v{knowledgeContext.WikiVersion.VersionNo} 的内容基线。";
-        return string.IsNullOrWhiteSpace(description)
-            ? versionSummary
-            : $"{description} {versionSummary}";
+        var normalized = title.Trim().Trim('"');
+        return string.IsNullOrWhiteSpace(normalized) ? $"幻灯片 {index}" : normalized;
     }
 
     /// <summary>
-    /// 清理大模型返回的 HTML 包裹符号。
-    /// </summary>
-    private static string CleanHtmlResponse(string html)
-    {
-        html = html.Trim();
-        if (html.StartsWith("```html", StringComparison.OrdinalIgnoreCase))
-        {
-            html = html["```html".Length..].TrimStart();
-            if (html.EndsWith("```", StringComparison.Ordinal))
-                html = html[..^3].TrimEnd();
-        }
-        else if (html.StartsWith("```", StringComparison.Ordinal))
-        {
-            html = html[3..].TrimStart();
-            if (html.EndsWith("```", StringComparison.Ordinal))
-                html = html[..^3].TrimEnd();
-        }
-
-        return html;
-    }
-
-    /// <summary>
-    /// 将语言代码转换为提示词友好的展示名称。
+    /// 将语言代码转换为提示词友好的展示名称
     /// </summary>
     private static string ResolveLanguageDisplayName(string language)
     {
@@ -206,13 +221,7 @@ public sealed class SlidesTaskService : ISlidesTaskService
     }
 
     /// <summary>
-    /// 按最大长度截断文本。
+    /// 幻灯片规划项
     /// </summary>
-    private static string TrimToLength(string value, int maxLength)
-    {
-        if (string.IsNullOrWhiteSpace(value) || value.Length <= maxLength)
-            return value;
-
-        return value[..maxLength] + "\n\n... (内容已截断)";
-    }
+    private sealed record SlideOutline(string Title, string Description);
 }
