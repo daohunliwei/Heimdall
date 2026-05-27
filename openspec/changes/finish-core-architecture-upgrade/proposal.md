@@ -9,7 +9,7 @@ TreeSitterAnalyzer 已集成并提取了部分 AST 数据，但**提取不完整
 ## What Changes
 
 - **AST 提取完善**：`TreeSitterAnalyzer` 填充 AstSymbol 全部 10 个字段（ParentClass、Modifiers、BaseTypes、AttributeAnnotations 等），不再仅取 Name
-- **AST 数据保真传输**：`CodeIndexService` 保留结构化 AST 数据，不展平为字符串列表；`CodeIndexResult` 新增 AST 元数据字段
+- **AST 数据保真传输**：`CodeIndexService` 通过 `AstPersistenceProjection` 输出完整结构化数据（由 `persist-versioned-ast-results` 的 `AstVersion` 作为持久化目标）；`CodeIndexEntry` 保持摘要字段不变
 - **AST 数据注入结构化提示词**：结构规划提示词注入完整类型层级、方法调用关系、设计模式结构证据（替代当前"23 methods, 156 edges"式无效聚合数字）；页面生成提示词中每个代码块附带 AST 上下文（所属类、调用关系、修饰符、接口实现）
 - **BREAKING**: 删除 `CallGraphBuilder` 和 `DesignPatternDetector` 的正则实现，AST 成为调用图和设计模式的唯一数据源
 - **BREAKING**: 删除 `TaskPromptService` 中所有硬编码提示词（~500 行），全部迁移至数据库；所有管线统一通过 `IPromptMergeService` 获取
@@ -29,6 +29,6 @@ TreeSitterAnalyzer 已集成并提取了部分 AST 数据，但**提取不完整
 
 - **后端重写/删除**: `TreeSitterAnalyzer`（扩展符号提取）、`CallGraphBuilder`（删除，逻辑移入 TreeSitterAnalyzer）、`DesignPatternDetector`（删除，重写为 AST 版本）、`TaskPromptService`（重写为 DB 驱动协调层）、`CodeIndexService`（保留结构化数据）、`CodeUnderstandingService`（接收 AST 数据）、`WikiTaskService`（结构化消息）、`ChatMessageBuilderService`（扩展）
 - **死代码删除**: `TaskRequestUtilityService`（~67 行，仅 DI 注册无注入点，含角色丢弃逻辑）、`IRagContextService`（有接口无实现）、`IWikiExportService`（有接口无实现）、`PromptTemplateService`（~112 行）
-- **数据模型**: `CodeIndexEntry` 新增 AST 元数据字段；`CodeIndexResult` 和 `CodeUnderstandingResult` 新增 AST 结构字段
+- **数据模型**: `CodeIndexEntry` 保持当前摘要字段不变（完整 AST 数据由 `AstVersion` 实体承载）；`CodeUnderstandingResult` 新增 AST 结构字段
 - **数据库**: `prompt_templates` 种子数据扩展
 - **Spec 更新**: 6 个

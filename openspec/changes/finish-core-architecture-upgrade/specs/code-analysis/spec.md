@@ -13,12 +13,13 @@
 - **THEN** TreeSitterAnalyzer.ExtractCallEdges 生成 AstCallEdge：CallerSymbol="UserService.CreateUser"、CalleeSymbol="AddAsync"、CallerFilePath、CalleeFilePath（通过 import 解析）、CallType="direct"、Confidence=0.9
 - **AND** 同文件 AST 调用置信度 ≥ 0.9，跨文件符号名匹配 ≥ 0.7
 
-### Requirement: CodeIndexEntry 保留 AST 结构
-`CodeIndexEntry` SHALL 保留结构化 AST 数据，不再将符号和调用边展平为 `List<string>`。SHALL 新增字段：`Symbols`（`List<AstSymbol>`，完整 10 字段）、`CallEdges`（`List<AstCallEdge>`，完整 6 字段）、`ParentClass`（所属父类名）、`ImplementedInterfaces`（实现的接口列表）、`Modifiers`（访问修饰符列表）。
+### Requirement: AST 结构化数据由 AstVersion 承载
+`CodeIndexEntry` SHALL 保持当前摘要字段（`ExportedSymbols`、`DependencyHints` 等），完整 AST 结构化数据（`AstSymbol`、`AstCallEdge` 等）SHALL 由 `AstVersion` 实体（`persist-versioned-ast-results` 变更已实施）和 `AstPersistenceProjection` 承载和传输。BM25 索引构建时从 `AstVersion` workspace 数据读取 chunks。
 
-#### Scenario: CodeIndexEntry 存储完整 AST 数据
+#### Scenario: CodeIndexEntry 保留摘要不变
 - **WHEN** CodeIndexService 索引文件
-- **THEN** 生成的 CodeIndexEntry 包含完整 AstSymbol 列表和 AstCallEdge 列表，保留所有结构化字段供下游管线使用
+- **THEN** CodeIndexEntry 保留文件级摘要（符号名列表、依赖提示）
+- **AND** 完整结构化数据通过 AstPersistenceProjection → AstVersion 路径持久化
 
 ### Requirement: AST 数据注入结构规划提示词（L1 层）
 结构规划提示词 SHALL 注入三个层次的 AST 数据：(1) 类型层级图——每个关键类的继承链、接口实现列表、公开方法签名；(2) 调用拓扑——关键方法的调用者和被调用者关系，以"X → Y → Z"格式呈现；(3) 设计模式证据——AST 检测到的模式名称、参与类列表和置信度。SHALL 以结构化 Markdown 格式注入，替代仅包含数字聚合的旧格式。

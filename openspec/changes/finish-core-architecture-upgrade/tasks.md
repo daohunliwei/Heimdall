@@ -9,14 +9,13 @@
 - [ ] 1.7 更新 `AstSymbol` 记录：确保全部 10 个字段在提取时填充，不再设 null/空值
 - [ ] 1.8 **TEST** 扩展 `TreeSitterAnalyzerTests`：验证 C# 文件 10 字段完整提取、ExtractCallEdges 同文件/跨文件置信度、不支持语言正则回退
 
-## 2. AST 数据保真传输（CodeIndexEntry 重构）
+## 2. AST 数据保真传输（CodeIndexService 扩展）
 
-- [ ] 2.1 重构 `CodeIndexEntry`：新增 `Symbols`（`List<AstSymbol>`）、`CallEdges`（`List<AstCallEdge>`）、`ParentClass`、`ImplementedInterfaces`、`Modifiers` 字段
-- [ ] 2.2 修改 `CodeIndexService.IndexRepository`：移除 `s.FullSignature` 展平映射，保留完整 AstSymbol/CallEdge 对象
-- [ ] 2.3 修改 `CodeIndexService.ChunkFile`：分块时附带 AST 上下文元数据（所属类、调用关系、修饰符）
-- [ ] 2.4 更新 BM25 索引构建：新增 `AstMetadata` 搜索字段，将符号名+类名+方法签名加入可搜索文本
-- [ ] 2.5 更新 `HybridSearchService.FormatForPrompt`：检索结果附带 AST 上下文（而非仅原始文本）
-- [ ] 2.6 **TEST** 扩展 `CodeIndexServiceTests`：验证 CodeIndexEntry 保留完整 AstSymbol/CallEdge、BM25 索引含 AstMetadata、FormatForPrompt 附带 AST 上下文
+- [ ] 2.1 修改 `CodeIndexService.BuildPersistenceProjection`：确保 `AstPersistenceProjection` 保留完整 AstSymbol/CallEdge（由 `persist-versioned-ast-results` 的 `AstVersion` 作为持久化目标）
+- [ ] 2.2 修改 `CodeIndexService.ChunkFile`：分块时附带 AST 上下文元数据（所属类、调用关系、修饰符）
+- [ ] 2.3 更新 BM25 索引构建：将符号名+类名+方法签名加入可搜索文本，数据来源为 `AstVersion` 的 chunks
+- [ ] 2.4 更新 `HybridSearchService.FormatForPrompt`：检索结果附带 AST 上下文（而非仅原始文本）
+- [ ] 2.5 **TEST** 扩展 `CodeIndexServiceTests`：验证 AstPersistenceProjection 保留完整 AstSymbol/CallEdge、BM25 索引含 AST 元数据、FormatForPrompt 附带 AST 上下文
 
 ## 3. AST L1 层 —— 结构规划提示词注入
 
@@ -34,11 +33,11 @@
 - [ ] 4.3 修改 `WikiTaskService` 页面生成调用点：使用新的 BuildWikiPagePromptAsync（返回结构化消息）
 - [ ] 4.4 **TEST** 扩展 `AstContextFormatterTests`：验证 L2 格式（Class → extends → implements | Signature | Called by → Calls | Design Role）、折叠策略输出
 
-## 5. AST L3 层 —— LLM 工具数据源切换
+## 5. AST L3 层 —— LLM 工具接口定义
 
-- [ ] 5.1 重写 `QueryCallGraphTool`：数据源切换为 `TreeSitterAnalyzer.ExtractCallEdges`(AST)
-- [ ] 5.2 重写 `RetrieveClassDefinitionTool`：数据源切换为完整 AstSymbol 10 字段
-- [ ] 5.3 增强 `SearchSymbolsTool`：支持按 AstSymbol.Kind 筛选
+- [ ] 5.1 定义 `QueryCallGraphTool` AST 数据接口：返回调用边含完整方法签名和置信度（数据源切换由 `cst-backed-code-tools` 完成）
+- [ ] 5.2 定义 `RetrieveClassDefinitionTool` AST 数据接口：返回完整 AstSymbol 10 字段
+- [ ] 5.3 增强 `SearchSymbolsTool`：支持按 AstSymbol.Kind 筛选（从 DB `symbol_names_json` 匹配）
 - [ ] 5.4 **TEST** 新建 `LlmToolsTests`：验证 QueryCallGraph 返回 AST 调用边（含置信度）、RetrieveClassDefinition 返回完整 10 字段、SearchSymbols 按 Kind 筛选
 
 ## 6. AST 设计模式检测（替代正则）
@@ -52,8 +51,8 @@
 ## 7. 删除正则调用图 + 合并管道
 
 - [ ] 7.1 删除 `CallGraphBuilder` 全部代码（~252 行正则实现）
-- [ ] 7.2 修改 `CodeUnderstandingService`：输入改为接收 `CodeIndexResult`（含 AST 数据），不再独立加载原始文件
-- [ ] 7.3 修改 `CodeUnderstandingService.AnalyzeAsync`：设计模式检测和调用拓扑聚合改为基于 AST 数据
+- [ ] 7.2 修改 `CodeUnderstandingService`：输入改为接收 `AstVersion` AST 数据（由 `persist-versioned-ast-results` 提供），不再独立加载原始文件
+- [ ] 7.3 修改 `CodeUnderstandingService.AnalyzeAsync`：设计模式检测和调用拓扑聚合改为基于 AstVersion 的 AST 数据
 - [ ] 7.4 **TEST** 验证 CallGraphBuilder 类已删除（反射断言）；验证 CodeUnderstandingService 不再引用正则类型
 
 ## 8. 提示词 DB 化

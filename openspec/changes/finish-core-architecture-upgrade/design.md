@@ -48,11 +48,12 @@
 │  │   Design role: Strategy Pattern participant           │    │
 │  └──────────────────────────────────────────────────────┘    │
 │                                                              │
-│  L3: 工具级（LLM 按需查询）                                    │
+│  L3: 工具级（LLM 按需查询 — 最终实现见 cst-backed-code-tools）   │
 │  ┌──────────────────────────────────────────────────────┐    │
-│  │ QueryCallGraph("CreateUser") → 调用链完整拓扑          │    │
+│  │ QueryCallGraph("CreateUser") → AST 调用边 → 拓扑      │    │
 │  │ RetrieveClassDefinition("UserService") → 完整类定义    │    │
-│  │ SearchSymbols("IUserRepo") → 所有实现类和引用位置      │    │
+│  │ SearchSymbols("IUserRepo") → 符号索引 → 实现类列表     │    │
+│  │ 数据源: Workspace ast/ 文件 + DB 轻量索引               │    │
 │  └──────────────────────────────────────────────────────┘    │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
@@ -80,32 +81,33 @@
 
 **替代方案被拒绝**：仅提取 Name（当前方案）：无法区分重载、无法推断类型关系、无法构建完整类型图。
 
-### Decision 3: CodeIndexEntry 保留 AST 结构
+### Decision 3: AST 结构化数据存 AstVersion，CodeIndexEntry 仅保留摘要
 
-**选择**：`CodeIndexEntry` 不再将 AST 数据展平为 `List<string>`，改为保留结构化字段：
+**选择**：`CodeIndexEntry` 保持当前摘要字段（`ExportedSymbols`、`DependencyHints` 等），不再扩展为存储完整 `AstSymbol`/`AstCallEdge` 对象。完整 AST 结构化数据由 `AstVersion` 实体（`persist-versioned-ast-results` 变更已实施）作为 canonical source，存储在 Workspace `ast/{version_id}/` 目录或 DB 轻量索引列中。
 
 ```csharp
-// 旧（丢弃结构）
-public List<string> ExportedSymbols { get; set; }  // 仅符号名字符串
-public List<string> DependencyHints { get; set; }  // 仅文件路径字符串
+// CodeIndexEntry 保持摘要（不变）
+public List<string> ExportedSymbols { get; set; }    // 符号名列表
+public List<string> DependencyHints { get; set; }    // 文件路径列表
 
-// 新（保留结构）
-public List<AstSymbol> Symbols { get; set; }        // 完整 10 字段
-public List<AstCallEdge> CallEdges { get; set; }    // 完整 6 字段
-public string? ParentClass { get; set; }            // 所属父类名
-public List<string>? ImplementedInterfaces { get; set; }
-public List<string>? Modifiers { get; set; }
+// 完整 AST 结构化数据走 AstVersion（已实施）
+AstVersion.result_json / ast_dir_path                // 完整 AstFileResult[]
+AstVersion.symbol_names_json                         // 轻量符号索引 (DB)
+AstVersion.file_list_json                            // 文件清单 (DB)
 ```
 
-BM25 索引新增 `AstMetadata` 搜索字段——代码块检索时 AST 上下文随文本一起返回。
+BM25 索引构建时从 `AstVersion` 数据读取 chunks，无需重复解析。
 
-**替代方案被拒绝**：
-- 新建独立的 AST 实体表：增加查询开销，AST 数据应与代码索引紧密绑定
-- 在 CodeIndexEntry 上添加 JSON 列：可查询性差，不利于 BM25 索引
+**理由**：
+- `persist-versioned-ast-results` 已建立独立的 AST 版本化存储，不应在 `CodeIndexEntry` 重复存一套
+- `workspace-filesystem` 变更将大型数据迁出 DB，`CodeIndexEntry` 存完整 AST 会反向增加 DB 体积
+- 职责分离：`CodeIndexEntry` 定位为"文件级索引摘要"，`AstVersion` 定位为"解析结果完整存储"
 
-### Decision 4: 合并 CodeUnderstandingService 到 AST 管道
+**替代方案（已废弃）**：在 `CodeIndexEntry` 上新增 `List<AstSymbol>` 等 DB 列。与 AstVersion 重复，且 workspace 策略反对大 JSON 进 DB。
 
-**选择**：消除"正则管道 vs AST 管道"的双轨制。`CodeUnderstandingService` 不再独立加载原始文件运行正则分析器，而是接收 `CodeIndexResult`（含 AST 数据）作为输入：
+### Decision 4: CodeUnderstandingService 接收 AstVersion 数据
+
+**选择**：消除"正则管道 vs AST 管道"的双轨制。`CodeUnderstandingService` 不再独立加载原始文件运行正则分析器，而是接收来自 `AstVersion` 的 AST 结构化数据作为输入。
 
 ```
 旧架构:
@@ -113,8 +115,9 @@ BM25 索引新增 `AstMetadata` 搜索字段——代码块检索时 AST 上下�
   CodeUnderstandingService(正则) → CodeUnderstandingResult  ← 独立管道，无 AST
 
 新架构:
-  CodeIndexService(AST) → CodeIndexResult (含 AST 结构化数据)
-       └→ CodeUnderstandingService ← 接收 AST 数据
+  TreeSitterAnalyzer → AstVersion (持久化) → AstFileResult[]
+       └→ CodeIndexService → CodeIndexResult (摘要)
+       └→ CodeUnderstandingService ← 接收 AstVersion 数据
             └→ 设计模式检测 (基于 AST 符号关系)
             └→ 调用拓扑聚合 (基于 AST 调用边)
             └→ LLM 架构理解 (注入 AST 类型层级和调用拓扑)
@@ -123,8 +126,12 @@ BM25 索引新增 `AstMetadata` 搜索字段——代码块检索时 AST 上下�
 
 `CallGraphBuilder` 和 `DesignPatternDetector` 的正则实现完全删除。
 
+**理由**：
+- `AstVersion`（由 `persist-versioned-ast-results` 实施）是 AST 数据的 canonical source
+- 避免 `CodeIndexResult` 和 `AstVersion` 存两份 AST 数据
+
 **替代方案被拒绝**：
-- 保留 CodeUnderstandingService 独立加载文件但改用 AST：重复 IO，管道数据一致性无法保证
+- `CodeUnderstandingService` 接收 `CodeIndexResult`：CodeIndexResult 仅含摘要，不含完整 AST
 
 ### Decision 5: 提示词注入格式
 
@@ -159,6 +166,16 @@ AdminController.BatchCreate → UserService.CreateUser
 3. **[Trade-off] 符号名匹配 vs 语义解析**：tree-sitter 无法像 Roslyn 做类型解析，跨文件调用匹配仍基于符号名 → 接受：标记置信度，LLM 提示词中标注 `(推定)`
 4. **[Risk] 设计模式 AST 检测复杂度**：7 种模式需要不同的 AST 节点遍历逻辑 → **Mitigation**：优先实现 Factory/Strategy/Singleton 三种高频模式，其余后续
 
+## 与其他变更的关系
+
+本变更是 AST 10 字段提取 + 提示词注入 + DB 化 + 结构化消息的**上游基础变更**。以下变更在本变更之后实施，且已协调一致：
+
+| 下游变更 | 关系 | 协调点 |
+|---------|------|--------|
+| `persist-versioned-ast-results` ✅ 已实施 | AstVersion 实体是本变更 AST 数据的持久化目标 | AstVersion 存完整 AST，CodeIndexEntry 仅存摘要 |
+| `workspace-filesystem` | Workspace 提供 AST 数据文件存储 | DB→文件迁移后，L1/L2 数据从 workspace 读 |
+| `cst-backed-code-tools` | 实现 L3 Tool 层和混合注入策略 | L3 Tool 数据源 = workspace ast/ + DB 索引 |
+
 ## Data Flow: Before vs After
 
 ```
@@ -168,13 +185,14 @@ TreeSitterAnalyzer → [展平为字符串] → CodeIndexEntry(List<string>)
 CodeUnderstandingService(正则)     → 聚合数字 → Prompt("23 methods...")
 
 AFTER (AST 利用率 >80%):
-TreeSitterAnalyzer → CodeIndexEntry(structured AST)
-       ├→ BM25 索引（文本 + AST 元数据）
-       ├→ CodeUnderstandingService(AST 输入)
+TreeSitterAnalyzer → AstVersion (workspace ast/ 文件 + DB 索引)
+       ├→ CodeIndexService → CodeIndexEntry (摘要)
+       ├→ BM25 索引重用 workspace ast/ chunks
+       ├→ CodeUnderstandingService(AstVersion 数据)
        │     ├→ 设计模式 (AST 节点关系)
        │     └→ 调用拓扑 (AST 调用边)
        └→ Prompt:
              L1: "UserService 继承 BaseService，有 5 public 方法，被 3 Controller 调用"
              L2: "[CreateUser] 是 UserService 的 public async 方法，调用 IUserRepo.AddAsync"
-             L3: QueryCallGraph → AST 调用边数据
+             L3: cst-backed-code-tools 实现 → Tool 从 workspace 文件查 AST 数据
 ```
