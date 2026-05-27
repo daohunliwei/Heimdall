@@ -112,7 +112,7 @@ RepositoryVersion
 
 ## Risks / Trade-offs
 
-- **[Risk] 数据量可控**：单行 `result_json` 对一个中型仓库（~500 源文件）约产生 5-20 MB JSON，属于 PostgreSQL TEXT 列正常范围 -> **Mitigation**：按需压缩或限制单文件分析深度；只保留 Wiki 生成和可视化所需的核心字段
+- **[Risk] 数据量可控**：单行 `result_json` 对一个中型仓库（~500 源文件）约产生 5-20 MB JSON，属于 PostgreSQL TEXT 列正常范围 -> **Mitigation**：按需压缩或限制单文件分析深度；只保留 Wiki 生成和可视化所需的核心字段。**注：`workspace-filesystem` 变更将把此数据迁移到文件系统，进一步消除 DB 体积担忧。**
 - **[Risk] 持久化写入耗时增加**：Wiki 主链路前置 AST 落库会拉长执行时间 -> **Mitigation**：优先设计批量写入与复用路径，相同快照命中时直接复用现有 AST 版本
 - **[Risk] 旧数据无法立即补齐 AstVersionId**：已有 `WikiVersion` 可能没有 AST 绑定 -> **Mitigation**：本次按新链路优先，不要求历史数据回填；历史版本缺失时按“不可追溯旧版本”处理
 - **[Trade-off] 冗余存储 AstVersionId**：`WikiVersion` 直接存储 `AstVersionId` 属于依赖快照冗余 -> **Mitigation**：接受该冗余，换取稳定追溯与多 AST 版本并存能力
