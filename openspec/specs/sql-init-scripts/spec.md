@@ -16,7 +16,7 @@
 
 #### Scenario: 所有业务表创建
 - **WHEN** 执行 `Init_Tables.sql`
-- **THEN** `users`、`repositories`、`tasks`、`task_artifacts`、`task_llm_call_logs`、`wiki_pages`、`repository_versions`、`wiki_spaces`、`wiki_versions`、`wiki_page_relations`、`prompt_templates`、`repository_prompt_overrides`、`prompt_template_histories`、`system_settings`、`code_index_entries`、`code_index_chunks`、`llm_call_metrics`、`provider_model_metadata` 等表全部创建
+- **THEN** `users`、`repositories`、`tasks`、`task_artifacts`、`task_llm_call_logs`、`wiki_pages`、`repository_versions`、`wiki_spaces`、`wiki_versions`、`wiki_page_relations`、`prompt_templates`、`repository_prompt_overrides`、`prompt_template_history`、`system_settings`、`code_index_entries`、`code_index_chunks`、`llm_call_metrics`、`provider_model_metadata` 等表全部创建
 
 ### Requirement: 索引脚本覆盖性能关键索引
 `Init_Indexes.sql` SHALL 包含所有性能关键的数据库索引定义。

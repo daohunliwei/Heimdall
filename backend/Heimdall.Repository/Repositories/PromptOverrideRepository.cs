@@ -48,10 +48,8 @@ public class PromptOverrideRepository : BaseRepository<RepositoryPromptOverride>
 
     public async Task<bool> DeleteAsync(Guid id)
     {
-        var override_ = await Context.Queryable<RepositoryPromptOverride>()
-            .FirstAsync(x => x.Id == id);
-        if (override_ is null) return false;
-        await Context.Deleteable(override_).ExecuteCommandAsync();
-        return true;
+        return await Context.Deleteable<RepositoryPromptOverride>()
+            .Where(x => x.Id == id)
+            .ExecuteCommandAsync() > 0;
     }
 }

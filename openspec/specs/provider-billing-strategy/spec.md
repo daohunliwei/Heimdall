@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Provider 响应标准化
-系统 SHALL 使用 MEAI 的 `ChatResponse` 和 `UsageDetails` 作为统一的 LLM 响应模型。**变更**：废弃自研 `ChatCompletionResponse` 和 `TokenUsage`，改为 MEAI 标准类型。`UsageDetails.AdditionalCounts` 用于标记 `IsEstimated` 等扩展信息。
+系统 SHALL 使用 MEAI 的 `ChatResponse` 和 `UsageDetails` 作为统一的 LLM 响应模型。**变更**：废弃自研 `ChatCompletionResponse`，改为 MEAI 标准类型。`TokenUsage` 类保留用于 `IsEstimated` 标记，`UsageDetails.AdditionalCounts` 方案为后续迭代方向。
 
 #### Scenario: ChatResponse 替代自研模型
 - **WHEN** 任意 LLM 调用完成
@@ -10,7 +10,7 @@
 
 #### Scenario: 流式调用 Token 估算标记
 - **WHEN** 流式 LLM 调用完成且 API 未返回 usage
-- **THEN** 系统使用 TokenCounter 估算并设置 `UsageDetails.AdditionalCounts["IsEstimated"] = true`
+- **THEN** 系统使用 TokenCounter 估算并标记 `TokenUsage.IsEstimated = true`
 
 #### Scenario: 流式调用 API 返回 usage
 - **WHEN** 流式 LLM 调用的最后一个 chunk 包含 usage 字段

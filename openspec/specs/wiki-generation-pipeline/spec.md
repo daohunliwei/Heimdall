@@ -49,20 +49,20 @@ Stage 5 页面生成 SHALL 根据页面的 ContentDepthLevel 使用差异化提�
 - **WHEN** 项目模块数 ≥ 10 且文件数 > 200
 - **THEN** 系统 SHALL 规划 45-80 页 Wiki，支持 4-5 层目录嵌套
 
-### Requirement: 自动质量评估
-全局收敛阶段 SHALL 对每个生成页面执行质量评估，输出 quality_score（0-100），评估维度包含：源代码覆盖度（30% 权重）、技术深度（30% 权重）、可读性（20% 权重）、与标题的相关性（20% 权重）。Stage 7 使用独立的 `quality-review` 提示词模板。
+### Requirement: 自动质量评估（算法评分）
+全局收敛阶段 SHALL 通过 `WikiGlobalConvergenceService.CalculatePageQualityScore()` 对每个生成页面执行算法质量评分（起始 50 分，根据内容长度加分 ≤15、代码块 +10、表格 +5、结构化标题 +5、关联页面 ≤8、源文件 ≤7）。弱页面（评分 < 60）标记为 `needs_regeneration` 触发一轮重生成。
 
 #### Scenario: 识别弱页面
-- **WHEN** 某页面 quality_score < 60
-- **THEN** 系统 SHALL 标记该页面为 `needs_regeneration` 并记录扣分原因
+- **WHEN** 某页面算法评分 < 60
+- **THEN** 系统 SHALL 标记该页面为 `needs_regeneration` 并记录扣分原因（内容过短、缺少代码块/表格等）
 
-#### Scenario: 层级深度不符检测
-- **WHEN** Article 类型页面缺少具体代码引用，内容过于概括
-- **THEN** 质量评估扣分 20 分（技术深度维度），标注"内容深度不符合 article 页面要求"
+#### Scenario: 内容深度不符检测
+- **WHEN** Article 类型页面缺少代码引用、内容过于概括
+- **THEN** 质量评分偏低（代码块和内容长度维度扣分），标注"内容深度不符合 article 页面要求"
 
-#### Scenario: 质量审查使用独立提示词
+#### Scenario: 质量审查执行
 - **WHEN** Stage 7 执行质量审查
-- **THEN** 系统使用 `quality-review` 提示词模板，LLM 输出每页的 quality_score 和扣分原因
+- **THEN** 系统使用 `WikiGlobalConvergenceService.CalculatePageQualityScore()` 进行算法评分
 
 ### Requirement: 弱页面自动重生成
 系统 SHALL 在质量评估后对标记为 `needs_regeneration` 的页面自动触发一轮重生成，重生成 prompt 包含原始内容、质量评估反馈与改进指导，并增加 30% 检索 token 预算。
@@ -103,19 +103,16 @@ Stage 5 页面生成 SHALL 根据页面的 ContentDepthLevel 使用差异化提�
 - **AND** `FunctionInvokingChatClient` 直接透传请求/响应
 - **AND** 行为与当前版本完全一致
 
-### Requirement: WikiTaskService Orchestrator 分支
-系统 SHALL 在 `WikiTaskService.ExecuteAsync` 的 Stage 2（结构规划）完成后，判断是否启用 Orchestrator 路径。若 `AgentOrchestratorService.ShouldUseSubAgents(sourceFileCount)` 返回 `true`，SHALL 使用 Orchestrator 路径并行分发子代理。
+### Requirement: WikiTaskService Orchestrator 分支（已规划）
+系统 SHALL 在 WikiTaskService.ExecuteAsync 中判断是否启用 Orchestrator 路径。当前检测逻辑已就绪（`ShouldUseSubAgents` 输出日志标记），但完整 Orchestrator 分发（`AssignModules` + 子代理并行执行）尚未激活——所有任务仍走传统 8 阶段串行管线。
 
-#### Scenario: Orchestrator 路径分叉
-- **WHEN** `ShouldUseSubAgents` 返回 `true`
-- **THEN** 系统调用 `AssignModules` 获取模块分组
-- **AND** 子代理并行执行 Stage 3（代码理解）+ Stage 5（页面生成）+ Stage 6（质量审查）
-- **AND** 主代理收集结果后执行全局一致性合并和后续持久化
+#### Scenario: Orchestrator 路径分叉（已规划）
+- **WHEN** `ShouldUseSubAgents` 返回 `true`（当前仅输出日志标记）
+- **THEN** 传统管线路径继续执行，不创建子代理
 
-#### Scenario: 传统管线路径
-- **WHEN** `ShouldUseSubAgents` 返回 `false`
-- **THEN** 系统按 Stage 1→2→3→4→5→6→7→8 顺序执行
-- **AND** 不创建子代理
+#### Scenario: 传统管线路径（当前实际路径）
+- **WHEN** 任意 Wiki 任务执行
+- **THEN** 系统按 Stage 1→2→3→4→5→6→7→8 顺序执行，不创建子代理
 
 ### Requirement: 结构规划阶段
 Wiki 生成管线 SHALL 在结构规划阶段根据 `StructurePlanning.Strategy` 配置选择策略：`LlmJson`（LLM 生成 JSON，默认）使用 LLM 生成 JSON 后解析为 WikiStructureDto；`Deterministic` 使用代码索引数据通过目录级聚合算法直接生成 WikiStructureDto；`LlmEnhanced` 使用算法骨架 + LLM 润色。最终产物均为 `WikiStructureDto`，页面生成阶段无感知。结构规划完成后，若满足子代理触发条件，系统 SHALL 可选择使用 Orchestrator 路径进行后续阶段。
@@ -163,5 +160,45 @@ Wiki 生成管线 SHALL 在结构规划阶段根据 `StructurePlanning.Strategy`
 - **WHEN** `ToolCallConfigurationService` 返回 Stage 3 或 Stage 5 关闭
 - **THEN** 系统仍按主流程继续执行
 - **AND** 仅跳过对应阶段的工具增强
-- **AND** 文档中应明确说明这是”可选增强”而不是固定阶段
+
+### Requirement: 多层嵌套 Wiki 目录结构
+系统 SHALL 支持生成 3-5 层嵌套的 Wiki 目录结构。每个节点 SHALL 具有有效的 parentId 指向其父节点，根节点 parentId 为 null。解析器 SHALL 在后处理阶段验证并自动修正无效引用。
+
+#### Scenario: 大型项目 4 层嵌套
+- **WHEN** 仓库包含 15+ 模块，500+ 文件
+- **THEN** 结构规划输出 4 层嵌套结构，每个页面条目包含合法的 parentId
+
+#### Scenario: 小型项目 2 层嵌套
+- **WHEN** 仓库包含 ≤3 模块，< 50 文件
+- **THEN** 结构规划输出 2 层嵌套结构
+
+#### Scenario: parentId 无效引用自动修正
+- **WHEN** LLM 输出 JSON 中某页面的 parentId 指向不存在的页面
+- **THEN** 解析器将该页面的 parentId 设为 null（提升为根节点）并记录 Warning
+
+### Requirement: 拓扑序渐进式页面生成
+系统 SHALL 按树形拓扑序生成 Wiki 页面：先生成顶层页面，再逐层生成子页面。子页面生成时 SHALL 继承父页面摘要作为上下文。BFS 遍历从根节点开始，同层页面可并行，子页面必须等父页面完成后才能开始。
+
+#### Scenario: 父页面先于子页面生成
+- **WHEN** 页面 A 是页面 B 的父页面
+- **THEN** 系统确保 A 在 B 之前生成完成，B 的 prompt 包含 A 的标题和摘要
+
+#### Scenario: 上下文继承链
+- **WHEN** 页面 E（L4）的父页面为 D（L3），D 的父页面为 B（L2）
+- **THEN** E 的生成 prompt 包含 B 的摘要（祖父级）和 D 的摘要（父级）
+
+### Requirement: 前端树形组件层级渲染
+前端 Wiki 目录树组件 SHALL 根据页面 parentId 构建树形数据结构，递归渲染嵌套节点。根节点渲染为顶层条目，子节点缩进展示，支持展开/折叠交互。
+
+#### Scenario: 树形组件渲染多层结构
+- **WHEN** 后端页面列表包含 3 层嵌套关系
+- **THEN** 前端构建 3 层嵌套树，子节点缩进 16px/层，使用展开/折叠箭头
+
+#### Scenario: 旧数据兼容平铺渲染
+- **WHEN** 后端页面列表中所有页面 parentId 为 null（旧版本数据）
+- **THEN** 前端按平铺列表渲染，行为与原来一致
+
+#### Scenario: 当前页面自动展开路径
+- **WHEN** 用户浏览某 Wiki 页面且该页面在树的第 3 层
+- **THEN** 树形组件自动展开该页面的所有祖先节点，并高亮当前页面条目
 

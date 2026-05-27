@@ -70,10 +70,8 @@ public class PromptTemplateRepository : BaseRepository<PromptTemplate>, IPromptT
 
     public async Task<bool> DeleteAsync(Guid id)
     {
-        var template = await Context.Queryable<PromptTemplate>()
-            .FirstAsync(x => x.Id == id);
-        if (template is null) return false;
-        await Context.Deleteable(template).ExecuteCommandAsync();
-        return true;
+        return await Context.Deleteable<PromptTemplate>()
+            .Where(x => x.Id == id)
+            .ExecuteCommandAsync() > 0;
     }
 }
