@@ -4,10 +4,10 @@
 
 ## What Changes
 
-- 将 `AstVersion.result_json` 的存储内容从提取后的 `AstFileResult[]` 改为 Tree-sitter 原始 CST（S-expression 字符串），保证完整语法信息不丢失
-- 保留轻量索引字段（`symbol_names_json`、`file_list_json`），在持久化时同步从 CST 派生计算
-- 修复 `TreeSitterAnalyzer` 中 `attributeAnnotations` 噪声和 `fullSignature` 截断两个 bug，并增加原始 CST（S-expression）输出能力
-- 改造现有 4 个 LLM 代码 Tool（`ReadCodeFile`、`SearchSymbols`、`QueryCallGraph`、`RetrieveClassDefinition`），使其从持久化的 `AstVersion` 数据源读取，而非实时解析文件系统
+- 将 CST S-expression 写入 `workspace/ast/{version_id}/files/{hash}.cst` 文件，DB 只记录 `ast_dir_path`（由 `workspace-filesystem` 变更提供）
+- 保留轻量索引字段（`symbol_names_json`、`file_list_json`）在 DB，同步从 CST 派生
+- 修复 `TreeSitterAnalyzer` 中 `attributeAnnotations` 噪声和 `fullSignature` 截断两个 bug，并增加 `ToCstString()` 方法输出原始 S-expression
+- 改造现有 4 个 LLM 代码 Tool（`ReadCodeFile`、`SearchSymbols`、`QueryCallGraph`、`RetrieveClassDefinition`），使其从 Workspace 文件和 DB 轻量索引读取，而非实时解析文件系统
 - 实现混合注入策略：Wiki 页面生成时预注入 BM25 Top-3 关键代码 + LLM 按需自主调用 Tool 扩展上下文
 - 新增 `lookup_file` 和 `find_usages` 两个 Tool，暴露 CST 级别的文件内容查询和符号引用反查能力
 
@@ -23,8 +23,8 @@
 
 ## Impact
 
-- **数据模型**: `AstVersion.result_json` 内容格式变更（从 `AstFileResult[]` 变为 CST S-expression + 源码的混合 JSON）；新增 `cst_nodes_json` 等辅助字段
+- **数据模型**: 无表结构变更（`ast_dir_path` 已由 `workspace-filesystem` 提供）；轻量索引字段保留在 DB
 - **TreeSitterAnalyzer**: 新增 `ToCstString()` 方法输出原始 S-expression；修复 `attributeAnnotations` 和 `fullSignature` bug
-- **LLM Tools**: 工具实现从文件系统读取改为从 `AstVersion` 数据读取，需要注入 `IAstVersionRepository`
-- **WikiTaskService**: 预注入策略从"注入全部 BM25 结果"改为"Top-3 + Tool 兜底"
-- **验证**: 需重新生成一次 AST 验证 CST S-expression 完整性
+- **LLM Tools**: 工具实现从文件系统实时解析改为从 Workspace 文件 + DB 轻量索引读取
+- **WikiTaskService**: 预注入策略从"注入全部 BM25 结果"改为"Top-3 + Tool 兜底"；`BuildSearchIndexAsync` 从 workspace ast 目录读 chunks
+- **依赖**: **必须先实施 `workspace-filesystem` 变更**，确保 `WorkspaceService` 和 `ast_dir_path` 字段已就绪

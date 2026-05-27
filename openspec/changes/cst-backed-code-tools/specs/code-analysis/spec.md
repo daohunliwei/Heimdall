@@ -27,15 +27,15 @@
 ## MODIFIED Requirements
 
 ### Requirement: AST 分析输出必须可持久化
-代码分析阶段 SHALL 产出可直接序列化为持久化投影的结构化 AST 数据集合。该数据 SHALL 以 CST S-expression 为 canonical source，同时内联包含从 CST 派生的符号、调用边、依赖边、声明级分块与模式提示。
+代码分析阶段 SHALL 产出写入 Workspace 文件系统的 CST S-expression 和派生数据。该数据 SHALL 以 `workspace/ast/{version_id[:8]}/files/{hash}.cst` 文件为 canonical source，同时生成 `manifest.json` 和 `symbols.json` 索引文件。DB 中仅通过 `ast_dir_path` 记录目录路径。
 
-#### Scenario: 代码分析产出持久化投影
+#### Scenario: 代码分析产出文件系统投影
 - **WHEN** 系统完成目标仓库快照下所有源文件的 Tree-sitter 分析
-- **THEN** 结果集合中每个文件条目包含 `cst_sexp`（原始 CST）、`symbols`（符号列表）、`call_edges`（调用边）、`chunks`（分块）
-- **AND** `cst_sexp` 通过 `Node.ToSexp()` 获取，保留完整语法结构
-- **AND** 不需要再次回读源码即可获取符号、调用边或分块信息
+- **THEN** 每个文件的 CST S-expression 写入独立的 `.cst` 文件
+- **AND** `manifest.json` 记录文件清单和统计数据
+- **AND** `symbols.json` 记录符号、调用边、分块的轻量索引
 
 #### Scenario: 代码索引与 CST 投影并存
 - **WHEN** `CodeIndexService` 完成仓库代码索引
 - **THEN** 系统既保留当前代码索引所需摘要
-- **AND** 同时产出包含 CST S-expression 的持久化投影数据
+- **AND** 同时产出写入 workspace 的 CST 持久化投影数据
