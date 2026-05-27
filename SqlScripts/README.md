@@ -8,7 +8,7 @@
 
 | 脚本 | 用途 | 执行顺序 |
 |------|------|----------|
-| `Init_Extensions.sql` | 启用 PostgreSQL 扩展（pgvector、uuid-ossp、pg_trgm） | 1 |
+| `Init_Extensions.sql` | 启用当前实际依赖的 PostgreSQL 扩展 | 1 |
 | `Init_Tables.sql` | 创建所有业务表 | 2 |
 | `Init_Indexes.sql` | 创建外键和常用查询列索引 | 3 |
 | `Init_SeedData.sql` | 插入默认系统设置和提示词模板 | 4 |

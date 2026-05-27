@@ -1,18 +1,18 @@
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Models;
 using Heimdall.Core.Services.Tasks;
+using Heimdall.Infrastructure.AstAnalysis;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services.Repository;
 
 /// <summary>
-/// 深度代码理解服务——编排 CallGraphBuilder + DependencyTopologyService + DesignPatternDetector + LLM 架构理解。
+/// 深度代码理解服务——编排 Tree-sitter AST 分析、依赖拓扑与 LLM 架构理解
 /// </summary>
 public sealed class CodeUnderstandingService : ICodeUnderstandingService
 {
-    private readonly CallGraphBuilder _callGraphBuilder;
     private readonly DependencyTopologyService _dependencyTopology;
-    private readonly DesignPatternDetector _patternDetector;
+    private readonly TreeSitterAnalyzer _analyzer;
     private readonly TaskLlmService _llmService;
     private readonly ILogger<CodeUnderstandingService> _logger;
 
@@ -27,15 +27,13 @@ public sealed class CodeUnderstandingService : ICodeUnderstandingService
     };
 
     public CodeUnderstandingService(
-        CallGraphBuilder callGraphBuilder,
         DependencyTopologyService dependencyTopology,
-        DesignPatternDetector patternDetector,
+        TreeSitterAnalyzer analyzer,
         TaskLlmService llmService,
         ILogger<CodeUnderstandingService> logger)
     {
-        _callGraphBuilder = callGraphBuilder;
         _dependencyTopology = dependencyTopology;
-        _patternDetector = patternDetector;
+        _analyzer = analyzer;
         _llmService = llmService;
         _logger = logger;
     }
@@ -56,17 +54,18 @@ public sealed class CodeUnderstandingService : ICodeUnderstandingService
         _logger.LogInformation("加载了 {SourceCount} 个源文件和 {ProjectCount} 个项目文件",
             sourceFiles.Count, projectFiles.Count);
 
-        // 2. 构建调用图（本地，无 LLM）
-        var callGraph = _callGraphBuilder.Build(sourceFiles);
+        // 2. 基于 AST 提取符号、调用边与模式提示
+        var astResults = AnalyzeSourceFiles(sourceFiles);
+        var callGraph = BuildCallGraph(astResults);
 
         // 3. 构建依赖拓扑（本地，无 LLM）
         _logger.LogInformation("开始构建依赖拓扑...");
         var topology = _dependencyTopology.Build(projectFiles.Concat(sourceFiles));
         _logger.LogInformation("依赖拓扑完成 模块={Modules}", topology.Modules.Count);
 
-        // 4. 检测设计模式（本地，无 LLM）
+        // 4. 汇总设计模式（本地，无 LLM）
         _logger.LogInformation("开始检测设计模式...");
-        var patterns = _patternDetector.Detect(sourceFiles);
+        var patterns = BuildDetectedPatterns(astResults);
         _logger.LogInformation("设计模式检测完成 模式={Patterns}", patterns.Count);
 
         // 5. LLM 辅助架构理解（1-2 次调用）
@@ -90,6 +89,267 @@ public sealed class CodeUnderstandingService : ICodeUnderstandingService
 
         return result;
     }
+
+    /// <summary>
+    /// 批量执行源文件 AST 分析
+    /// </summary>
+    private List<AstAnalysisItem> AnalyzeSourceFiles(IEnumerable<(string filePath, string content)> sourceFiles)
+    {
+        List<AstAnalysisItem> results = [];
+        foreach (var (filePath, content) in sourceFiles)
+        {
+            var language = DetectLanguage(filePath);
+            if (string.IsNullOrWhiteSpace(language))
+            {
+                continue;
+            }
+
+            var result = _analyzer.Analyze(filePath, content, language);
+            results.Add(new AstAnalysisItem(filePath, language, result));
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// 将 AST 结果汇总为调用图
+    /// </summary>
+    private static CallGraph BuildCallGraph(IReadOnlyList<AstAnalysisItem> astResults)
+    {
+        var definitions = astResults
+            .SelectMany(item => item.Result.Symbols)
+            .Where(symbol => symbol.Kind is "method" or "function" or "constructor")
+            .Select(symbol => new SymbolDefinition(
+                BuildQualifiedSymbolName(symbol),
+                symbol.Name,
+                symbol.FilePath))
+            .DistinctBy(symbol => $"{symbol.QualifiedName}|{symbol.FilePath}")
+            .ToList();
+
+        var exactMap = definitions.ToDictionary(symbol => symbol.QualifiedName, StringComparer.OrdinalIgnoreCase);
+        var shortNameMap = definitions
+            .GroupBy(symbol => symbol.ShortName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        List<CallEdge> edges = [];
+        foreach (var item in astResults)
+        {
+            foreach (var edge in item.Result.CallEdges.Where(edge => !edge.CallType.Equals("import", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (string.IsNullOrWhiteSpace(edge.CallerSymbol) || string.IsNullOrWhiteSpace(edge.CalleeSymbol))
+                {
+                    continue;
+                }
+
+                exactMap.TryGetValue(edge.CalleeSymbol, out var exactTarget);
+                shortNameMap.TryGetValue(edge.CalleeSymbol, out var shortTarget);
+                var target = exactTarget ?? shortTarget;
+
+                edges.Add(new CallEdge
+                {
+                    CallerSymbol = edge.CallerSymbol,
+                    CallerFilePath = edge.CallerFilePath,
+                    CalleeSymbol = target?.QualifiedName ?? edge.CalleeSymbol,
+                    CalleeFilePath = target?.FilePath ?? edge.CalleeFilePath,
+                    CallType = ToCallType(edge.CallType),
+                    Confidence = edge.Confidence
+                });
+            }
+        }
+
+        var distinctEdges = edges
+            .DistinctBy(edge => $"{edge.CallerSymbol}|{edge.CallerFilePath}|{edge.CalleeSymbol}|{edge.CalleeFilePath}|{edge.CallType}")
+            .ToList();
+
+        return new CallGraph
+        {
+            Edges = distinctEdges,
+            NodeCount = definitions.Count,
+            MaxDepth = CalculateMaxDepth(distinctEdges)
+        };
+    }
+
+    /// <summary>
+    /// 将 AST 模式提示转换为业务模型
+    /// </summary>
+    private static List<DetectedPattern> BuildDetectedPatterns(IReadOnlyList<AstAnalysisItem> astResults)
+    {
+        List<DetectedPattern> patterns = [];
+        foreach (var item in astResults)
+        {
+            foreach (var hint in item.Result.DesignPatternHints)
+            {
+                var parts = hint.Split('|', 4, StringSplitOptions.TrimEntries);
+                if (parts.Length < 4)
+                {
+                    continue;
+                }
+
+                var participantNames = ExtractParticipantNames(parts[3]);
+                if (participantNames.Count == 0)
+                {
+                    participantNames.AddRange(item.Result.Symbols
+                        .Where(symbol => symbol.Kind is "class" or "interface" or "record" or "struct")
+                        .Select(symbol => symbol.Name)
+                        .Take(2));
+                }
+
+                var confidence = double.TryParse(parts[1], out var parsedConfidence) ? parsedConfidence : 0.7;
+                patterns.Add(new DetectedPattern
+                {
+                    PatternName = parts[0],
+                    Confidence = confidence,
+                    ModuleName = GetModuleName(parts[2]),
+                    Participants = participantNames
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Select(name => new PatternParticipant
+                        {
+                            SymbolName = name,
+                            Role = "Participant",
+                            FilePath = parts[2]
+                        })
+                        .ToList()
+                });
+            }
+        }
+
+        return patterns
+            .DistinctBy(pattern => $"{pattern.PatternName}|{pattern.ModuleName}|{string.Join(",", pattern.Participants.Select(participant => participant.SymbolName))}")
+            .ToList();
+    }
+
+    /// <summary>
+    /// 提取模式参与者名称
+    /// </summary>
+    private static List<string> ExtractParticipantNames(string detail)
+    {
+        return System.Text.RegularExpressions.Regex.Matches(detail, @"[A-Za-z_][A-Za-z0-9_<>]*")
+            .Select(match => match.Value)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 构造限定符号名
+    /// </summary>
+    private static string BuildQualifiedSymbolName(AstSymbol symbol)
+    {
+        return string.IsNullOrWhiteSpace(symbol.ParentClass)
+            ? symbol.Name
+            : $"{symbol.ParentClass}.{symbol.Name}";
+    }
+
+    /// <summary>
+    /// 标准化调用类型
+    /// </summary>
+    private static string ToCallType(string callType)
+    {
+        return callType switch
+        {
+            "import" => "Import",
+            "interface" => "Interface",
+            "event" => "Event",
+            _ => "Direct"
+        };
+    }
+
+    /// <summary>
+    /// 计算调用图最大深度
+    /// </summary>
+    private static int CalculateMaxDepth(IReadOnlyList<CallEdge> edges)
+    {
+        if (edges.Count == 0)
+        {
+            return 0;
+        }
+
+        var adjacency = edges
+            .GroupBy(edge => edge.CallerSymbol)
+            .ToDictionary(group => group.Key, group => group.Select(edge => edge.CalleeSymbol).Distinct().ToList());
+
+        var maxDepth = 0;
+        foreach (var root in adjacency.Keys.Take(100))
+        {
+            HashSet<string> path = [root];
+            Dfs(root, 1, path);
+        }
+
+        return maxDepth;
+
+        void Dfs(string node, int depth, HashSet<string> path)
+        {
+            maxDepth = Math.Max(maxDepth, depth);
+            if (depth >= 30 || !adjacency.TryGetValue(node, out var neighbors))
+            {
+                return;
+            }
+
+            foreach (var neighbor in neighbors)
+            {
+                if (!path.Add(neighbor))
+                {
+                    continue;
+                }
+
+                Dfs(neighbor, depth + 1, path);
+                path.Remove(neighbor);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 推断文件语言
+    /// </summary>
+    private static string DetectLanguage(string filePath)
+    {
+        return Path.GetExtension(filePath).ToLowerInvariant() switch
+        {
+            ".cs" => "csharp",
+            ".ts" => "typescript",
+            ".tsx" => "tsx",
+            ".js" => "javascript",
+            ".jsx" => "javascript",
+            ".py" => "python",
+            ".go" => "go",
+            ".rs" => "rust",
+            ".java" => "java",
+            ".rb" => "ruby",
+            ".php" => "php",
+            ".cpp" or ".cc" or ".cxx" => "cpp",
+            ".c" or ".h" => "c",
+            ".swift" => "swift",
+            ".scala" => "scala",
+            ".cshtml" => "razor",
+            _ => string.Empty
+        };
+    }
+
+    /// <summary>
+    /// 提取模块名
+    /// </summary>
+    private static string GetModuleName(string filePath)
+    {
+        var normalized = filePath.Replace('\\', '/');
+        var directory = Path.GetDirectoryName(normalized)?.Replace('\\', '/');
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return "root";
+        }
+
+        var parts = directory.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? "root" : parts[^1];
+    }
+
+    /// <summary>
+    /// AST 分析中间项
+    /// </summary>
+    private sealed record AstAnalysisItem(string FilePath, string Language, AstFileResult Result);
+
+    /// <summary>
+    /// 符号定义映射项
+    /// </summary>
+    private sealed record SymbolDefinition(string QualifiedName, string ShortName, string FilePath);
 
     private async Task<ArchitectureInsight> GenerateArchitectureInsightAsync(
         CallGraph callGraph, DependencyTopology topology,

@@ -1,9 +1,8 @@
 using System.Runtime.CompilerServices;
-using System.Text;
 using Heimdall.Core.Interfaces.Services;
 using Heimdall.Core.Models;
-using Heimdall.Infrastructure.Providers;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services.Tasks;
@@ -15,18 +14,21 @@ public sealed class AskTaskService : IAskTaskService
 {
     private readonly IVersionedKnowledgeService _versionedKnowledgeService;
     private readonly TaskLlmService _taskLlmService;
-    private readonly ChatClientFactory _chatClientFactory;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ChatMessageBuilderService _chatMessageBuilder;
     private readonly ILogger<AskTaskService> _logger;
 
     public AskTaskService(
         IVersionedKnowledgeService versionedKnowledgeService,
         TaskLlmService taskLlmService,
-        ChatClientFactory chatClientFactory,
+        IServiceProvider serviceProvider,
+        ChatMessageBuilderService chatMessageBuilder,
         ILogger<AskTaskService> logger)
     {
         _versionedKnowledgeService = versionedKnowledgeService;
         _taskLlmService = taskLlmService;
-        _chatClientFactory = chatClientFactory;
+        _serviceProvider = serviceProvider;
+        _chatMessageBuilder = chatMessageBuilder;
         _logger = logger;
     }
 
@@ -46,21 +48,25 @@ public sealed class AskTaskService : IAskTaskService
             knowledgeContext,
             request.DeepResearch ? 12 : 8,
             request.DeepResearch ? 24_000 : 16_000);
-        var historyContext = BuildHistoryContextMarkdown(request.History);
-        var prompt = BuildAskPrompt(
+        var messages = _chatMessageBuilder.BuildAskMessages(
             knowledgeContext,
             request.Question,
             request.FilePath,
             request.DeepResearch,
             artifactContext,
             pageContext,
-            historyContext);
+            request.History);
+        var options = new ChatOptions
+        {
+            MaxOutputTokens = 8192
+        };
 
         var answer = await _taskLlmService.GenerateTextAsync(
             request.Options.Provider ?? "ollama",
             request.Options.Model,
             request.Options.CustomModel,
-            prompt,
+            messages,
+            options,
             cancellationToken);
 
         _logger.LogInformation(
@@ -108,31 +114,28 @@ public sealed class AskTaskService : IAskTaskService
             knowledgeContext,
             request.DeepResearch ? 12 : 8,
             request.DeepResearch ? 24_000 : 16_000);
-        var historyContext = BuildHistoryContextMarkdown(request.History);
-        var prompt = BuildAskPrompt(
+        var messages = _chatMessageBuilder.BuildAskMessages(
             knowledgeContext,
             request.Question,
             request.FilePath,
             request.DeepResearch,
             artifactContext,
             pageContext,
-            historyContext);
+            request.History);
 
         var providerId = request.Options.Provider ?? "ollama";
         var model = request.Options.Model ?? request.Options.CustomModel ?? string.Empty;
 
-        var chatClient = _chatClientFactory.GetClient(providerId);
-
-        var messages = new List<Microsoft.Extensions.AI.ChatMessage>
-        {
-            new(Microsoft.Extensions.AI.ChatRole.User, prompt)
-        };
+        var chatClient = _serviceProvider.GetRequiredKeyedService<IChatClient>(providerId);
 
         var options = new ChatOptions
         {
-            ModelId = model,
             MaxOutputTokens = 8192,
         };
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            options.ModelId = model;
+        }
 
         await foreach (var update in chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
@@ -143,73 +146,5 @@ public sealed class AskTaskService : IAskTaskService
             "Ask 流式任务完成 RepositoryVersionId={RvId} WikiVersionId={WvId}",
             knowledgeContext.RepositoryVersion.Id,
             knowledgeContext.WikiVersion.Id);
-    }
-
-    private static string BuildAskPrompt(
-        VersionedKnowledgeContext knowledgeContext,
-        string question,
-        string? filePath,
-        bool deepResearch,
-        string artifactContext,
-        string pageContext,
-        string historyContext)
-    {
-        var builder = new StringBuilder();
-        builder.AppendLine("你是一个代码仓库技术专家。");
-        builder.AppendLine("你必须严格基于指定版本的仓库页面内容与工件证据回答问题。");
-        builder.AppendLine();
-        builder.AppendLine("## 版本绑定");
-        builder.AppendLine($"- 仓库：{knowledgeContext.Repository.DisplayName}");
-        builder.AppendLine($"- 地址：{knowledgeContext.Repository.RepoUrl}");
-        builder.AppendLine($"- 分支：{knowledgeContext.EffectiveBranch}");
-        builder.AppendLine($"- 输出语言：{knowledgeContext.EffectiveLanguage}");
-        builder.AppendLine($"- RepositoryVersionId：{knowledgeContext.RepositoryVersion.Id}");
-        builder.AppendLine($"- CommitSha：{knowledgeContext.RepositoryVersion.CommitSha}");
-        builder.AppendLine($"- WikiVersionId：{knowledgeContext.WikiVersion.Id}");
-        builder.AppendLine($"- WikiVersionNo：{knowledgeContext.WikiVersion.VersionNo}");
-        builder.AppendLine();
-
-        if (!string.IsNullOrWhiteSpace(filePath))
-        {
-            builder.AppendLine("## 用户关注文件");
-            builder.AppendLine($"- {filePath}");
-            builder.AppendLine();
-        }
-
-        if (!string.IsNullOrWhiteSpace(historyContext))
-        {
-            builder.AppendLine(historyContext);
-            builder.AppendLine();
-        }
-
-        builder.AppendLine(artifactContext);
-        builder.AppendLine();
-        builder.AppendLine(pageContext);
-        builder.AppendLine();
-        builder.AppendLine("## 用户问题");
-        builder.AppendLine(question);
-        builder.AppendLine();
-        builder.AppendLine("## 回答要求");
-        builder.AppendLine("- 只基于上述版本化证据回答，禁止回退到未指定版本或泛化臆测。");
-        builder.AppendLine("- 优先引用版本化页面中的具体证据。");
-        builder.AppendLine("- 当证据不足时，明确说明\"当前版本证据不足\"。");
-        builder.AppendLine("- 回答使用中文。");
-        builder.AppendLine(deepResearch
-            ? "- 需要给出更完整的架构脉络、关键模块关系、潜在限制与可验证依据。"
-            : "- 回答保持聚焦，优先解决当前问题。");
-
-        return builder.ToString();
-    }
-
-    private static string BuildHistoryContextMarkdown(IReadOnlyList<TaskConversationMessage> history)
-    {
-        if (history.Count == 0) return string.Empty;
-
-        var builder = new StringBuilder();
-        builder.AppendLine("## 历史对话");
-        foreach (var message in history.TakeLast(8))
-            builder.AppendLine($"- {message.Role}: {message.Content}");
-
-        return builder.ToString();
     }
 }

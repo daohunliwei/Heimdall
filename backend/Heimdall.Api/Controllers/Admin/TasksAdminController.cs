@@ -32,14 +32,18 @@ public class TasksAdminController : ControllerBase
         [FromQuery] int limit = 20)
     {
         var (items, total) = await _taskRepo.GetAllAsync(status, taskType, null, offset, limit);
-        var tasks = new List<object>();
-        foreach (var t in items)
-        {
-            LlmTaskMetricsSummary? metrics = null;
-            try { metrics = await _observability.GetTaskSummaryAsync(t.Id); } catch { }
 
+        // 批量获取所有任务的指标（一次查询替代 N 次单独查询）
+        var taskIds = items.Select(t => t.Id).ToList();
+        Dictionary<Guid, LlmTaskMetricsSummary> metricDict;
+        try { metricDict = await _observability.GetSummariesByTaskIdsAsync(taskIds); }
+        catch { metricDict = new Dictionary<Guid, LlmTaskMetricsSummary>(); }
+
+        var tasks = items.Select(t =>
+        {
+            metricDict.TryGetValue(t.Id, out var metrics);
             var basic = t.ToTaskStatusResponse();
-            tasks.Add(new
+            return (object)new
             {
                 basic.Id,
                 task_type = basic.TaskType,
@@ -55,8 +59,8 @@ public class TasksAdminController : ControllerBase
                 cache_hit_tokens = metrics?.TotalCacheHitTokens ?? 0L,
                 estimated_cost = metrics?.EstimatedCost ?? 0m,
                 total_calls = metrics?.TotalCalls ?? 0
-            });
-        }
+            };
+        }).ToList();
         return Ok(new { tasks, total = total });
     }
 

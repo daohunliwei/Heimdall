@@ -8,12 +8,13 @@ public class TaskRecord
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
-    [SugarColumn(Length = 16)]
+    [SugarColumn(ColumnName = "task_type", Length = 16)]
     public string TaskType { get; set; } = "wiki";
 
     [SugarColumn(ColumnName = "status", Length = 16)]
     public string Status { get; set; } = "pending";
 
+    [SugarColumn(ColumnName = "repository_id", IsNullable = true)]
     public Guid? RepositoryId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(RepositoryId))]
@@ -22,35 +23,40 @@ public class TaskRecord
     [SugarColumn(ColumnName = "source_branch", Length = 128)]
     public string SourceBranch { get; set; } = "main";
 
+    [SugarColumn(ColumnName = "user_id", IsNullable = true)]
     public Guid? UserId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(UserId))]
     public User? User { get; set; }
 
-    [SugarColumn(Length = 64)]
+    [SugarColumn(ColumnName = "request_hash", Length = 64)]
     public string RequestHash { get; set; } = string.Empty;
 
-    [SugarColumn(Length = 32, IsNullable = true)]
+    [SugarColumn(ColumnName = "provider", Length = 32, IsNullable = true)]
     public string? Provider { get; set; }
 
-    [SugarColumn(Length = 64, IsNullable = true)]
+    [SugarColumn(ColumnName = "model", Length = 64, IsNullable = true)]
     public string? Model { get; set; }
 
-    [SugarColumn(Length = 8, IsNullable = true)]
+    [SugarColumn(ColumnName = "language", Length = 8, IsNullable = true)]
     public string? Language { get; set; }
 
+    [SugarColumn(ColumnName = "progress_percent")]
     public int ProgressPercent { get; set; }
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "progress_message", ColumnDataType = "text", IsNullable = true)]
     public string? ProgressMessage { get; set; }
 
+    [SugarColumn(ColumnName = "total_prompt_tokens")]
     public int TotalPromptTokens { get; set; }
+
+    [SugarColumn(ColumnName = "total_completion_tokens")]
     public int TotalCompletionTokens { get; set; }
 
-    [SugarColumn(IsJson = true, IsNullable = true)]
+    [SugarColumn(ColumnName = "result_json", IsJson = true, ColumnDataType = "text", IsNullable = true)]
     public string? ResultJson { get; set; }
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "error_message", ColumnDataType = "text", IsNullable = true)]
     public string? ErrorMessage { get; set; }
 
     [SugarColumn(ColumnName = "current_stage", Length = 64)]
@@ -98,9 +104,16 @@ public class TaskRecord
     [SugarColumn(ColumnName = "config_hash", Length = 64, IsNullable = true)]
     public string? ConfigHash { get; set; }
 
+    [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [SugarColumn(ColumnName = "updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [SugarColumn(ColumnName = "started_at", IsNullable = true)]
     public DateTime? StartedAt { get; set; }
+
+    [SugarColumn(ColumnName = "completed_at", IsNullable = true)]
     public DateTime? CompletedAt { get; set; }
 
     [Navigate(NavigateType.OneToMany, nameof(TaskLlmCallLog.TaskId))]

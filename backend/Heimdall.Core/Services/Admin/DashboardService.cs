@@ -31,24 +31,17 @@ public sealed class DashboardService
     /// </summary>
     public async Task<DashboardStats> GetDashboardStatsAsync()
     {
-        var (allTasks, _) = await _taskRepo.GetAllAsync(null, null, null, 0, int.MaxValue);
-        var allUsers = await _userRepo.GetAllAsync();
-        var allRepos = await _repoConfigRepo.GetAllAsync();
-
-        var completedTasks = allTasks.Count(t => t.Status == "completed");
-        var failedTasks = allTasks.Count(t => t.Status == "failed");
-        var totalTasks = allTasks.Count;
-        var totalTokens = allTasks.Sum(t => (long)(t.TotalPromptTokens + t.TotalCompletionTokens));
-        // V4：Wiki 数量统计使用已完成的 Wiki 任务数替代旧 Wiki 实体计数
-        var totalWikiTasks = allTasks.Count(t => t.TaskType == "wiki" && t.Status == "completed");
+        var (totalTasks, completedTasks, failedTasks, totalWikiTasks, totalTokens) = await _taskRepo.GetStatisticsAsync();
+        var activeUsers = await _userRepo.CountActiveAsync();
+        var totalRepos = await _repoConfigRepo.CountAsync();
 
         return new DashboardStats
         {
             TotalTasks = totalTasks,
             CompletedTasks = completedTasks,
             FailedTasks = failedTasks,
-            ActiveUsers = allUsers.Count(u => u.IsActive),
-            TotalRepositories = allRepos.Count,
+            ActiveUsers = activeUsers,
+            TotalRepositories = totalRepos,
             TotalWikis = totalWikiTasks,
             SuccessRate = totalTasks > 0 ? (double)completedTasks / totalTasks * 100 : 100,
             TotalTokensUsed = totalTokens

@@ -106,6 +106,70 @@ public sealed partial class CodeIndexService
     }
 
     /// <summary>
+    /// 构建 AST 持久化投影——全量解析仓库所有源文件并产出可直接序列化的结构化数据。
+    /// </summary>
+    public AstPersistenceProjection BuildPersistenceProjection(string repoPath)
+    {
+        _logger.LogInformation("开始构建 AST 持久化投影：{Path}", repoPath);
+
+        var fileResults = new ConcurrentBag<AstFileResult>();
+        var allFiles = Directory.GetFiles(repoPath, "*.*", SearchOption.AllDirectories);
+
+        Parallel.ForEach(allFiles, filePath =>
+        {
+            var relativePath = Path.GetRelativePath(repoPath, filePath).Replace('\\', '/');
+            if (ShouldSkip(relativePath)) return;
+
+            var language = DetectLanguage(relativePath);
+            if (language == "other") return;
+
+            string source;
+            try { source = File.ReadAllText(filePath); }
+            catch { return; }
+
+            var result = _analyzer.Analyze(filePath, source, language);
+            fileResults.Add(result);
+        });
+
+        var resultsList = fileResults.ToList();
+        var symbolNames = new List<SymbolNameEntry>();
+        var fileList = new List<FileListEntry>();
+        int totalSymbols = 0, totalCallEdges = 0, totalChunks = 0;
+
+        foreach (var fr in resultsList)
+        {
+            var relativePath = fr.FilePath;
+            if (string.IsNullOrEmpty(relativePath) && !string.IsNullOrEmpty(fr.FilePath))
+                relativePath = fr.FilePath;
+
+            totalSymbols += fr.Symbols.Count;
+            totalCallEdges += fr.CallEdges.Count;
+            totalChunks += fr.Chunks.Count;
+
+            fileList.Add(new FileListEntry(fr.FilePath, fr.Language, fr.Symbols.Count));
+
+            foreach (var sym in fr.Symbols.Take(200))
+            {
+                symbolNames.Add(new SymbolNameEntry(sym.Name, sym.Kind, fr.FilePath));
+            }
+        }
+
+        _logger.LogInformation("AST 持久化投影完成：{Files} 文件, {Symbols} 符号, {Edges} 调用边, {Chunks} 分块",
+            resultsList.Count, totalSymbols, totalCallEdges, totalChunks);
+
+        return new AstPersistenceProjection
+        {
+            FileResults = resultsList,
+            SymbolNames = symbolNames,
+            FileList = fileList,
+            TotalFiles = resultsList.Count,
+            TotalSymbols = totalSymbols,
+            TotalCallEdges = totalCallEdges,
+            TotalChunks = totalChunks
+        };
+    }
+
+    /// <summary>
     /// 对单个文件按 AST 节点边界分块。
     /// </summary>
     public List<(int StartLine, int EndLine, string Content)> ChunkFile(string filePath, string language)

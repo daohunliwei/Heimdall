@@ -47,10 +47,7 @@ public sealed partial class PromptManagementService
         // 应用仓库级覆写
         if (repositoryId.HasValue)
         {
-            var overrides = await _overrideRepo.GetByRepositoryAsync(repositoryId.Value);
-            var matchingOverride = overrides
-                .Where(o => o.PromptTemplateId == template.Id)
-                .MaxBy(o => o.Priority);
+            var matchingOverride = await _overrideRepo.GetByRepoAndTemplateAsync(repositoryId.Value, template.Id);
 
             if (matchingOverride is not null && !string.IsNullOrWhiteSpace(matchingOverride.OverrideContent))
             {

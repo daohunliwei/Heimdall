@@ -22,7 +22,7 @@
 | 知识生产 | `WikiTaskService`、`CodeIndexService`、`CodeUnderstandingService`、结构规划服务 | 把代码仓库转换为结构化中文 Wiki，完成索引、理解、规划、生成、审查与持久化 |
 | 交互消费 | `TasksController`、`ChatController`、`VersionedKnowledgeService`、前端 Ask/Slides/Workshop 页面 | 基于同一版本上下文提供问答、演示文稿和训练营内容 |
 | 运行治理 | `TaskQueueService`、`LlmObservabilityService`、Admin 控制器、Prompt 管理服务 | 提供任务排队、进度监控、调用审计、模型治理、系统设置与后台运维能力 |
-| 数据底座 | `SqlSugar`、PostgreSQL、pgvector、任务工件仓储 | 统一承载版本、页面、索引、提示词、调用日志与恢复工件 |
+| 数据底座 | `SqlSugar`、PostgreSQL、任务工件仓储 | 统一承载版本、页面、索引、提示词、调用日志与恢复工件 |
 
 ## 模块边界
 
@@ -40,7 +40,7 @@ flowchart LR
     Core --> Infra[Infrastructure 工具层]
     Repo --> Infra
 
-    Repo --> Pg[(PostgreSQL + pgvector)]
+    Repo --> Pg[(PostgreSQL)]
     Infra --> Fs[文件系统与仓库暂存目录]
 ```
 
@@ -51,7 +51,7 @@ flowchart LR
 | 前端 | 页面导航、参数透传、流式交互、状态展示 | 业务编排、代码检索、LLM 调度 |
 | API 层 | 鉴权、入参校验、路由编排、任务提交 | 长任务执行、跨阶段恢复 |
 | Core | 版本解析、任务编排、检索融合、知识生成 | SQL 细节、第三方 SDK 适配细节 |
-| Repository | 持久化、查询、事务落库、向量检索访问 | 业务策略判断、提示词编排 |
+| Repository | 持久化、查询、事务落库 | 业务策略判断、提示词编排 |
 | Infrastructure | Provider 适配、BM25、配置、仓库源、文本工具 | 领域状态管理、页面版本决策 |
 | PostgreSQL | 持久化唯一信源 | 临时执行逻辑、运行时缓存策略 |
 

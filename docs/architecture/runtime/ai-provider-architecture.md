@@ -12,25 +12,25 @@
 
 ## 文档范围
 
-本文描述 Heimdall 如何基于 MEAI `IChatClient` 统一接入不同大模型与嵌入服务，重点关注 Provider 分类、工厂装配、模型分层、流式能力、Token 统计与成本治理。
+本文描述 Heimdall 如何基于 MEAI `IChatClient` 统一接入不同大模型服务，重点关注 Keyed DI 注册、多 Provider 适配、模型分层、流式能力、Token 统计与成本治理。
 
 ## 核心职责
 
 | 主题 | 主要模块 | 职责 |
 |------|------|------|
-| Chat 抽象统一 | `ChatClientFactory`、Keyed DI | 为业务层暴露统一的聊天调用接口 |
+| Chat 抽象统一 | Keyed DI、`TaskLlmService` | 为业务层暴露统一的聊天调用接口 |
 | Provider 适配 | `OpenAiCompatibleClientFactory`、`BedrockClientFactory`、`CustomBackends/*` | 屏蔽不同厂商 SDK 差异 |
 | 流式与遥测 | `GetStreamingResponseAsync()`、调用日志服务 | 支持 SSE 真流式输出与延迟、Token 采集 |
 | 模型治理 | `TierConfig`、Provider 元数据、系统设置 | 按阶段选择模型、估算成本并控制能力差异 |
-| Embedding 能力 | Embedding Provider 配置 | 支撑 pgvector 检索与语义召回 |
+| 配置收口 | `ChatOptions`、Provider 元数据、系统设置 | 统一模型参数、输出上限与能力开关 |
 
 ## 关键结构
 
 ```mermaid
 flowchart TD
-    Factory[ChatClientFactory] --> OpenAI[OpenAI Compatible Factory]
-    Factory --> Bedrock[Bedrock Factory]
-    Factory --> Custom[Custom Backends]
+    DI[Keyed DI] --> OpenAI[OpenAI Compatible Factory]
+    DI --> Bedrock[Bedrock Factory]
+    DI --> Custom[Custom Backends]
 
     OpenAI --> O1[OpenAI]
     OpenAI --> O2[OpenRouter]
@@ -50,14 +50,13 @@ flowchart TD
 |------|------|------|
 | OpenAI 兼容 | `openai`、`openrouter`、`dashscope`、`deepseek`、`azure` | 复用统一 HTTP 协议和工厂构建逻辑 |
 | 专有实现 | `bedrock`、`ollama`、`google`、`minimax` | 因 SDK、认证或流式协议差异，需要单独适配 |
-| Embedding | `openai`、`google`、`bedrock`、`ollama` | 提供向量生成，服务于代码和知识检索 |
 
 ## 关键流程
 
 ### 1. 业务层获取模型客户端
 
 1. Core 服务根据任务类型、阶段和配置解析目标 Provider/Model。
-2. `ChatClientFactory` 通过 Keyed DI 选择具体工厂或适配器。
+2. 业务层通过 Keyed DI 获取目标 `IChatClient`，由容器选择具体工厂或适配器。
 3. 构建好的 `IChatClient` 进入中间件链路，叠加重试、遥测和可观测性逻辑。
 4. 业务层使用统一方法发起普通或流式调用，不感知底层厂商差异。
 

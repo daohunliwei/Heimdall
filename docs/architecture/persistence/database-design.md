@@ -74,7 +74,7 @@ flowchart LR
 
 - `CodeIndexEntry` 记录文件级元信息、语言、符号和依赖。
 - `CodeIndexChunk` 记录块级内容和行范围，便于快速检索片段。
-- pgvector 字段与向量索引负责语义检索，BM25 负责内存关键词召回。
+- 当前检索主路径以 `BM25` 为主，数据库表主要承载版本、页面、任务、索引与配置数据。
 - 查询时通常先按 `repository_version_id` 或 `wiki_version_id` 缩小范围，再执行排序或相似度计算。
 
 ## 依赖关系
@@ -84,7 +84,6 @@ flowchart LR
 | 领域模型 | 表结构直接映射核心实体及其关系 |
 | 任务管线 | 长任务的恢复、审计和状态展示都依赖这些表 |
 | SqlSugar | CodeFirst、事务与查询都通过 `ISqlSugarClient` 组织 |
-| pgvector | 语义检索能力依赖向量列和对应索引 |
 
 ## 设计取舍
 

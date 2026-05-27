@@ -21,5 +21,6 @@ public interface IWikiTaskExecutionRepository
         string language,
         string branch,
         string generationProfile,
+        Guid? astVersionId = null,
         CancellationToken cancellationToken = default);
 }

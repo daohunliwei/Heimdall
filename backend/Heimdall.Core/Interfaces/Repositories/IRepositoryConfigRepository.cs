@@ -13,4 +13,7 @@ public interface IRepositoryConfigRepository
     Task<Repository> AddAsync(Repository repository);
     Task<Repository> UpdateAsync(Repository repository);
     Task<bool> DeleteAsync(Guid id);
+
+    Task<List<Repository>> GetByIdsAsync(IEnumerable<Guid> ids);
+    Task<int> CountAsync();
 }

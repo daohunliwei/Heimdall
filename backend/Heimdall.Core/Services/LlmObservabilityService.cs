@@ -68,11 +68,22 @@ public sealed class LlmObservabilityService : ILlmObservabilityService
     {
         var summary = await _repository.GetTaskSummaryAsync(taskId, ct);
 
-        // 补充成本估算
-        var metrics = await _repository.GetByTaskIdAsync(taskId, ct);
-        summary.EstimatedCost = metrics.Sum(m => EstimateCost(m.Provider, m.Model, m.InputTokens, m.OutputTokens));
+        // 成本估算：使用聚合查询中的 Input/Output Token 总量 + 单个完成记录的 Provider/Model 估算单价
+        var sampleMetric = await _repository.GetByTaskIdAsync(taskId, ct);
+        if (sampleMetric.Count > 0)
+        {
+            var first = sampleMetric[0];
+            summary.EstimatedCost = EstimateCost(first.Provider, first.Model,
+                (int)Math.Min(summary.TotalInputTokens, int.MaxValue),
+                (int)Math.Min(summary.TotalOutputTokens, int.MaxValue));
+        }
 
         return summary;
+    }
+
+    public async Task<Dictionary<Guid, LlmTaskMetricsSummary>> GetSummariesByTaskIdsAsync(IEnumerable<Guid> taskIds, CancellationToken ct = default)
+    {
+        return await _repository.GetSummariesByTaskIdsAsync(taskIds, ct);
     }
 
     public Task<List<LlmCallMetric>> GetTaskMetricsAsync(Guid taskId, CancellationToken ct = default)

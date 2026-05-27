@@ -43,15 +43,13 @@ public class PromptMergeService : IPromptMergeService
     {
         using var scope = _scopeFactory.CreateScope();
         var templateRepo = scope.ServiceProvider.GetRequiredService<IPromptTemplateRepository>();
-        var allTemplates = await templateRepo.GetAllAsync();
+        var templatesByCategory = await templateRepo.GetByCategoryAsync(category);
 
-        var applicableTemplates = allTemplates
-            .Where(t => t.Category == category && t.IsActive)
+        var applicableTemplates = templatesByCategory
             .Where(t => subCategory == null || t.SubCategory == subCategory)
             .Where(t => t.ApplicableProviders == null
                         || t.ApplicableProviders.Length == 0
                         || t.ApplicableProviders.Contains(provider, StringComparer.OrdinalIgnoreCase))
-            .OrderBy(t => t.Priority)
             .ToList();
 
         if (applicableTemplates.Count == 0)

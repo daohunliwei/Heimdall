@@ -8,43 +8,51 @@ public class TaskLlmCallLog
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    [SugarColumn(ColumnName = "task_id")]
     public Guid TaskId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(TaskId))]
     public TaskRecord Task { get; set; } = null!;
 
+    [SugarColumn(ColumnName = "step_order")]
     public int StepOrder { get; set; }
 
-    [SugarColumn(Length = 32)]
+    [SugarColumn(ColumnName = "call_type", Length = 32)]
     public string CallType { get; set; } = string.Empty;
 
-    [SugarColumn(Length = 32, IsNullable = true)]
+    [SugarColumn(ColumnName = "provider", Length = 32, IsNullable = true)]
     public string? Provider { get; set; }
 
-    [SugarColumn(Length = 64, IsNullable = true)]
+    [SugarColumn(ColumnName = "model", Length = 64, IsNullable = true)]
     public string? Model { get; set; }
 
+    [SugarColumn(ColumnName = "prompt_tokens")]
     public int PromptTokens { get; set; }
+
+    [SugarColumn(ColumnName = "completion_tokens")]
     public int CompletionTokens { get; set; }
+
+    [SugarColumn(ColumnName = "total_tokens")]
     public int TotalTokens { get; set; }
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "request_preview", ColumnDataType = "text", IsNullable = true)]
     public string? RequestPreview { get; set; }
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "response_preview", ColumnDataType = "text", IsNullable = true)]
     public string? ResponsePreview { get; set; }
 
+    [SugarColumn(ColumnName = "latency_ms")]
     public int LatencyMs { get; set; }
+
+    [SugarColumn(ColumnName = "is_error")]
     public bool IsError { get; set; }
 
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "error_message", ColumnDataType = "text", IsNullable = true)]
     public string? ErrorMessage { get; set; }
 
-    /// <summary>
-    /// Tool Call 日志集合——记录每次工具调用的详情（JSON 格式）。
-    /// </summary>
-    [SugarColumn(ColumnDataType = "text", IsNullable = true)]
+    [SugarColumn(ColumnName = "tool_call_logs_json", ColumnDataType = "text", IsNullable = true)]
     public string? ToolCallLogsJson { get; set; }
 
+    [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

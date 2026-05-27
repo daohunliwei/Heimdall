@@ -36,6 +36,7 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
         string language,
         string branch,
         string generationProfile,
+        Guid? astVersionId = null,
         CancellationToken cancellationToken = default)
     {
         await _db.Ado.BeginTranAsync();
@@ -105,6 +106,7 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
             {
                 WikiSpaceId = wikiSpace.Id,
                 RepositoryVersionId = repositoryVersion.Id,
+                AstVersionId = astVersionId,
                 VersionNo = maxVersionNo + 1,
                 GenerationMode = task.ForceRefresh ? "rebuild" : "latest",
                 GenerationProfile = generationProfile,

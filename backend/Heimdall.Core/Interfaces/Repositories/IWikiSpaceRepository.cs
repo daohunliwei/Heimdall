@@ -11,6 +11,7 @@ public interface IWikiSpaceRepository
     Task<WikiSpace?> GetByIdAsync(Guid id);
 
     Task<WikiSpace?> GetByRepoLangViewAsync(Guid repositoryId, string language, string viewType);
+    Task<List<WikiSpace>> GetByRepoIdsAsync(IEnumerable<Guid> repositoryIds);
     Task<WikiSpace> AddAsync(WikiSpace space);
     Task<WikiSpace> UpdateAsync(WikiSpace space);
 }

@@ -31,7 +31,8 @@ public class GeminiChatClient : IChatClient
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent?key={_apiKey}";
+        var effectiveModel = options?.ModelId ?? _model;
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{effectiveModel}:generateContent?key={_apiKey}";
         var response = await _httpClient.PostAsync(url, content, cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -97,7 +98,8 @@ public class GeminiChatClient : IChatClient
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:streamGenerateContent?alt=sse&key={_apiKey}";
+        var effectiveModel = options?.ModelId ?? _model;
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{effectiveModel}:streamGenerateContent?alt=sse&key={_apiKey}";
         var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
 
         var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

@@ -8,15 +8,23 @@ public class WikiVersion
     [SugarColumn(IsPrimaryKey = true)]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    [SugarColumn(ColumnName = "wiki_space_id")]
     public Guid WikiSpaceId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(WikiSpaceId))]
     public WikiSpace WikiSpace { get; set; } = null!;
 
+    [SugarColumn(ColumnName = "repository_version_id")]
     public Guid RepositoryVersionId { get; set; }
 
     [Navigate(NavigateType.OneToOne, nameof(RepositoryVersionId))]
     public RepositoryVersion RepositoryVersion { get; set; } = null!;
+
+    [SugarColumn(ColumnName = "ast_version_id", IsNullable = true)]
+    public Guid? AstVersionId { get; set; }
+
+    [Navigate(NavigateType.OneToOne, nameof(AstVersionId))]
+    public AstVersion? AstVersion { get; set; }
 
     [SugarColumn(ColumnName = "version_no")]
     public int VersionNo { get; set; }

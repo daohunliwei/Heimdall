@@ -4,67 +4,56 @@ using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
 
-public class ProviderMetadataRepository : IProviderMetadataRepository
+public class ProviderMetadataRepository : BaseRepository<ProviderModelMetadataEntity>, IProviderMetadataRepository
 {
-    private readonly ISqlSugarClient _db;
-
-    public ProviderMetadataRepository(ISqlSugarClient db) => _db = db;
+    public ProviderMetadataRepository(ISqlSugarClient db) : base(db) { }
 
     public async Task<List<ProviderModelMetadataEntity>> GetAllAsync(CancellationToken ct = default)
-        => await _db.Queryable<ProviderModelMetadataEntity>()
-            .OrderBy(x => x.ProviderKey)
-            .OrderBy(x => x.ModelName)
+        => await Context.Queryable<ProviderModelMetadataEntity>()
+            .OrderBy(x => new { x.ProviderKey, x.ModelName })
             .ToListAsync(ct);
 
     public async Task<ProviderModelMetadataEntity?> GetAsync(string providerKey, string modelName, CancellationToken ct = default)
-        => await _db.Queryable<ProviderModelMetadataEntity>()
+        => await Context.Queryable<ProviderModelMetadataEntity>()
             .FirstAsync(x => x.ProviderKey == providerKey && x.ModelName == modelName);
 
     public async Task UpsertAsync(ProviderModelMetadataEntity entity, CancellationToken ct = default)
     {
-        var existing = await _db.Queryable<ProviderModelMetadataEntity>()
-            .FirstAsync(x => x.ProviderKey == entity.ProviderKey && x.ModelName == entity.ModelName);
-
-        if (existing != null)
-        {
-            existing.BillingType = entity.BillingType;
-            existing.MaxContextTokens = entity.MaxContextTokens;
-            existing.MaxOutputTokens = entity.MaxOutputTokens;
-            existing.RateLimitPerMinute = entity.RateLimitPerMinute;
-            existing.InputTokenPrice = entity.InputTokenPrice;
-            existing.OutputTokenPrice = entity.OutputTokenPrice;
-            existing.CallPrice = entity.CallPrice;
-            existing.SupportsCaching = entity.SupportsCaching;
-            existing.ContextFillRatio = entity.ContextFillRatio;
-            existing.ContextWarningThreshold = entity.ContextWarningThreshold;
-            existing.UpdatedAt = DateTime.UtcNow;
-            await _db.Updateable(existing).ExecuteCommandAsync(ct);
-        }
-        else
-        {
-            entity.UpdatedAt = DateTime.UtcNow;
-            await _db.Insertable(entity).ExecuteCommandAsync(ct);
-        }
+        entity.UpdatedAt = DateTime.UtcNow;
+        await Context.Storageable(entity)
+            .WhereColumns(it => new { it.ProviderKey, it.ModelName })
+            .ExecuteCommandAsync(ct);
     }
 
     public async Task DeleteAsync(string providerKey, string modelName, CancellationToken ct = default)
     {
-        var record = await _db.Queryable<ProviderModelMetadataEntity>()
+        var record = await Context.Queryable<ProviderModelMetadataEntity>()
             .FirstAsync(x => x.ProviderKey == providerKey && x.ModelName == modelName);
 
         if (record != null)
         {
-            await _db.Deleteable(record).ExecuteCommandAsync(ct);
+            await Context.Deleteable(record).ExecuteCommandAsync(ct);
         }
     }
 
     public async Task SeedDefaultsAsync(Dictionary<string, (string provider, string model, object metadata)> defaults, CancellationToken ct = default)
     {
+        var keys = defaults.Values.Select(d => (d.provider, d.model)).ToList();
+        if (keys.Count == 0) return;
+
+        // 一次批量查询检查所有已存在的键
+        var existingPairs = await Context.Queryable<ProviderModelMetadataEntity>()
+            .Where(x => keys.Select(k => k.provider).Contains(x.ProviderKey)
+                && keys.Select(k => k.model).Contains(x.ModelName))
+            .Select(x => new { x.ProviderKey, x.ModelName })
+            .ToListAsync(ct);
+
+        var existingSet = existingPairs.Select(x => (x.ProviderKey, x.ModelName)).ToHashSet();
+
         foreach (var (_, (provider, model, _)) in defaults)
         {
-            var exists = await _db.Queryable<ProviderModelMetadataEntity>()
-                .AnyAsync(x => x.ProviderKey == provider && x.ModelName == model);
-            if (!exists) continue;
+            if (existingSet.Contains((provider, model))) continue;
+            // 默认条目不存在——此方法仅用于检查缺失项，实际插入由上层 PromptSeedData 执行
         }
     }
 }
