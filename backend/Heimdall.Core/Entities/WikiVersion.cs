@@ -20,6 +20,12 @@ public class WikiVersion
     [Navigate(NavigateType.OneToOne, nameof(RepositoryVersionId))]
     public RepositoryVersion RepositoryVersion { get; set; } = null!;
 
+    [SugarColumn(ColumnName = "ast_version_id", IsNullable = true)]
+    public Guid? AstVersionId { get; set; }
+
+    [Navigate(NavigateType.OneToOne, nameof(AstVersionId))]
+    public AstVersion? AstVersion { get; set; }
+
     [SugarColumn(ColumnName = "version_no")]
     public int VersionNo { get; set; }
 

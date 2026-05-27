@@ -5,6 +5,7 @@ using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
 using Heimdall.Core.Interfaces.Services;
+using Heimdall.Core.Services;
 using Heimdall.Core.Services.Repository;
 using Heimdall.Core.Services.Search;
 using Heimdall.Core.Tools;
@@ -38,6 +39,7 @@ public sealed class WikiTaskService
     private readonly DeterministicStructurePlanner _deterministicPlanner;
     private readonly ToolCallConfigurationService _toolCallConfigurationService;
     private readonly AgentOrchestratorService? _agentOrchestrator;
+    private readonly AstPersistenceService _astPersistence;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -56,6 +58,7 @@ public sealed class WikiTaskService
         IStructuredLogger structuredLogger,
         DeterministicStructurePlanner deterministicPlanner,
         ToolCallConfigurationService toolCallConfigurationService,
+        AstPersistenceService astPersistence,
         ILogger<WikiTaskService> logger,
         AgentOrchestratorService? agentOrchestrator = null)
     {
@@ -74,6 +77,7 @@ public sealed class WikiTaskService
         _configuration = configuration;
         _deterministicPlanner = deterministicPlanner;
         _toolCallConfigurationService = toolCallConfigurationService;
+        _astPersistence = astPersistence;
         _agentOrchestrator = agentOrchestrator;
         _logger = logger;
     }
@@ -840,6 +844,35 @@ public sealed class WikiTaskService
                 execToken,
                 markStageAsSuccessful: true);
 
+            // AST 版本解析与持久化（Wiki 生成的前置依赖）
+            Guid? astVersionId = null;
+            try
+            {
+                var repoVersionRepo = execScope.ServiceProvider.GetRequiredService<IRepositoryVersionRepository>();
+                RepositoryVersion? repoVersion = null;
+                if (executingTask.ResolvedRepositoryVersionId.HasValue)
+                {
+                    repoVersion = await repoVersionRepo.GetByIdAsync(executingTask.ResolvedRepositoryVersionId.Value);
+                }
+
+                repoVersion ??= await repoVersionRepo.GetLatestByRepoBranchAsync(
+                    executingTask.RepositoryId ?? Guid.Empty, branch);
+
+                if (repoVersion != null)
+                {
+                    var astVersion = await _astPersistence.ResolveOrCreateAsync(
+                        repoVersion, repoPath, branch, repoVersion.CommitSha, execToken);
+                    astVersionId = astVersion.Id;
+                    _logger.LogInformation("AST 版本已解析 AstVersionId={AstVersionId} for RepoVersion={RepoVersionId}",
+                        astVersionId, repoVersion.Id);
+                }
+            }
+            catch (Exception astEx)
+            {
+                _logger.LogError(astEx, "AST 持久化失败，阻断 Wiki 成功落库");
+                throw;
+            }
+
             await MarkTaskStageAsync(
                 taskRepo,
                 executingTask,
@@ -857,6 +890,7 @@ public sealed class WikiTaskService
                 language,
                 branch,
                 generationProfile,
+                astVersionId,
                 execToken);
 
             await MarkTaskStageAsync(
@@ -883,7 +917,8 @@ public sealed class WikiTaskService
                 persistenceResult.RepositoryVersionId,
                 persistenceResult.WikiVersionId,
                 debugTruncated,
-                debugOriginalPageCount);
+                debugOriginalPageCount,
+                astVersionId);
             await taskRepo.UpdateAsync(executingTask);
 
             var maxDepth = wikiStructure.Pages.Any() ? wikiStructure.Pages.Max(p => p.Depth) : 0;
@@ -1144,6 +1179,7 @@ public sealed class WikiTaskService
         string language,
         string branch,
         string generationProfile,
+        Guid? astVersionId,
         CancellationToken cancellationToken)
     {
         return await executionRepository.PersistWikiProjectionAsync(
@@ -1153,6 +1189,7 @@ public sealed class WikiTaskService
             language,
             branch,
             generationProfile,
+            astVersionId,
             cancellationToken);
     }
 
@@ -1169,7 +1206,8 @@ public sealed class WikiTaskService
         Guid repositoryVersionId,
         Guid wikiVersionId,
         bool debugTruncated = false,
-        int debugOriginalPageCount = 0)
+        int debugOriginalPageCount = 0,
+        Guid? astVersionId = null)
     {
         return System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -1178,6 +1216,7 @@ public sealed class WikiTaskService
             page_count = structure.Pages.Count,
             repository_version_id = repositoryVersionId,
             wiki_version_id = wikiVersionId,
+            ast_version_id = astVersionId,
             debug_truncated = debugTruncated ? true : (bool?)null,
             debug_original_page_count = debugTruncated ? debugOriginalPageCount : (int?)null,
             pages = structure.Pages.Select(p => new

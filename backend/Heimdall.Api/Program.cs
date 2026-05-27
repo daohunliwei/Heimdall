@@ -282,6 +282,7 @@ builder.Services.AddScoped<IPromptOverrideRepository, PromptOverrideRepository>(
 builder.Services.AddScoped<IPromptTemplateHistoryRepository, PromptTemplateHistoryRepository>();
 builder.Services.AddScoped<IRepositoryConfigRepository, RepositoryConfigRepository>();
 builder.Services.AddScoped<IRepositoryVersionRepository, RepositoryVersionRepository>();
+builder.Services.AddScoped<IAstVersionRepository, AstVersionRepository>();
 // V8: ICodeEmbeddingRepository / IWikiEmbeddingRepository 已移除
 builder.Services.AddScoped<IWikiSpaceRepository, WikiSpaceRepository>();
 builder.Services.AddScoped<IWikiVersionRepository, WikiVersionRepository>();
@@ -323,6 +324,7 @@ builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptSeedData>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeStructureIndexService>();
 builder.Services.AddSingleton<Heimdall.Core.Services.Repository.CodeIndexService>();
 builder.Services.AddSingleton<Heimdall.Infrastructure.AstAnalysis.TreeSitterAnalyzer>();
+builder.Services.AddSingleton<Heimdall.Core.Services.AstPersistenceService>();
 builder.Services.AddSingleton<Heimdall.Infrastructure.Search.Bm25SearchService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IHybridSearchService, Heimdall.Core.Services.Search.HybridSearchService>();
 builder.Services.AddScoped<Heimdall.Core.Interfaces.Repositories.ICodeIndexRepository, Heimdall.Repository.Repositories.CodeIndexRepository>();
