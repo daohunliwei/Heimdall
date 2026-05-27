@@ -1,20 +1,12 @@
 ## MODIFIED Requirements
 
-### Requirement: Slides 演示文稿生成（DB 驱动提示词 + 结构化消息）
-系统 SHALL 通过 `SlidesTaskService` 基于仓库代码分析结果生成演示文稿。提示词 SHALL 从 DB 通过 `IPromptMergeService` 加载（Category="slides"）。LLM 调用 SHALL 使用结构化 `List<ChatMessage>` 消息列表（System/User 角色分离）。
+### Requirement: Slides 和 Workshop 接入 AST 上下文 + DB 提示词 + 结构化消息
+SlidesTaskService 和 WorkshopTaskService SHALL：(1) 提示词从 DB 通过 `IPromptMergeService` 加载；(2) LLM 调用使用结构化 `List<ChatMessage>`（System/User 分离）；(3) 上下文构建注入 AST L2 层数据——每个相关代码块附带 AST 上下文（类关系、方法签名、调用拓扑）。
 
-#### Scenario: 创建 Slides 任务
-- **WHEN** 用户通过 `POST /api/tasks/slides` 提交请求
-- **THEN** 系统创建 Slides 任务，管线通过 `TaskPromptService`（协调层）→ `IPromptMergeService` 获取 DB 提示词
-- **AND** LLM 调用使用结构化消息：System 消息=角色+格式约束，User 消息=代码上下文
+#### Scenario: Slides 生成的 AST 增强上下文
+- **WHEN** SlidesTaskService 生成关于 `UserService` 的演示页
+- **THEN** System 消息 = DB 加载的 Slides 角色模板；User 消息包含 AST L2 上下文描述（"UserService 是核心服务类，被 3 个 Controller 调用"）+ 代码检索片段
 
-### Requirement: Workshop 训练营材料生成（DB 驱动提示词 + 结构化消息）
-系统 SHALL 通过 `WorkshopTaskService` 基于仓库代码分析结果生成训练营材料。提示词 SHALL 从 DB 通过 `IPromptMergeService` 加载（Category="workshop"）。LLM 调用 SHALL 使用结构化 `List<ChatMessage>` 消息列表。
-
-#### Scenario: 创建 Workshop 任务
-- **WHEN** 用户通过 `POST /api/tasks/workshop` 提交请求
-- **THEN** 系统创建 Workshop 任务，管线通过 `IPromptMergeService` 获取 DB 提示词
-- **AND** LLM 调用使用结构化消息
-
-### Requirement: 版本化知识库服务
-系统 SHALL 通过 `VersionedKnowledgeService` 为 Ask、Slides、Workshop 三种派生任务提供统一的版本锚点、页面和工件解析。Slides 和 Workshop 的上下文构建 SHALL 使用结构化消息，知识库内容作为独立 `ChatRole.User` 消息追加，不与系统指令混合。
+#### Scenario: Workshop 使用结构化消息
+- **WHEN** WorkshopTaskService 生成训练营材料
+- **THEN** 每个模块的 LLM 调用使用 `[System, User(context), User(topic)]` 三元组消息结构

@@ -1,32 +1,34 @@
 ## Why
 
-前序迭代（Tree-sitter AST 迁移、提示词数据库化、MEAI Role-Based 消息升级）在 Chat/Ask 路径上完整落地，但 **Wiki 生成管线（核心路径）、Slides/Workshop 派生任务** 仍停留在旧架构——AST 分析被正则替代、提示词硬编码在代码中、LLM 消息扁平化为单字符串。审计确认 12 处严重不符均源自这三项架构迁移的半途而废。本次变更严格完成所有既定目标，消除 spec 与代码之间的全部严重差异。
+TreeSitterAnalyzer 已集成并提取了部分 AST 数据，但**提取不完整**（10 字段仅取 1 个）、**传输中丢失**（CodeIndexService 将结构化数据展平为字符串列表）、**提示词中缺失**（进入 LLM 的 AST 数据不足 8%）。结果：AST 形同虚设——有投入无产出。
+
+同时，提示词硬编码和消息扁平化问题使 Wiki 管线无法利用 AST 数据提升生成质量。
+
+**核心目标：让 AST 数据充分进入 LLM 提示词，显著提升代码理解深度和 Wiki 生成质量。**
 
 ## What Changes
 
-- **BREAKING**: 删除 `TaskPromptService` 中所有硬编码提示词（~500 行），全部迁移至数据库 `prompt_templates` 表
-- **BREAKING**: 删除 `CallGraphBuilder` 中所有正则调用提取逻辑，改为基于 Tree-sitter AST 的调用图构建
-- **BREAKING**: 删除 `DesignPatternDetector` 中所有类名正则匹配逻辑，改为基于 AST 节点关系检测
-- `WikiTaskService`、`SlidesTaskService`、`WorkshopTaskService` 改为通过 `IPromptMergeService` 获取提示词
-- `WikiTaskService`、`SlidesTaskService`、`WorkshopTaskService` 改为使用结构化 `List<ChatMessage>` 消息列表调用 LLM
-- `CodeUnderstandingService` 改为使用结构化消息
-- `TaskPromptService` 精简为纯管线协调层（不再包含提示词文本）
-- `PromptSeedData` 扩展，覆盖所有管线阶段提示词模板
-- 删除死代码 `PromptTemplateService`
+- **AST 提取完善**：`TreeSitterAnalyzer` 填充 AstSymbol 全部 10 个字段（ParentClass、Modifiers、BaseTypes、AttributeAnnotations 等），不再仅取 Name
+- **AST 数据保真传输**：`CodeIndexService` 保留结构化 AST 数据，不展平为字符串列表；`CodeIndexResult` 新增 AST 元数据字段
+- **AST 数据注入结构化提示词**：结构规划提示词注入完整类型层级、方法调用关系、设计模式结构证据（替代当前"23 methods, 156 edges"式无效聚合数字）；页面生成提示词中每个代码块附带 AST 上下文（所属类、调用关系、修饰符、接口实现）
+- **BREAKING**: 删除 `CallGraphBuilder` 和 `DesignPatternDetector` 的正则实现，AST 成为调用图和设计模式的唯一数据源
+- **BREAKING**: 删除 `TaskPromptService` 中所有硬编码提示词（~500 行），全部迁移至数据库；所有管线统一通过 `IPromptMergeService` 获取
+- Wiki/Slides/Workshop 管线 LLM 调用全部改为结构化 `List<ChatMessage>`（System/User 分离）
 
 ## Capabilities
 
 ### Modified Capabilities
-- `code-analysis`: 调用图构建从正则改为 Tree-sitter AST 方法级调用关系提取；设计模式检测从类名正则匹配改为 AST 节点关系识别
-- `prompt-system`: TaskPromptService 全部提示词迁移至数据库，所有服务统一通过 IPromptMergeService 获取；删除 CodeSummaryService 等已废弃引用
-- `wiki-generation-pipeline`: 所有 LLM 调用改为结构化 ChatMessage 列表（System/User 角色分离），替代单字符串扁平化
-- `structure-planning`: 结构规划提示词改为从 DB 加载，通过 IPromptMergeService 拼装
-- `slides-workshop`: Slides 和 Workshop 管道改为 DB 驱动提示词 + 结构化消息，与 Wiki 管线对齐
-- `llm-tools`: QueryCallGraph、RetrieveClassDefinition 等工具的后端数据源从正则结果切换为 AST 结果
+- `code-analysis`: AST 完整提取（10 字段）；AST 数据通过 `CodeIndexResult` 和 `CodeUnderstandingResult` 保真传输；AST 成为调用图和设计模式的唯一数据源
+- `prompt-system`: TaskPromptService 全部提示词迁移至 DB；所有管线服务通过 IPromptMergeService 获取提示词
+- `wiki-generation-pipeline`: AST 数据注入结构规划和页面生成提示词；所有 LLM 调用改为结构化消息
+- `structure-planning`: 提示词上下文段从"聚合数字"升级为"结构化 AST 关系描述"（类型层级图、调用拓扑、模式证据）
+- `slides-workshop`: 接入 DB 驱动提示词 + AST 上下文 + 结构化消息
+- `llm-tools`: QueryCallGraph 和 RetrieveClassDefinition 数据源切换为 AST
 
 ## Impact
 
-- **后端**: `TaskPromptService`（重写）、`CallGraphBuilder`（重写）、`DesignPatternDetector`（重写）、`WikiTaskService`（修改 LLM 调用路径）、`SlidesTaskService`（修改）、`WorkshopTaskService`（修改）、`CodeUnderstandingService`（修改）、`PromptSeedData`（扩展）、`TreeSitterAnalyzer`（扩展调用图提取能力）
-- **数据库**: `prompt_templates` 表新增/更新种子数据
-- **Spec**: `code-analysis`、`prompt-system`、`wiki-generation-pipeline`、`structure-planning`、`slides-workshop`、`llm-tools` 六个 spec 需更新
-- **无前端影响**: 所有变更限于后端管线和提示词系统
+- **后端重写/删除**: `TreeSitterAnalyzer`（扩展符号提取）、`CallGraphBuilder`（删除，逻辑移入 TreeSitterAnalyzer）、`DesignPatternDetector`（删除，重写为 AST 版本）、`TaskPromptService`（重写为 DB 驱动协调层）、`CodeIndexService`（保留结构化数据）、`CodeUnderstandingService`（接收 AST 数据）、`WikiTaskService`（结构化消息）、`ChatMessageBuilderService`（扩展）
+- **死代码删除**: `TaskRequestUtilityService`（~67 行，仅 DI 注册无注入点，含角色丢弃逻辑）、`IRagContextService`（有接口无实现）、`IWikiExportService`（有接口无实现）、`PromptTemplateService`（~112 行）
+- **数据模型**: `CodeIndexEntry` 新增 AST 元数据字段；`CodeIndexResult` 和 `CodeUnderstandingResult` 新增 AST 结构字段
+- **数据库**: `prompt_templates` 种子数据扩展
+- **Spec 更新**: 6 个
