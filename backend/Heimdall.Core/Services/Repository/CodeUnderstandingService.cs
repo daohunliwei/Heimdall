@@ -126,7 +126,13 @@ public sealed class CodeUnderstandingService : ICodeUnderstandingService
             .DistinctBy(symbol => $"{symbol.QualifiedName}|{symbol.FilePath}")
             .ToList();
 
-        var exactMap = definitions.ToDictionary(symbol => symbol.QualifiedName, StringComparer.OrdinalIgnoreCase);
+        // 按 (QualifiedName|FilePath, QualifiedName) 两级索引：同文件精确匹配优先，跨文件回退
+        var exactByName = definitions
+            .GroupBy(symbol => symbol.QualifiedName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var exactByFileAndName = definitions
+            .GroupBy(symbol => $"{symbol.FilePath}|{symbol.QualifiedName}", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var shortNameMap = definitions
             .GroupBy(symbol => symbol.ShortName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
@@ -141,9 +147,28 @@ public sealed class CodeUnderstandingService : ICodeUnderstandingService
                     continue;
                 }
 
-                exactMap.TryGetValue(edge.CalleeSymbol, out var exactTarget);
-                shortNameMap.TryGetValue(edge.CalleeSymbol, out var shortTarget);
-                var target = exactTarget ?? shortTarget;
+                // 优先级：同文件精确匹配 → 同名字典（同文件优先）→ 短名匹配
+                SymbolDefinition? target = null;
+                var fileNameKey = $"{edge.CalleeFilePath}|{edge.CalleeSymbol}";
+                if (exactByFileAndName.TryGetValue(fileNameKey, out var fileMatch))
+                {
+                    target = fileMatch;
+                }
+                else if (exactByName.TryGetValue(edge.CalleeSymbol, out var nameMatches))
+                {
+                    // 同文件内优先
+                    target = nameMatches.FirstOrDefault(d =>
+                        string.Equals(d.FilePath, edge.CalleeFilePath, StringComparison.OrdinalIgnoreCase))
+                        ?? nameMatches.FirstOrDefault(d =>
+                            string.Equals(d.FilePath, edge.CallerFilePath, StringComparison.OrdinalIgnoreCase))
+                        ?? nameMatches[0];
+                }
+
+                if (target is null)
+                {
+                    shortNameMap.TryGetValue(edge.CalleeSymbol, out var shortTarget);
+                    target = shortTarget;
+                }
 
                 edges.Add(new CallEdge
                 {

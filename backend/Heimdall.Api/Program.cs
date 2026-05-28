@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Heimdall.Infrastructure.Configuration;
+using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Providers;
 using Heimdall.Infrastructure.Providers.CustomBackends;
 using Heimdall.Infrastructure.RepositorySources;
+using Heimdall.Infrastructure.Services;
 using Heimdall.Infrastructure.Utilities;
 using Heimdall.Api.Middleware;
 using Heimdall.Core.Services.Auth;
@@ -21,6 +23,7 @@ using Heimdall.Repository.Repositories;
 using SqlSugar;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Services;
+using Heimdall.Core.Services.Migration;
 using System.Reflection;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -175,6 +178,10 @@ builder.Services.AddSingleton<CodeFirstSyncService>();
 // Infrastructure Layer (Singleton - 无状态)
 builder.Services.AddSingleton<HeimdallConfigService>();
 builder.Services.AddSingleton<TextUtilityService>();
+
+// Workspace 文件系统
+builder.Services.AddSingleton<WorkspaceConfig>();
+builder.Services.AddSingleton<WorkspaceService>();
 
 // Repository Sources
 builder.Services.AddSingleton<IRepositorySource, GitHubRepositorySource>();
@@ -346,6 +353,7 @@ builder.Services.AddSingleton<Heimdall.Core.Services.Tasks.CostEstimationService
 builder.Services.Configure<Heimdall.Core.Models.ModelTierConfig>(
     builder.Configuration.GetSection("ModelTier"));
 builder.Services.AddSingleton<TaskProgressService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Migration.WorkspaceMigrationService>();
 builder.Services.AddSingleton<TaskQueueService>();
 builder.Services.AddSingleton<ITaskQueueService>(sp => sp.GetRequiredService<TaskQueueService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TaskQueueService>());
@@ -428,6 +436,9 @@ if (codeFirstAutoSync)
         logger.LogCritical(ex, "CodeFirst 自动同步失败，请手动执行 SQL 脚本");
     }
 }
+
+// Workspace 目录初始化
+app.Services.GetRequiredService<WorkspaceService>().EnsureDirectories();
 
 // 启动时自动执行种子数据
 using (var scope = app.Services.CreateScope())

@@ -22,7 +22,10 @@ namespace Heimdall.Core.Services.Tasks;
 public sealed class WikiTaskService
 {
     private const int PageBatchSize = 5;
-    private static readonly System.Text.Json.JsonSerializerOptions ArtifactJsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web);
+    private static readonly System.Text.Json.JsonSerializerOptions ArtifactJsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web)
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TaskLlmService _taskLlm;
     private readonly TaskPromptService _taskPrompt;
@@ -40,6 +43,7 @@ public sealed class WikiTaskService
     private readonly ToolCallConfigurationService _toolCallConfigurationService;
     private readonly AgentOrchestratorService? _agentOrchestrator;
     private readonly AstPersistenceService _astPersistence;
+    private readonly WorkspaceService _workspace;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -59,6 +63,7 @@ public sealed class WikiTaskService
         DeterministicStructurePlanner deterministicPlanner,
         ToolCallConfigurationService toolCallConfigurationService,
         AstPersistenceService astPersistence,
+        WorkspaceService workspace,
         ILogger<WikiTaskService> logger,
         AgentOrchestratorService? agentOrchestrator = null)
     {
@@ -78,6 +83,7 @@ public sealed class WikiTaskService
         _deterministicPlanner = deterministicPlanner;
         _toolCallConfigurationService = toolCallConfigurationService;
         _astPersistence = astPersistence;
+        _workspace = workspace;
         _agentOrchestrator = agentOrchestrator;
         _logger = logger;
     }
@@ -1034,7 +1040,7 @@ public sealed class WikiTaskService
     /// <param name="artifactType">工件类型标识（如 code_analysis_artifact）。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>工件载荷 JSON 文本；未找到或未完成则返回 null。</returns>
-    private static async Task<string?> TryLoadArtifactByTypeAsync(
+    private async Task<string?> TryLoadArtifactByTypeAsync(
         ITaskArtifactRepository artifactRepo,
         Guid taskId,
         string artifactType,
@@ -1043,6 +1049,14 @@ public sealed class WikiTaskService
         var artifact = await artifactRepo.GetByTypeAndKeyAsync(taskId, artifactType, "analysis");
         if (artifact is null || artifact.Status != "completed")
             return null;
+
+        // 文件优先读取
+        if (!string.IsNullOrEmpty(artifact.PayloadFilePath))
+        {
+            var filePath = artifact.PayloadFilePath;
+            return await _workspace.ReadWithFallbackAsync(filePath, () => Task.FromResult<string?>(artifact.PayloadJson), cancellationToken);
+        }
+
         return artifact.PayloadJson;
     }
 
@@ -1050,7 +1064,7 @@ public sealed class WikiTaskService
     /// 尝试读取结构规划工件。
     /// 读取成功后即可跳过结构规划阶段并从该恢复点继续执行。
     /// </summary>
-    private static async Task<(string StructureResponse, WikiStructureDto Structure)?> TryLoadPlanningArtifactAsync(
+    private async Task<(string StructureResponse, WikiStructureDto Structure)?> TryLoadPlanningArtifactAsync(
         ITaskArtifactRepository artifactRepo,
         Guid taskId,
         CancellationToken cancellationToken)
@@ -1060,7 +1074,14 @@ public sealed class WikiTaskService
         if (artifact is null || artifact.Status != "completed")
             return null;
 
-        using var document = System.Text.Json.JsonDocument.Parse(artifact.PayloadJson);
+        // 文件优先读取
+        var payloadJson = !string.IsNullOrEmpty(artifact.PayloadFilePath)
+            ? await _workspace.ReadWithFallbackAsync(artifact.PayloadFilePath, () => Task.FromResult<string?>(artifact.PayloadJson), cancellationToken)
+            : artifact.PayloadJson;
+
+        if (string.IsNullOrEmpty(payloadJson)) return null;
+
+        using var document = System.Text.Json.JsonDocument.Parse(payloadJson);
         if (!document.RootElement.TryGetProperty("structure", out var structureElement))
             return null;
 
@@ -1083,7 +1104,7 @@ public sealed class WikiTaskService
     /// 从已完成的页面批次工件恢复页面内容。
     /// 返回值为已恢复的批次键集合，调用方可据此跳过重复生成。
     /// </summary>
-    private static async Task<HashSet<string>> RestoreCompletedPageBatchesAsync(
+    private async Task<HashSet<string>> RestoreCompletedPageBatchesAsync(
         ITaskArtifactRepository artifactRepo,
         Guid taskId,
         WikiStructureDto wikiStructure,
@@ -1100,7 +1121,14 @@ public sealed class WikiTaskService
 
         foreach (var artifact in artifacts)
         {
-            using var document = System.Text.Json.JsonDocument.Parse(artifact.PayloadJson);
+            // 文件优先读取
+            var payloadJson = !string.IsNullOrEmpty(artifact.PayloadFilePath)
+                ? await _workspace.ReadWithFallbackAsync(artifact.PayloadFilePath, () => Task.FromResult<string?>(artifact.PayloadJson), cancellationToken)
+                : artifact.PayloadJson;
+
+            if (string.IsNullOrEmpty(payloadJson)) continue;
+
+            using var document = System.Text.Json.JsonDocument.Parse(payloadJson);
             if (!document.RootElement.TryGetProperty("pages", out var pagesElement))
                 continue;
 
@@ -1127,7 +1155,7 @@ public sealed class WikiTaskService
     /// <summary>
     /// 将工件结果幂等写入数据库，并同步回写任务恢复锚点。
     /// </summary>
-    private static async Task<TaskArtifact> UpsertTaskArtifactAsync(
+    private async Task<TaskArtifact> UpsertTaskArtifactAsync(
         ITaskArtifactRepository artifactRepo,
         ITaskRepository taskRepo,
         TaskRecord task,
@@ -1142,6 +1170,12 @@ public sealed class WikiTaskService
         string? errorMessage = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        // 双写：Workspace 文件
+        var artifactDir = _workspace.GetArtifactDir(task.Id);
+        var artifactFilePath = Path.Combine(artifactDir, $"{artifactType}.json");
+        await _workspace.WriteFileAsync(artifactFilePath, payloadJson, cancellationToken);
+
         var artifact = await artifactRepo.UpsertAsync(new TaskArtifact
         {
             TaskId = task.Id,
@@ -1153,6 +1187,7 @@ public sealed class WikiTaskService
             ContentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payloadJson))).ToLowerInvariant(),
             Summary = summary,
             PayloadJson = payloadJson,
+            PayloadFilePath = artifactFilePath,
             ErrorMessage = errorMessage
         });
 
@@ -1240,6 +1275,27 @@ public sealed class WikiTaskService
         var promptTokens = prompt.Length / 4;
         var completionTokens = response.Length / 4;
 
+        // 双写：Workspace JSONL 日志
+        var logDir = _workspace.GetLogDir(taskId);
+        var logFilePath = Path.Combine(logDir, "calls.jsonl");
+        var logEntry = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            step_order = stepOrder,
+            call_type = callType,
+            provider,
+            model,
+            prompt_tokens = promptTokens,
+            completion_tokens = completionTokens,
+            total_tokens = promptTokens + completionTokens,
+            latency_ms = latencyMs,
+            is_error = isError,
+            error_message = errorMsg,
+            tool_call_logs = toolCallLogsJson,
+            request_preview = prompt,
+            response_preview = response,
+            created_at = DateTime.UtcNow.ToString("O")
+        }, ArtifactJsonOptions);
+
         var log = new TaskLlmCallLog
         {
             TaskId = taskId,
@@ -1255,10 +1311,14 @@ public sealed class WikiTaskService
             LatencyMs = latencyMs,
             IsError = isError,
             ErrorMessage = errorMsg,
-            ToolCallLogsJson = toolCallLogsJson
+            ToolCallLogsJson = toolCallLogsJson,
+            LogFilePath = logFilePath
         };
 
         await logRepo.AddAsync(log);
+
+        // Workspace 日志追加写入（DB 写入成功后执行）
+        await _workspace.AppendLineAsync(logFilePath, logEntry);
 
         // 使用原子 SQL 更新累计 token，避免跨 scope 并发冲突
         await taskRepo.IncrementTokensAsync(taskId, promptTokens, completionTokens);

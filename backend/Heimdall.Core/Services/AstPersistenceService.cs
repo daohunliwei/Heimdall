@@ -1,10 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
 using Heimdall.Core.Services.Repository;
+using Heimdall.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +16,7 @@ public class AstPersistenceService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly CodeIndexService _codeIndexService;
+    private readonly WorkspaceService _workspace;
     private readonly ILogger<AstPersistenceService> _logger;
 
     private const string ProjectionFormatVersion = "1.0";
@@ -21,16 +24,26 @@ public class AstPersistenceService
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
+        WriteIndented = false,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    private static readonly JsonSerializerOptions PrettyJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     public AstPersistenceService(
         IServiceScopeFactory scopeFactory,
         CodeIndexService codeIndexService,
+        WorkspaceService workspace,
         ILogger<AstPersistenceService> logger)
     {
         _scopeFactory = scopeFactory;
         _codeIndexService = codeIndexService;
+        _workspace = workspace;
         _logger = logger;
     }
 
@@ -85,6 +98,9 @@ public class AstPersistenceService
             version.Status = "success";
             version.CompletedAt = DateTime.UtcNow;
 
+            // 双写：Workspace 文件系统
+            version.AstDirPath = await WriteAstToWorkspaceAsync(version.Id, projection);
+
             await repo.InsertAsync(version);
 
             _logger.LogInformation("AST 版本持久化成功 {AstVersionId}: {Files} 文件, {Symbols} 符号",
@@ -108,6 +124,52 @@ public class AstPersistenceService
 
             throw;
         }
+    }
+
+    /// <summary>
+    /// 将 AST 解析结果写入 Workspace 文件系统，返回 ast_dir_path。
+    /// </summary>
+    private async Task<string> WriteAstToWorkspaceAsync(Guid astVersionId, AstPersistenceProjection projection)
+    {
+        var astDir = _workspace.GetAstDir(astVersionId);
+        var filesDir = Path.Combine(astDir, "files");
+        Directory.CreateDirectory(filesDir);
+
+        // 每个文件的 CST S-expression 写入 files/{sha256[:16]}.cst
+        foreach (var fr in projection.FileResults)
+        {
+            var fileHash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(fr.FilePath)))[..16];
+            var cstPath = Path.Combine(filesDir, $"{fileHash}.cst");
+            var cstJson = JsonSerializer.Serialize(fr, JsonOptions);
+            await File.WriteAllTextAsync(cstPath, cstJson);
+        }
+
+        // manifest.json
+        var manifest = new
+        {
+            total_files = projection.TotalFiles,
+            total_symbols = projection.TotalSymbols,
+            total_call_edges = projection.TotalCallEdges,
+            total_chunks = projection.TotalChunks,
+            files = projection.FileList.Select(f => new
+            {
+                path = f.Path,
+                language = f.Language,
+                symbol_count = f.SymbolCount
+            })
+        };
+        await File.WriteAllTextAsync(
+            Path.Combine(astDir, "manifest.json"),
+            JsonSerializer.Serialize(manifest, PrettyJsonOptions));
+
+        // symbols.json
+        await File.WriteAllTextAsync(
+            Path.Combine(astDir, "symbols.json"),
+            JsonSerializer.Serialize(projection.SymbolNames, PrettyJsonOptions));
+
+        _logger.LogInformation("AST Workspace 文件写入完成: {Dir}", astDir);
+        return astDir;
     }
 
     /// <summary>
