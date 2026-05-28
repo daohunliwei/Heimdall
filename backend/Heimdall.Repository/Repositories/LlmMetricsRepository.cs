@@ -6,8 +6,11 @@ namespace Heimdall.Repository.Repositories;
 
 public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRepository
 {
+    private readonly ISqlSugarClient _db;
+
     public LlmMetricsRepository(ISqlSugarClient db) : base(db)
     {
+        _db = db;
     }
 
     public async Task AddAsync(LlmCallMetric metric, CancellationToken ct = default)
@@ -22,7 +25,7 @@ public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRe
 
     public async Task<List<LlmCallMetric>> GetByTaskIdAsync(Guid taskId, CancellationToken ct = default)
     {
-        return await Context.Queryable<LlmCallMetric>()
+        return await _db.Queryable<LlmCallMetric>()
             .Where(m => m.TaskId == taskId)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct);
@@ -30,7 +33,7 @@ public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRe
 
     public async Task<List<LlmCallMetric>> GetByTimeRangeAsync(DateTime from, DateTime to, CancellationToken ct = default)
     {
-        return await Context.Queryable<LlmCallMetric>()
+        return await _db.Queryable<LlmCallMetric>()
             .Where(m => m.CreatedAt >= from && m.CreatedAt <= to)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct);
@@ -41,7 +44,7 @@ public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRe
         var ids = taskIds.ToList();
         if (ids.Count == 0) return new Dictionary<Guid, LlmTaskMetricsSummary>();
 
-        var raw = await Context.Queryable<LlmCallMetric>()
+        var raw = await _db.Queryable<LlmCallMetric>()
             .Where(m => ids.Contains(m.TaskId))
             .Select(m => new
             {
@@ -76,7 +79,7 @@ public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRe
 
     public async Task<LlmTaskMetricsSummary> GetTaskSummaryAsync(Guid taskId, CancellationToken ct = default)
     {
-        var stats = await Context.Queryable<LlmCallMetric>()
+        var stats = await _db.Queryable<LlmCallMetric>()
             .Where(m => m.TaskId == taskId)
             .Select(m => new
             {
@@ -93,7 +96,7 @@ public class LlmMetricsRepository : BaseRepository<LlmCallMetric>, ILlmMetricsRe
         if (stats.TotalCalls == 0)
             return new LlmTaskMetricsSummary { TaskId = taskId };
 
-        var stages = await Context.Queryable<LlmCallMetric>()
+        var stages = await _db.Queryable<LlmCallMetric>()
             .Where(m => m.TaskId == taskId)
             .GroupBy(m => m.Stage)
             .Select(m => new LlmStageMetrics

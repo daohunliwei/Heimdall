@@ -16,12 +16,14 @@ public class TasksAdminController : ControllerBase
     private readonly ITaskRepository _taskRepo;
     private readonly TaskQueueService _taskQueue;
     private readonly ILlmObservabilityService _observability;
+    private readonly ILogger<TasksAdminController> _logger;
 
-    public TasksAdminController(ITaskRepository taskRepo, TaskQueueService taskQueue, ILlmObservabilityService observability)
+    public TasksAdminController(ITaskRepository taskRepo, TaskQueueService taskQueue, ILlmObservabilityService observability, ILogger<TasksAdminController> logger)
     {
         _taskRepo = taskRepo;
         _taskQueue = taskQueue;
         _observability = observability;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -36,8 +38,15 @@ public class TasksAdminController : ControllerBase
         // 批量获取所有任务的指标（一次查询替代 N 次单独查询）
         var taskIds = items.Select(t => t.Id).ToList();
         Dictionary<Guid, LlmTaskMetricsSummary> metricDict;
-        try { metricDict = await _observability.GetSummariesByTaskIdsAsync(taskIds); }
-        catch { metricDict = new Dictionary<Guid, LlmTaskMetricsSummary>(); }
+        try
+        {
+            metricDict = await _observability.GetSummariesByTaskIdsAsync(taskIds);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "批量获取任务 LLM 指标失败 TaskIds={Count}", taskIds.Count);
+            metricDict = new Dictionary<Guid, LlmTaskMetricsSummary>();
+        }
 
         var tasks = items.Select(t =>
         {

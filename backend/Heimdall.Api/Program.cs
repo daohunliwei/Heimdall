@@ -121,7 +121,7 @@ var sqlSugarScope = new SqlSugarScope(new ConnectionConfig
     {
         EntityNameService = (type, entity) =>
         {
-            if (!type.Namespace!.Contains("Dto"))
+            if (type.Namespace != null && !type.Namespace.Contains("Dto"))
             {
                 entity.DbTableName = SqlSugar.UtilMethods.ToUnderLine(entity.DbTableName);
             }
