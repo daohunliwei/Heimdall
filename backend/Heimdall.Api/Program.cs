@@ -302,11 +302,12 @@ builder.Services.AddScoped<IWorkshopTaskService, WorkshopTaskService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<JwtTokenService>();
 // V8: RagContextService 已移除——Ask 使用 BM25 检索替代向量检索
-builder.Services.AddScoped<TaskRequestUtilityService>();
+// [已删除] TaskRequestUtilityService — 死代码，无注入点
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<TaskLlmCallLogService>();
 builder.Services.AddScoped<IWikiTaskSubmissionService, WikiTaskSubmissionService>();
 builder.Services.AddSingleton<ChatMessageBuilderService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.AstContextFormatter>();
 builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
 builder.Services.AddSingleton<ToolCallConfigurationService>();
@@ -317,7 +318,7 @@ builder.Services.AddSingleton<WikiGlobalConvergenceService>();
 builder.Services.AddSingleton<DeterministicStructurePlanner>();
 builder.Services.AddSingleton<WikiRenderPostProcessor>();
 builder.Services.AddSingleton<WikiTaskService>();
-builder.Services.AddScoped<PromptTemplateService>();
+// [已删除] PromptTemplateService — 死代码，方法未被调用
 builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptManagementService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IPromptMergeService, Heimdall.Core.Services.Prompt.PromptMergeService>();
 builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptSeedData>();

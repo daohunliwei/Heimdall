@@ -33,7 +33,16 @@ load_env_file() {
         line="${line%"${line##*[![:space:]]}"}"  # trim trailing
         [[ -z "$line" || "$line" == \#* ]] && continue
         if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-            export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+            local env_name="${BASH_REMATCH[1]}"
+            local env_value="${BASH_REMATCH[2]}"
+            # 剥离外层引号（单引号或双引号）
+            if [[ "$env_value" =~ ^\"(.*)\"$ ]]; then
+                env_value="${BASH_REMATCH[1]}"
+            fi
+            if [[ "$env_value" =~ ^\'(.*)\'$ ]]; then
+                env_value="${BASH_REMATCH[1]}"
+            fi
+            export "${env_name}=${env_value}"
         fi
     done < "$ENV_FILE"
 }

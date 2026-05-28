@@ -5,13 +5,14 @@ using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
 using Heimdall.Core.Services.Repository;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Heimdall.Core.Services;
 
 public class AstPersistenceService
 {
-    private readonly IAstVersionRepository _repo;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly CodeIndexService _codeIndexService;
     private readonly ILogger<AstPersistenceService> _logger;
 
@@ -24,11 +25,11 @@ public class AstPersistenceService
     };
 
     public AstPersistenceService(
-        IAstVersionRepository repo,
+        IServiceScopeFactory scopeFactory,
         CodeIndexService codeIndexService,
         ILogger<AstPersistenceService> logger)
     {
-        _repo = repo;
+        _scopeFactory = scopeFactory;
         _codeIndexService = codeIndexService;
         _logger = logger;
     }
@@ -43,10 +44,12 @@ public class AstPersistenceService
         string? commitSha = null,
         CancellationToken ct = default)
     {
+        using var scope = _scopeFactory.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IAstVersionRepository>();
         var configFingerprint = ComputeConfigFingerprint();
 
         // 尝试复用已有成功版本
-        var existing = await _repo.GetByRepoVersionAndConfigAsync(repoVersion.Id, configFingerprint);
+        var existing = await repo.GetByRepoVersionAndConfigAsync(repoVersion.Id, configFingerprint);
         if (existing != null)
         {
             _logger.LogInformation("复用已有 AST 版本 {AstVersionId} for RepoVersion {RepoVersionId}",
@@ -82,7 +85,7 @@ public class AstPersistenceService
             version.Status = "success";
             version.CompletedAt = DateTime.UtcNow;
 
-            await _repo.InsertAsync(version);
+            await repo.InsertAsync(version);
 
             _logger.LogInformation("AST 版本持久化成功 {AstVersionId}: {Files} 文件, {Symbols} 符号",
                 version.Id, version.TotalFiles, version.TotalSymbols);
@@ -97,7 +100,7 @@ public class AstPersistenceService
             version.ErrorMessage = ex.Message;
             version.CompletedAt = DateTime.UtcNow;
 
-            try { await _repo.InsertAsync(version); }
+            try { await repo.InsertAsync(version); }
             catch (Exception insertEx)
             {
                 _logger.LogError(insertEx, "AST 版本失败记录写入也失败");

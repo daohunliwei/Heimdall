@@ -1090,15 +1090,15 @@ public class TreeSitterAnalyzer
         return new(StringComparer.OrdinalIgnoreCase)
         {
             ["csharp"] = new(
-                "(class_declaration name: (identifier) @name) (method_declaration name: (identifier) @name) (interface_declaration name: (identifier) @name) (struct_declaration name: (identifier) @name) (record_declaration name: (identifier) @name) (property_declaration name: (identifier) @name) (constructor_declaration name: (identifier) @name)",
+                "(class_declaration name: (identifier) @name) (method_declaration name: (identifier) @name) (interface_declaration name: (identifier) @name) (struct_declaration name: (identifier) @name) (record_declaration name: (identifier) @name) (property_declaration name: (identifier) @name) (constructor_declaration name: (identifier) @name) (enum_declaration name: (identifier) @name) (delegate_declaration name: (identifier) @name) (event_declaration name: (identifier) @name)",
                 "(using_directive name: (qualified_name) @dep)",
-                "(class_declaration) @chunk (method_declaration) @chunk (interface_declaration) @chunk (struct_declaration) @chunk (record_declaration) @chunk (property_declaration) @chunk",
+                "(class_declaration) @chunk (method_declaration) @chunk (interface_declaration) @chunk (struct_declaration) @chunk (record_declaration) @chunk (property_declaration) @chunk (enum_declaration) @chunk",
                 "(invocation_expression function: [(member_access_expression name: (identifier) @callee) (identifier) @callee])"
             ),
             ["typescript"] = new(
-                "(class_declaration name: (identifier) @name) (function_declaration name: (identifier) @name) (method_definition name: (property_identifier) @name) (interface_declaration name: (type_identifier) @name)",
+                "(class_declaration name: (identifier) @name) (function_declaration name: (identifier) @name) (method_definition name: (property_identifier) @name) (interface_declaration name: (type_identifier) @name) (enum_declaration name: (identifier) @name)",
                 "(import_statement source: (string) @dep)",
-                "(class_declaration) @chunk (function_declaration) @chunk (interface_declaration) @chunk (method_definition) @chunk",
+                "(class_declaration) @chunk (function_declaration) @chunk (interface_declaration) @chunk (method_definition) @chunk (enum_declaration) @chunk",
                 "(call_expression function: [(identifier) @callee (member_expression property: (property_identifier) @callee)])"
             ),
             ["javascript"] = new(
@@ -1126,9 +1126,9 @@ public class TreeSitterAnalyzer
                 "(call_expression function: [(identifier) @callee (field_expression field: (field_identifier) @callee)])"
             ),
             ["java"] = new(
-                "(class_declaration name: (identifier) @name) (method_declaration name: (identifier) @name) (interface_declaration name: (identifier) @name)",
+                "(class_declaration name: (identifier) @name) (method_declaration name: (identifier) @name) (interface_declaration name: (identifier) @name) (enum_declaration name: (identifier) @name)",
                 "(import_declaration [(identifier) (scoped_identifier)] @dep)",
-                "(class_declaration) @chunk (method_declaration) @chunk (interface_declaration) @chunk",
+                "(class_declaration) @chunk (method_declaration) @chunk (interface_declaration) @chunk (enum_declaration) @chunk",
                 "(method_invocation name: (identifier) @callee)"
             ),
             ["cpp"] = new(

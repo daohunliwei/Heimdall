@@ -221,6 +221,64 @@ public sealed class ChatMessageBuilderService
     }
 
     /// <summary>
+    /// 构建 Wiki 页面生成的结构化消息列表
+    /// 返回 [System, User(context), User(topic)] 三元组
+    /// </summary>
+    public List<AiChatMessage> BuildWikiMessages(
+        string systemPrompt,
+        string astCodeContext,
+        string pageTopic)
+    {
+        var messages = new List<AiChatMessage>();
+
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            messages.Add(new AiChatMessage(ChatRole.System, systemPrompt));
+        }
+
+        if (!string.IsNullOrWhiteSpace(astCodeContext))
+        {
+            messages.Add(new AiChatMessage(ChatRole.User, astCodeContext));
+        }
+
+        if (!string.IsNullOrWhiteSpace(pageTopic))
+        {
+            messages.Add(new AiChatMessage(ChatRole.User, pageTopic));
+        }
+
+        if (messages.Count == 0)
+        {
+            messages.Add(new AiChatMessage(ChatRole.User, "生成 Wiki 页面"));
+        }
+
+        return messages;
+    }
+
+    /// <summary>
+    /// 构建 Slides 生成的结构化消息列表
+    /// 返回 [System, User(context), User(topic)] 三元组
+    /// </summary>
+    public List<AiChatMessage> BuildSlidesMessages(
+        string systemPrompt,
+        string astCodeContext,
+        string slidesTopic)
+    {
+        return BuildWikiMessages(systemPrompt, astCodeContext, slidesTopic);
+    }
+
+    /// <summary>
+    /// 构建 Workshop 生成的结构化消息列表
+    /// 返回 [System, User(context), User(topic)] 三元组
+    /// </summary>
+    public List<AiChatMessage> BuildWorkshopMessages(
+        string systemPrompt,
+        string astCodeContext,
+        string workshopTopic)
+    {
+        return BuildWikiMessages(systemPrompt, astCodeContext, workshopTopic);
+    }
+
+    /// <summary>
     /// 构建 Ask 的最终问题消息
     /// 当前问题单独承载
     /// 避免与证据上下文混写成一个大 Prompt
