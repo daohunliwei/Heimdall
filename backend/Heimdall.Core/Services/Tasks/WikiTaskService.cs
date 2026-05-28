@@ -44,6 +44,7 @@ public sealed class WikiTaskService
     private readonly AgentOrchestratorService? _agentOrchestrator;
     private readonly AstPersistenceService _astPersistence;
     private readonly WorkspaceService _workspace;
+    private readonly AstBackedCodeToolService _astTools;
     private readonly ILogger<WikiTaskService> _logger;
 
     public WikiTaskService(
@@ -64,6 +65,7 @@ public sealed class WikiTaskService
         ToolCallConfigurationService toolCallConfigurationService,
         AstPersistenceService astPersistence,
         WorkspaceService workspace,
+        AstBackedCodeToolService astTools,
         ILogger<WikiTaskService> logger,
         AgentOrchestratorService? agentOrchestrator = null)
     {
@@ -84,6 +86,7 @@ public sealed class WikiTaskService
         _toolCallConfigurationService = toolCallConfigurationService;
         _astPersistence = astPersistence;
         _workspace = workspace;
+        _astTools = astTools;
         _agentOrchestrator = agentOrchestrator;
         _logger = logger;
     }
@@ -640,7 +643,9 @@ public sealed class WikiTaskService
                         .CalculateAvailableBudget(effectiveProvider, model ?? customModel ?? "");
                     var searchResults = await _hybridSearch.SearchAsync(
                         searchIndexKey, searchQuery, keyFiles, topK: 100, maxTotalTokens: contextBudget, ct: execToken);
-                    var fileContents = _hybridSearch.FormatForPrompt(searchResults);
+                    // 混合注入策略：System Prompt 只预注入 Top-3 分块（~2000 tokens），LLM 按需通过 Tool 扩展
+                    var fileContents = _hybridSearch.FormatForPrompt(
+                        searchResults.OrderByDescending(r => r.CombinedScore).Take(3).ToList());
 
                     // 根据页面主题有选择地注入仓库文档内容
                     var docContext = IsArchitectureOrOverviewPage(page)

@@ -1,7 +1,9 @@
 ## ADDED Requirements
 
-### Requirement: CST S-expression 文件存储
-系统 SHALL 在 AST 持久化时，对每个已解析的源码文件，将 Tree-sitter 原始 CST 的 S-expression 写入 `workspace/ast/{ast_version_id[:8]}/files/{source_sha256[:16]}.cst` 文件。S-expression SHALL 通过 `Node.ToSexp()` 方法获取，DB 中仅通过 `ast_dir_path` 记录目录路径。
+### Requirement: CST S-expression 文件存储（canonical source，不可丢弃）
+系统 SHALL 在 AST 持久化时，对每个已解析的源码文件，将 Tree-sitter **原始** CST 的完整 S-expression 写入 `workspace/ast/{ast_version_id[:8]}/files/{source_sha256[:16]}.cst` 文件。S-expression SHALL 为 `root.ToString()` 的原始输出，**不经过任何 JSON 序列化或结构化提取**。此文件是解析结果的 canonical source——原始语法树信息必须 100% 保留，不可丢弃。
+
+**同时**，解析后的结构化数据（`AstFileResult` —— 符号、调用边、分块）SHALL 保留在 `symbols.json` 和 `manifest.json` 索引文件中，并同步存入 DB 的 `symbol_names_json`、`file_list_json`、`result_json` 列。原始 CST 与解析结果 **两者都必须完整保留**。
 
 #### Scenario: 单文件 CST 写入
 - **WHEN** 系统完成某个 C# 文件的 Tree-sitter 解析

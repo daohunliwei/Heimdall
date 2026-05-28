@@ -317,6 +317,7 @@ builder.Services.AddSingleton<ChatMessageBuilderService>();
 builder.Services.AddSingleton<Heimdall.Core.Services.AstContextFormatter>();
 builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
+builder.Services.AddSingleton<Heimdall.Core.Tools.AstBackedCodeToolService>();
 builder.Services.AddSingleton<ToolCallConfigurationService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IStructuredLogger, Heimdall.Core.Services.Logging.StructuredLogger>();
 builder.Services.AddSingleton<TaskPromptService>();

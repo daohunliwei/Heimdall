@@ -127,6 +127,7 @@ public class TreeSitterAnalyzer
             }
 
             var root = tree.RootNode;
+            var cstSexpr = ToCstString(root);
             var symbols = ExtractSymbolsFromTree(root, queries, filePath, lang);
             var imports = ExtractDependenciesFromTree(root, queries.DependencyQuery, filePath, lang);
             var callEdges = ExtractCallEdges(root, queries.CallQuery, filePath, lang, imports);
@@ -138,7 +139,7 @@ public class TreeSitterAnalyzer
                 .DistinctBy(edge => $"{edge.CallerSymbol}|{edge.CallerFilePath}|{edge.CalleeSymbol}|{edge.CalleeFilePath}|{edge.CallType}")
                 .ToList();
 
-            return new AstFileResult(filePath, language, symbols, allEdges, chunks, designPatternHints);
+            return new AstFileResult(filePath, language, symbols, allEdges, chunks, designPatternHints, cstSexpr);
         }
         catch (Exception ex)
         {
@@ -146,6 +147,11 @@ public class TreeSitterAnalyzer
             return AnalyzeWithRegex(filePath, source, language);
         }
     }
+
+    /// <summary>
+    /// 返回 CST 根节点的完整 S-expression 字符串，作为 AST 持久化的 canonical source。
+    /// </summary>
+    public static string ToCstString(Node root) => root.Expression;
 
     /// <summary>
     /// 返回指定语言的缓存实例
@@ -691,6 +697,20 @@ public class TreeSitterAnalyzer
     private static string BuildFullSignature(Node node)
     {
         var text = NormalizeWhitespace(node.Text);
+
+        // 优先用 AST 子节点定位方法体起始位置，避免插值大括号（如 $"{...}"）截断
+        var bodyChild = node.NamedChildren
+            .FirstOrDefault(c => c.Type is "block" or "arrow_expression_clause");
+        if (bodyChild != null)
+        {
+            var bodyStartInNode = bodyChild.StartIndex - node.StartIndex;
+            if (bodyStartInNode > 0 && bodyStartInNode < text.Length)
+            {
+                return text[..bodyStartInNode].Trim();
+            }
+        }
+
+        // 回退：无 body 字段时用文本匹配（interface / abstract 声明等）
         foreach (var delimiter in new[] { "{", "=>", ";" })
         {
             var index = text.IndexOf(delimiter, StringComparison.Ordinal);
@@ -824,9 +844,13 @@ public class TreeSitterAnalyzer
     /// </summary>
     private static string[]? ExtractAttributeAnnotations(Node node)
     {
-        var annotations = EnumerateDescendants(node)
-            .Where(descendant => descendant.Type.Contains("attribute", StringComparison.OrdinalIgnoreCase))
-            .Select(descendant => NormalizeWhitespace(descendant.Text))
+        // 只提取直接 attribute 节点，不遍历后代，避免参数片段噪声
+        var annotations = node.NamedChildren
+            .Where(child => child.Type is "attribute" or "attribute_list")
+            .SelectMany(child => child.Type == "attribute_list"
+                ? child.NamedChildren.Where(a => a.Type == "attribute")
+                : new[] { child })
+            .Select(attr => NormalizeWhitespace(attr.Text))
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -1211,7 +1235,8 @@ public record AstFileResult(
     List<AstSymbol> Symbols,
     List<AstCallEdge> CallEdges,
     List<SourceChunk> Chunks,
-    List<string> DesignPatternHints);
+    List<string> DesignPatternHints,
+    string? CstSExpression = null);
 
 /// <summary>
 /// 源代码分块记录

@@ -19,7 +19,7 @@ public class AstPersistenceService
     private readonly WorkspaceService _workspace;
     private readonly ILogger<AstPersistenceService> _logger;
 
-    private const string ProjectionFormatVersion = "1.0";
+    private const string ProjectionFormatVersion = "2.0";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -135,14 +135,25 @@ public class AstPersistenceService
         var filesDir = Path.Combine(astDir, "files");
         Directory.CreateDirectory(filesDir);
 
-        // 每个文件的 CST S-expression 写入 files/{sha256[:16]}.cst
+        // 每个文件双写：
+        //   {hash}.cst  = 原始 Tree-sitter S-expression（canonical source，不可丢弃）
+        //   {hash}.json = 解析后结构化数据（symbols/callEdges/chunks，供 Tool 快速查询）
         foreach (var fr in projection.FileResults)
         {
             var fileHash = Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes(fr.FilePath)))[..16];
-            var cstPath = Path.Combine(filesDir, $"{fileHash}.cst");
-            var cstJson = JsonSerializer.Serialize(fr, JsonOptions);
-            await File.WriteAllTextAsync(cstPath, cstJson);
+
+            // 原始 CST S-expression（仅 Tree-sitter 成功解析的文件有）
+            if (!string.IsNullOrEmpty(fr.CstSExpression))
+            {
+                var cstPath = Path.Combine(filesDir, $"{fileHash}.cst");
+                await File.WriteAllTextAsync(cstPath, fr.CstSExpression);
+            }
+
+            // 解析后结构化数据（始终写入：symbols, callEdges, chunks, patterns）
+            var analysisPath = Path.Combine(filesDir, $"{fileHash}.json");
+            var analysisJson = JsonSerializer.Serialize(fr, JsonOptions);
+            await File.WriteAllTextAsync(analysisPath, analysisJson);
         }
 
         // manifest.json

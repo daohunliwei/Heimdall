@@ -142,3 +142,21 @@ AST 解析的持久化投影 SHALL 写入 Workspace `ast/{ast_version_id[:8]}/` 
 - **WHEN** LLM Tool `SearchSymbols` 执行符号搜索
 - **THEN** 系统直接从 DB 的 `symbol_names_json` 列匹配
 - **AND** 不需要读取 workspace 文件
+
+### Requirement: Tree-sitter CST S-expression 输出
+`TreeSitterAnalyzer` SHALL 提供 `ToCstString(Node root)` 方法，调用 `root.Expression` 返回完整的 CST S-expression 字符串。该字符串 SHALL 作为 AST 持久化的 canonical source。
+
+#### Scenario: 输出 C# 文件的 S-expression
+- **WHEN** 对任一 C# 文件调用 `ToCstString(tree.RootNode)`
+- **THEN** 返回以 `(compilation_unit ...)` 开头的 S-expression 字符串
+
+### Requirement: 修复 attributeAnnotations 噪声
+`ExtractAttributeAnnotations` SHALL 只提取直接 `attribute` 节点的完整文本，不再遍历所有后代导致参数片段被当作独立注解。
+
+#### Scenario: 特性注解精确提取
+- **WHEN** 解析带有 `[SugarTable("ast_versions")]` 和 `[SugarIndex("name", ...)]` 的 C# 类
+- **THEN** `attributeAnnotations` 包含完整文本
+- **AND** 不包含参数片段
+
+### Requirement: 修复 fullSignature 截断
+`BuildFullSignature` SHALL 使用 AST 的 `block`/`arrow_expression_clause` 子节点定位方法体起始位置，不用纯文本 `IndexOf("{")` 匹配，避免插值大括号（`$"{...}"`）截断签名。

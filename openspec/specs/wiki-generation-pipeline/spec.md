@@ -256,3 +256,16 @@ Wiki 生成管线 SHALL 在持久化 `WikiVersion` 之前，先为目标 `Reposi
 - **THEN** `WikiVersion` 不得进入成功态
 - **AND** 系统不得写入指向不存在或失败 AST 版本的 Wiki 关联
 
+### Requirement: 轻量预注入 + Tool 按需查询混合策略
+Wiki 页面生成 SHALL 采用混合上下文策略：System Prompt 中预注入 BM25 Top-3 关键代码分块（约 2000 tokens），LLM 需要更多上下文时通过 Tool 按需查询。SHALL 不再注入 BM25 Top-20 全量结果。
+
+#### Scenario: 预注入 Top-3 代码分块
+- **WHEN** 系统为某个 Wiki 页面构建 LLM Prompt
+- **THEN** System Prompt 中预注入 BM25 检索的 Top-3 代码分块
+- **AND** 预注入总量不超过 ~2000 tokens
+
+#### Scenario: LLM 通过 Tool 扩展上下文
+- **WHEN** LLM 判断预注入代码不足以完成页面撰写
+- **THEN** LLM 调用 Tool 获取更多上下文
+- **AND** Tool 数据来源于当前 WikiVersion 绑定的 AstVersion 持久化数据
+

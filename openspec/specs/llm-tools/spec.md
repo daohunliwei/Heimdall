@@ -66,5 +66,21 @@ LLM Tool Call 基础设施——涵盖 FunctionInvokingChatClient 中间件集�
 - **THEN** 系统从 workspace symbols 文件中匹配类名
 - **AND** 返回类签名、基类、接口、方法、属性、文件路径和行号
 
+### Requirement: lookup_file 工具
+系统 SHALL 提供 `lookup_file(string filePath, int? startLine = null, int? endLine = null)` 方法，从 Workspace `repos/` 读取源文件，从 `ast/{id}/symbols.json` 匹配文件符号摘要。返回带行号的源码片段和该文件的符号列表。
+
+#### Scenario: 完整文件查询
+- **WHEN** LLM 调用 `lookup_file("Services/UserService.cs")`
+- **THEN** 从 `workspace/repos/` 读取源文件（带行号）
+- **AND** 从 `workspace/ast/{id}/symbols.json` 匹配符号列表
+
+### Requirement: find_usages 工具
+系统 SHALL 提供 `find_usages(string symbolName, string? symbolKind = null)` 方法，从 Workspace AST 目录的 `.json` 文件中反查指定符号的所有调用位置。
+
+#### Scenario: 查询方法调用者
+- **WHEN** LLM 调用 `find_usages("GetUserAsync")`
+- **THEN** 从 `workspace/ast/{id}/files/*.json` 的 callEdges 中反查
+- **AND** 返回所有文件中调用 `GetUserAsync` 的调用者列表
+
 ### Requirement: 工具描述元数据
 每个工具方法 SHALL 使用 [Description("...")] 特性标注中文描述，通过 AIFunctionFactory.Create 自动转换为 OpenAI Function Calling 的 function.description 字段。
