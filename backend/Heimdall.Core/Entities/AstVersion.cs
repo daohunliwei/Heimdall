@@ -3,11 +3,9 @@ using SqlSugar;
 namespace Heimdall.Core.Entities;
 
 [SugarTable("ast_versions")]
-[SugarIndex("IX_ast_versions_repo_status", $"{nameof(RepositoryVersionId)},{nameof(Status)}", OrderByType.Asc)]
-[SugarIndex("UQ_ast_versions_repo_config", $"{nameof(RepositoryVersionId)},{nameof(ConfigFingerprint)}", OrderByType.Asc, IsUnique = true)]
 public class AstVersion
 {
-    [SugarColumn(IsPrimaryKey = true)]
+    [SugarColumn(IsPrimaryKey = true, ColumnName = "id")]
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     [SugarColumn(ColumnName = "repository_version_id")]
@@ -44,7 +42,11 @@ public class AstVersion
     public int TotalChunks { get; set; }
 
     [SugarColumn(ColumnName = "result_json", ColumnDataType = "text", IsNullable = true)]
+    [Obsolete("已迁移到 Workspace 文件系统，请使用 ast_dir_path 定位文件")]
     public string? ResultJson { get; set; }
+
+    [SugarColumn(ColumnName = "ast_dir_path", Length = 512, IsNullable = true)]
+    public string? AstDirPath { get; set; }
 
     [SugarColumn(ColumnName = "symbol_names_json", ColumnDataType = "text", IsJson = true, IsNullable = true)]
     public string? SymbolNamesJson { get; set; }

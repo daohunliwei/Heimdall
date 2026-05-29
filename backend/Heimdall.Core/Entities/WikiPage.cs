@@ -30,7 +30,11 @@ public class WikiPage
     public string? NavTitle { get; set; }
 
     [SugarColumn(ColumnName = "content_markdown", ColumnDataType = "text", IsNullable = true)]
+    [Obsolete("已迁移到 Workspace 文件系统，请使用 content_file_path 定位文件")]
     public string? ContentMarkdown { get; set; }
+
+    [SugarColumn(ColumnName = "content_file_path", Length = 1024, IsNullable = true)]
+    public string? ContentFilePath { get; set; }
 
     [SugarColumn(ColumnName = "parent_page_id", IsNullable = true)]
     public Guid? ParentPageId { get; set; }

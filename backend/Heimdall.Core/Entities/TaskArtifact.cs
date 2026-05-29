@@ -36,7 +36,11 @@ public class TaskArtifact
     public string? Summary { get; set; }
 
     [SugarColumn(ColumnName = "payload_json", IsJson = true, ColumnDataType = "text")]
+    [Obsolete("已迁移到 Workspace 文件系统，请使用 payload_file_path 定位文件")]
     public string PayloadJson { get; set; } = "{}";
+
+    [SugarColumn(ColumnName = "payload_file_path", Length = 1024, IsNullable = true)]
+    public string? PayloadFilePath { get; set; }
 
     [SugarColumn(ColumnName = "error_message", ColumnDataType = "text", IsNullable = true)]
     public string? ErrorMessage { get; set; }

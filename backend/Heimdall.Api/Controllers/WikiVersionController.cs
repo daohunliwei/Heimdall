@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Interfaces.Services;
+using Heimdall.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Heimdall.Api.Controllers;
@@ -15,6 +16,7 @@ public class WikiVersionController : ControllerBase
     private readonly IWikiPageRepository _pageRepo;
     private readonly IRepositoryConfigRepository _repoRepo;
     private readonly IWikiTaskSubmissionService _wikiTaskSubmissionService;
+    private readonly WorkspaceService _workspace;
     private readonly ILogger<WikiVersionController> _logger;
 
     public WikiVersionController(
@@ -23,6 +25,7 @@ public class WikiVersionController : ControllerBase
         IWikiPageRepository pageRepo,
         IRepositoryConfigRepository repoRepo,
         IWikiTaskSubmissionService wikiTaskSubmissionService,
+        WorkspaceService workspace,
         ILogger<WikiVersionController> logger)
     {
         _spaceRepo = spaceRepo;
@@ -30,6 +33,7 @@ public class WikiVersionController : ControllerBase
         _pageRepo = pageRepo;
         _repoRepo = repoRepo;
         _wikiTaskSubmissionService = wikiTaskSubmissionService;
+        _workspace = workspace;
         _logger = logger;
     }
 
@@ -260,22 +264,31 @@ public class WikiVersionController : ControllerBase
 
         var pages = await _pageRepo.GetByWikiVersionIdAsync(effectiveVersionId.Value);
 
-        return Ok(pages.Select(p => new
+        return Ok(pages.Select(p =>
         {
-            id = p.Id.ToString(),
-            title = p.Title,
-            content = p.ContentMarkdown ?? "",
-            page_type = p.PageType,
-            importance = p.Importance,
-            page_order = p.PageOrder,
-            file_paths = p.FilePaths ?? Array.Empty<string>(),
-            nav_title = p.NavTitle,
-            parent_page_id = p.ParentPageId?.ToString(),
-            depth = p.Depth,
-            token_count = p.TokenCount,
-            status = p.Status,
-            created_at = p.CreatedAt,
-            summary = p.Summary ?? ""
+            // 文件优先读取
+            var content = p.ContentMarkdown ?? "";
+            if (!string.IsNullOrEmpty(p.ContentFilePath) && System.IO.File.Exists(p.ContentFilePath))
+            {
+                content = System.IO.File.ReadAllText(p.ContentFilePath);
+            }
+            return new
+            {
+                id = p.Id.ToString(),
+                title = p.Title,
+                content,
+                page_type = p.PageType,
+                importance = p.Importance,
+                page_order = p.PageOrder,
+                file_paths = p.FilePaths ?? Array.Empty<string>(),
+                nav_title = p.NavTitle,
+                parent_page_id = p.ParentPageId?.ToString(),
+                depth = p.Depth,
+                token_count = p.TokenCount,
+                status = p.Status,
+                created_at = p.CreatedAt,
+                summary = p.Summary ?? ""
+            };
         }));
     }
 

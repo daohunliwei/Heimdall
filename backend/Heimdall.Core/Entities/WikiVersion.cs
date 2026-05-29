@@ -57,7 +57,11 @@ public class WikiVersion
     public string? SummaryMarkdown { get; set; }
 
     [SugarColumn(ColumnName = "structure_json", ColumnDataType = "text", IsNullable = true)]
+    [Obsolete("已迁移到 Workspace 文件系统，请使用 structure_file_path 定位文件")]
     public string? StructureJson { get; set; }
+
+    [SugarColumn(ColumnName = "structure_file_path", Length = 512, IsNullable = true)]
+    public string? StructureFilePath { get; set; }
 
     [SugarColumn(ColumnName = "created_by_task_id", IsNullable = true)]
     public Guid? CreatedByTaskId { get; set; }

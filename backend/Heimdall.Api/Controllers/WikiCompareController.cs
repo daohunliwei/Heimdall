@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 using Heimdall.Core.Interfaces.Repositories;
+using Heimdall.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Heimdall.Api.Controllers;
@@ -14,6 +15,7 @@ public class WikiCompareController : ControllerBase
     private readonly IWikiPageRepository _pageRepo;
     private readonly IWikiSpaceRepository _spaceRepo;
     private readonly IRepositoryConfigRepository _repoRepo;
+    private readonly WorkspaceService _workspace;
     private readonly ILogger<WikiCompareController> _logger;
 
     public WikiCompareController(
@@ -21,12 +23,14 @@ public class WikiCompareController : ControllerBase
         IWikiPageRepository pageRepo,
         IWikiSpaceRepository spaceRepo,
         IRepositoryConfigRepository repoRepo,
+        WorkspaceService workspace,
         ILogger<WikiCompareController> logger)
     {
         _versionRepo = versionRepo;
         _pageRepo = pageRepo;
         _spaceRepo = spaceRepo;
         _repoRepo = repoRepo;
+        _workspace = workspace;
         _logger = logger;
     }
 
@@ -103,8 +107,8 @@ public class WikiCompareController : ControllerBase
         var significantChanges = new List<object>();
         foreach (var id in commonIds)
         {
-            var contentA = pageDictA[id].ContentMarkdown ?? "";
-            var contentB = pageDictB[id].ContentMarkdown ?? "";
+            var contentA = ResolvePageContent(pageDictA[id]);
+            var contentB = ResolvePageContent(pageDictB[id]);
 
             if (contentA != contentB)
             {
@@ -165,6 +169,15 @@ public class WikiCompareController : ControllerBase
                 total_significant_changes = significantChanges.Count
             }
         });
+    }
+
+    private static string ResolvePageContent(Heimdall.Core.Entities.WikiPage page)
+    {
+        if (!string.IsNullOrEmpty(page.ContentFilePath) && System.IO.File.Exists(page.ContentFilePath))
+        {
+            return System.IO.File.ReadAllText(page.ContentFilePath);
+        }
+        return page.ContentMarkdown ?? "";
     }
 
     private static string ComputeHash(string content)

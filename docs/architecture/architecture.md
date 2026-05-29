@@ -1,6 +1,6 @@
 # Heimdall 架构文档入口
 
-> 最后更新：2026-05-25
+> 最后更新：2026-05-28
 >
 > 本文档是 Heimdall 架构文档体系的统一入口，用于帮助读者在 5 分钟内建立全局认知，并导航到后续专题文档。
 
@@ -14,12 +14,14 @@ Heimdall 用于把代码仓库自动转换为中文 Wiki、问答内容、演示
 |------|------|
 | **后端** | C# / ASP.NET Core / `.NET 10` |
 | **前端** | Next.js 16（App Router） |
-| **数据库** | PostgreSQL |
+| **数据库** | PostgreSQL + pgvector |
 | **ORM** | SqlSugar（CodeFirst 自动同步，无迁移文件） |
 | **AI 抽象** | Microsoft.Extensions.AI（MEAI）`IChatClient` |
-| **代码分析** | Tree-sitter AST + BM25 全文检索 |
+| **代码分析** | Tree-sitter AST（20+ 语言）+ BM25 全文检索 |
+| **文件存储** | Workspace 文件系统（Wiki Markdown、AST CST、结构 JSON 从 DB 迁移到文件存储） |
 | **认证** | `none` / JWT + RBAC |
 | **核心产物** | Wiki、Ask、Slides、Workshop |
+| **规范管理** | OpenSpec spec-driven（`openspec/` 目录，26 个域 spec） |
 
 ### 1.1 系统全景摘要图
 
@@ -31,8 +33,8 @@ flowchart LR
     Api --> Infra["Heimdall.Infrastructure<br/>MEAI Provider / BM25 / 仓库源 / 配置"]
     Core --> Infra
     Repo --> Infra
-    Repo --> Pg["PostgreSQL<br/>版本、页面、任务、索引、配置"]
-    Core --> Worktree["Git 仓库临时工作区<br/>索引与生成阶段暂存"]
+    Repo --> Pg["PostgreSQL<br/>版本、页面元数据、任务、索引、配置"]
+    Core --> Workspace["Workspace 文件系统<br/>ast/ · wiki/ · repos/ · artifacts/"]
 ```
 
 ### 1.2 系统级事实
@@ -40,6 +42,8 @@ flowchart LR
 - 输入是仓库地址或已有仓库标识，输出是版本化的知识资产，而不是一次性生成结果。
 - 后端采用 `Api -> Core -> Repository` 的主依赖链，`Infrastructure` 作为共享工具层被各层复用。
 - `RepositoryVersion` 与 `WikiVersion` 共同构成运行时锚点，支撑刷新、发布、回滚和派生产物复用。
+- `AstVersion` 与 `RepositoryVersion` 关联，AST 解析结果持久化到 Workspace 文件系统，Wiki 生成前必须先解析或复用 AST 版本。
+- Wiki 页面 Markdown 和结构 JSON 存储在 Workspace 文件系统，DB 仅保留路径引用和元数据。
 - Wiki 生成采用后台任务模式，Ask、Slides、Workshop 与 Wiki 共用版本与任务底座。
 
 ---
@@ -47,25 +51,24 @@ flowchart LR
 ## 2. 核心原则
 
 1. **四层依赖单向流动**：`Heimdall.Api -> Heimdall.Core -> Heimdall.Repository`，三层均可依赖 `Heimdall.Infrastructure`，`Core` 不反向依赖 `Api`。
-2. **版本化优先于即时态**：代码快照和知识版本分离建模，所有读写行为都围绕版本展开，而不是围绕仓库当前状态展开。
-3. **数据库是唯一持久化信源**：Wiki 页面、任务工件、索引和配置统一落 PostgreSQL，文件系统仅承担任务执行期暂存。
+2. **版本化优先于即时态**：代码快照（`RepositoryVersion`）、知识版本（`WikiVersion`）和 AST 版本（`AstVersion`）分离建模，所有读写行为围绕版本展开。
+3. **数据库 + Workspace 双存储**：PostgreSQL 是元数据和关系的主信源，Workspace 文件系统是大文本内容（Wiki Markdown、AST CST）的存储层。DB 存储路径引用，文件系统存储内容。
 4. **后台任务统一入队**：长耗时流程通过统一任务队列执行，避免控制器直跑导致状态不一致、不可恢复或并发失控。
-5. **专题事实单点维护**：入口页只保留全局事实，各专题细节仅在对应专题文档中维护，避免重复描述。
-6. **先建立全局认知，再下钻细节**：入口页服务于导航和边界说明，不再承载 API、数据库、前端组件等详细正文。
+5. **AST 为代码分析的 canonical source**：调用图、设计模式检测等均基于 Tree-sitter AST，不再使用正则实现。
+6. **专题事实单点维护**：入口页只保留全局事实，各专题细节仅在对应专题文档中维护，避免重复描述。
 
 ---
 
 ## 3. 专题目录
 
-下表给出当前专题文档目录与职责边界。所有专题正文均已按统一模板落地，入口页只保留导航、摘要与跨专题关系。
-
 | 分组 | 规划文档 | 主题职责 |
 |------|------|------|
 | `overview` | [系统全景](./overview/system-overview.md) | 系统边界、能力矩阵、全景关系、关键运行路径 |
 | `overview` | [分层架构](./overview/layered-architecture.md) | 四层架构、依赖规则、目录职责、生命周期 |
-| `overview` | [领域模型](./overview/domain-model.md) | 版本底座、实体关系、任务工件、索引模型 |
-| `runtime` | [Wiki 生成管线](./runtime/wiki-pipeline.md) | 8 阶段 Wiki 管线、结构规划、检索、代码理解、Agent 编排 |
+| `overview` | [领域模型](./overview/domain-model.md) | 版本底座、实体关系、任务工件、索引模型、Workspace 实体 |
+| `runtime` | [Wiki 生成管线](./runtime/wiki-pipeline.md) | 8 阶段管线、结构规划、BM25 检索、Tool Call、Agent 编排 |
 | `runtime` | [AI Provider 架构](./runtime/ai-provider-architecture.md) | MEAI `IChatClient`、Provider 工厂、模型分层、成本追踪 |
+| `runtime` | [Workspace 文件系统](./runtime/workspace-filesystem.md) | 目录结构、路径解析、缓存失效、AST/Wiki 文件存储 |
 | `runtime` | [前端架构](./runtime/frontend-architecture.md) | 路由、组件、BFF、状态流、版本透传 |
 | `runtime` | [API 总览](./runtime/api-overview.md) | 接口分组、主链路、职责边界、典型调用顺序 |
 | `persistence` | [数据库设计](./persistence/database-design.md) | 表结构、约束、索引、CodeFirst 与恢复策略 |
@@ -85,7 +88,8 @@ flowchart LR
 3. [分层架构](./overview/layered-architecture.md)
 4. [领域模型](./overview/domain-model.md)
 5. [Wiki 生成管线](./runtime/wiki-pipeline.md)
-6. [架构决策](./governance/architecture-decisions.md)
+6. [Workspace 文件系统](./runtime/workspace-filesystem.md)
+7. [架构决策](./governance/architecture-decisions.md)
 
 ### 4.2 后端开发
 
@@ -94,9 +98,10 @@ flowchart LR
 3. [领域模型](./overview/domain-model.md)
 4. [Wiki 生成管线](./runtime/wiki-pipeline.md)
 5. [AI Provider 架构](./runtime/ai-provider-architecture.md)
-6. [数据库设计](./persistence/database-design.md)
-7. [配置与环境变量](./persistence/configuration-and-env.md)
-8. [API 总览](./runtime/api-overview.md)
+6. [Workspace 文件系统](./runtime/workspace-filesystem.md)
+7. [数据库设计](./persistence/database-design.md)
+8. [配置与环境变量](./persistence/configuration-and-env.md)
+9. [API 总览](./runtime/api-overview.md)
 
 ### 4.3 前端开发
 
@@ -122,16 +127,18 @@ flowchart LR
 - **系统全景** 是理解所有专题的起点，为分层、运行时和治理类主题提供共同上下文。
 - **分层架构** 约束后端项目依赖方向，并决定服务注册、目录职责和层间协作边界。
 - **领域模型** 是 Wiki、Ask、Slides、Workshop 共享的版本化底座，也是数据库设计和 API 语义的前提。
-- **Wiki 生成管线** 依赖领域模型、AI Provider、数据库设计和配置策略，是最强的跨模块汇聚点。
+- **Wiki 生成管线** 依赖领域模型、AI Provider、Workspace 文件系统、数据库设计和配置策略，是最强的跨模块汇聚点。
+- **Workspace 文件系统** 是 AST 解析结果、Wiki 页面内容、仓库克隆副本的物理存储层，管线阶段通过 `WorkspaceService` 读写。
 - **前端架构** 依赖 API 总览和领域模型中的版本语义，尤其依赖 `repositoryId`、`RepositoryVersion`、`WikiVersion` 的上下文透传。
-- **架构决策** 为 ORM、Provider、版本模型、任务队列等关键设计提供背景，治理类文档需要与运行时文档配套阅读。
+- **架构决策** 为 ORM、Provider、版本模型、任务队列、文件存储等关键设计提供背景，治理类文档需要与运行时文档配套阅读。
 
 ### 5.2 典型链路视角
 
 1. 仓库导入与版本发现：系统全景 -> 分层架构 -> 领域模型 -> API 总览
-2. Wiki 刷新与生成：领域模型 -> Wiki 生成管线 -> AI Provider 架构 -> 数据库设计
+2. Wiki 刷新与生成：领域模型 -> Wiki 生成管线 -> AI Provider 架构 -> Workspace 文件系统 -> 数据库设计
 3. 仓库页浏览与派生内容：系统全景 -> 前端架构 -> API 总览 -> 领域模型
-4. 架构演进与治理：系统全景 -> 架构决策 -> 演进路线图 -> 附录与归档
+4. AST 解析与代码分析：领域模型 -> Wiki 生成管线 -> Workspace 文件系统
+5. 架构演进与治理：系统全景 -> 架构决策 -> 演进路线图 -> 附录与归档
 
 ---
 
@@ -139,11 +146,18 @@ flowchart LR
 
 ### 6.1 入口页定位变更
 
-- 本文档已从“单文件完整架构设计文档”重构为“总览入口页”。
+- 本文档已从"单文件完整架构设计文档"重构为"总览入口页"。
 - 原先集中在本文件中的演进历史、分层设计、领域模型、Wiki 管线、Provider 架构、前端架构、API、数据库、配置、决策、路线图和附录等详细正文，不再继续在入口页维护。
 - 自本次重构起，入口页只保留系统摘要、核心原则、专题目录、阅读顺序、跨模块关系和迁移说明。
 
-### 6.2 事实归属规则
+### 6.2 V11 关键架构变更
+
+- **Workspace 文件系统**：大文本内容从 DB 迁移到 `workspace/` 目录，新增 `Workspace 文件系统` 专题文档。
+- **AST 版本化**：新增 `AstVersion` 实体，与 `RepositoryVersion` 关联，领域模型专题已更新。
+- **Tool Call 增强**：`FunctionInvokingChatClient` 集成到所有 Provider 管道，Tool Call 配置统一管理。
+- **提示词 DB 化**：提示词从硬编码迁移到 `prompt_templates` 表，`IPromptMergeService` 五层拼装。
+
+### 6.3 事实归属规则
 
 - 需要查找系统级摘要时，以本入口页为准。
 - 需要查找某一专题的详细设计时，以对应专题文档为准。

@@ -40,7 +40,8 @@
       "Bash(/usr/local/share/dotnet/*)",
       "WebFetch(domain:www.repothread.com)",
       "WebSearch",
-      "mcp__playwright__browser_navigate"
+      "mcp__playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__*"
     ]
   }
 }
