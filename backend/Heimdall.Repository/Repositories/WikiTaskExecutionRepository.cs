@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Interfaces.Repositories;
 using Heimdall.Core.Models;
+using Heimdall.Infrastructure.Services;
 using SqlSugar;
 
 namespace Heimdall.Repository.Repositories;
@@ -12,17 +15,27 @@ namespace Heimdall.Repository.Repositories;
 /// Wiki 任务执行仓储实现。
 /// 该实现负责在单一事务中完成 Wiki 任务主链路的核心落库。
 /// </summary>
-public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
+public sealed partial class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
 {
-    private static readonly JsonSerializerOptions ArtifactJsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions ArtifactJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+    private static readonly JsonSerializerOptions PrettyJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
     private readonly ISqlSugarClient _db;
+    private readonly WorkspaceService _workspace;
 
     /// <summary>
     /// 初始化 Wiki 任务执行仓储。
     /// </summary>
-    public WikiTaskExecutionRepository(ISqlSugarClient db)
+    public WikiTaskExecutionRepository(ISqlSugarClient db, WorkspaceService workspace)
     {
         _db = db;
+        _workspace = workspace;
     }
 
     /// <summary>
@@ -184,6 +197,38 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
             {
                 await _db.Insertable(relations).ExecuteCommandAsync(cancellationToken);
             }
+
+            // 双写：Workspace 文件系统
+            var wikiDir = _workspace.GetWikiDir(wikiVersion.Id);
+            var pagesDir = Path.Combine(wikiDir, "pages");
+            Directory.CreateDirectory(pagesDir);
+
+            // 写入 structure.json
+            var structureFilePath = Path.Combine(wikiDir, "structure.json");
+            await File.WriteAllTextAsync(structureFilePath, structureJson, cancellationToken);
+            wikiVersion.StructureFilePath = structureFilePath;
+
+            // 写入每个页面内容
+            for (var i = 0; i < persistedPages.Count; i++)
+            {
+                var page = persistedPages[i];
+                var slug = ToSlug(page.Title);
+                var pageFileName = $"{page.PageOrder:D4}_{slug}.md";
+                var pageFilePath = Path.Combine(pagesDir, pageFileName);
+                await File.WriteAllTextAsync(pageFilePath, page.ContentMarkdown ?? string.Empty, cancellationToken);
+                page.ContentFilePath = pageFilePath;
+            }
+
+            // 写入 relations.json
+            var relationsFilePath = Path.Combine(wikiDir, "relations.json");
+            var relationsJson = JsonSerializer.Serialize(relations.Select(r => new
+            {
+                r.SourcePageId,
+                r.TargetPageId,
+                r.RelationType,
+                r.MetadataJson
+            }), PrettyJsonOptions);
+            await File.WriteAllTextAsync(relationsFilePath, relationsJson, cancellationToken);
 
             wikiVersion.PageCount = persistedPages.Count;
             wikiVersion.TocDepth = Math.Max(1, structure.Sections.Count > 0 ? 2 : 1);
@@ -386,6 +431,22 @@ public sealed class WikiTaskExecutionRepository : IWikiTaskExecutionRepository
 
         return relations;
     }
+
+    /// <summary>
+    /// 将页面标题转换为文件系统安全的 slug。
+    /// </summary>
+    private static string ToSlug(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return "untitled";
+        var slug = NonAlphaRegex().Replace(title.ToLowerInvariant(), "-");
+        slug = MultiHyphenRegex().Replace(slug, "-").Trim('-');
+        return string.IsNullOrEmpty(slug) ? "untitled" : slug;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"[^a-z0-9一-鿿]+")]
+    private static partial Regex NonAlphaRegex();
+    [System.Text.RegularExpressions.GeneratedRegex(@"-{2,}")]
+    private static partial Regex MultiHyphenRegex();
 
     /// <summary>
     /// 计算页面深度。

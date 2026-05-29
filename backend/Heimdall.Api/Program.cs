@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Heimdall.Infrastructure.Configuration;
+using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.Providers;
 using Heimdall.Infrastructure.Providers.CustomBackends;
 using Heimdall.Infrastructure.RepositorySources;
+using Heimdall.Infrastructure.Services;
 using Heimdall.Infrastructure.Utilities;
 using Heimdall.Api.Middleware;
 using Heimdall.Core.Services.Auth;
@@ -21,6 +23,7 @@ using Heimdall.Repository.Repositories;
 using SqlSugar;
 using Heimdall.Core.Entities;
 using Heimdall.Core.Services;
+using Heimdall.Core.Services.Migration;
 using System.Reflection;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -121,7 +124,7 @@ var sqlSugarScope = new SqlSugarScope(new ConnectionConfig
     {
         EntityNameService = (type, entity) =>
         {
-            if (!type.Namespace!.Contains("Dto"))
+            if (type.Namespace != null && !type.Namespace.Contains("Dto"))
             {
                 entity.DbTableName = SqlSugar.UtilMethods.ToUnderLine(entity.DbTableName);
             }
@@ -175,6 +178,10 @@ builder.Services.AddSingleton<CodeFirstSyncService>();
 // Infrastructure Layer (Singleton - 无状态)
 builder.Services.AddSingleton<HeimdallConfigService>();
 builder.Services.AddSingleton<TextUtilityService>();
+
+// Workspace 文件系统
+builder.Services.AddSingleton<WorkspaceConfig>();
+builder.Services.AddSingleton<WorkspaceService>();
 
 // Repository Sources
 builder.Services.AddSingleton<IRepositorySource, GitHubRepositorySource>();
@@ -302,13 +309,15 @@ builder.Services.AddScoped<IWorkshopTaskService, WorkshopTaskService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<JwtTokenService>();
 // V8: RagContextService 已移除——Ask 使用 BM25 检索替代向量检索
-builder.Services.AddScoped<TaskRequestUtilityService>();
+// [已删除] TaskRequestUtilityService — 死代码，无注入点
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<TaskLlmCallLogService>();
 builder.Services.AddScoped<IWikiTaskSubmissionService, WikiTaskSubmissionService>();
 builder.Services.AddSingleton<ChatMessageBuilderService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.AstContextFormatter>();
 builder.Services.AddSingleton<RepositoryAccessService>();
 builder.Services.AddSingleton<TaskLlmService>();
+builder.Services.AddSingleton<Heimdall.Core.Tools.AstBackedCodeToolService>();
 builder.Services.AddSingleton<ToolCallConfigurationService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IStructuredLogger, Heimdall.Core.Services.Logging.StructuredLogger>();
 builder.Services.AddSingleton<TaskPromptService>();
@@ -317,7 +326,7 @@ builder.Services.AddSingleton<WikiGlobalConvergenceService>();
 builder.Services.AddSingleton<DeterministicStructurePlanner>();
 builder.Services.AddSingleton<WikiRenderPostProcessor>();
 builder.Services.AddSingleton<WikiTaskService>();
-builder.Services.AddScoped<PromptTemplateService>();
+// [已删除] PromptTemplateService — 死代码，方法未被调用
 builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptManagementService>();
 builder.Services.AddSingleton<Heimdall.Core.Interfaces.Services.IPromptMergeService, Heimdall.Core.Services.Prompt.PromptMergeService>();
 builder.Services.AddScoped<Heimdall.Core.Services.Prompt.PromptSeedData>();
@@ -345,6 +354,7 @@ builder.Services.AddSingleton<Heimdall.Core.Services.Tasks.CostEstimationService
 builder.Services.Configure<Heimdall.Core.Models.ModelTierConfig>(
     builder.Configuration.GetSection("ModelTier"));
 builder.Services.AddSingleton<TaskProgressService>();
+builder.Services.AddSingleton<Heimdall.Core.Services.Migration.WorkspaceMigrationService>();
 builder.Services.AddSingleton<TaskQueueService>();
 builder.Services.AddSingleton<ITaskQueueService>(sp => sp.GetRequiredService<TaskQueueService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TaskQueueService>());
@@ -427,6 +437,9 @@ if (codeFirstAutoSync)
         logger.LogCritical(ex, "CodeFirst 自动同步失败，请手动执行 SQL 脚本");
     }
 }
+
+// Workspace 目录初始化
+app.Services.GetRequiredService<WorkspaceService>().EnsureDirectories();
 
 // 启动时自动执行种子数据
 using (var scope = app.Services.CreateScope())

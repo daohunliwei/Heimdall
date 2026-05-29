@@ -1,5 +1,6 @@
 using Heimdall.Infrastructure.Models;
 using Heimdall.Infrastructure.RepositorySources;
+using Heimdall.Infrastructure.Services;
 using Heimdall.Infrastructure.Utilities;
 using Microsoft.Extensions.Logging;
 
@@ -9,6 +10,7 @@ public sealed class RepositoryAccessService
 {
     private readonly IEnumerable<IRepositorySource> _sources;
     private readonly TextUtilityService _textUtility;
+    private readonly WorkspaceService _workspace;
     private readonly ILogger<RepositoryAccessService> _logger;
 
     private static readonly string[] CodeExtensions =
@@ -20,10 +22,12 @@ public sealed class RepositoryAccessService
     public RepositoryAccessService(
         IEnumerable<IRepositorySource> sources,
         TextUtilityService textUtility,
+        WorkspaceService workspace,
         ILogger<RepositoryAccessService> logger)
     {
         _sources = sources;
         _textUtility = textUtility;
+        _workspace = workspace;
         _logger = logger;
     }
 
@@ -38,7 +42,7 @@ public sealed class RepositoryAccessService
         var source = FindSource(repoType, url);
         var normalizedUrl = source.NormalizeUrl(url);
         var (owner, repo) = source.ParseOwnerRepo(normalizedUrl);
-        var targetPath = Path.Combine(Path.GetTempPath(), "heimdall_repos", $"{owner}_{repo}");
+        var targetPath = _workspace.GetRepoPath(owner, repo);
 
         Directory.CreateDirectory(targetPath);
         if (Directory.EnumerateFileSystemEntries(targetPath).Any())

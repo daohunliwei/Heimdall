@@ -11,6 +11,7 @@ namespace Heimdall.Infrastructure.Configuration;
 public sealed class HeimdallConfigService
 {
     private const string HeimdallConfigDirKey = "HEIMDALL_CONFIG_DIR";
+    private const string HeimdallWorkspaceKey = "HEIMDALL_WORKSPACE";
     private const string HeimdallDefaultProviderKey = "HEIMDALL_DEFAULT_PROVIDER";
     private const string HeimdallEmbedderTypeKey = "HEIMDALL_EMBEDDER_TYPE";
     private const string HeimdallWikiTaskTimeoutKey = "HEIMDALL_WIKI_TASK_TIMEOUT_MINUTES";
@@ -104,6 +105,15 @@ public sealed class HeimdallConfigService
     public string GetAuthMode()
     {
         return (GetConfigurationValue("HEIMDALL_AUTH_MODE") ?? "none").Trim().ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// 获取 Workspace 根路径。
+    /// </summary>
+    public string GetWorkspacePath()
+    {
+        return GetConfigurationValue(HeimdallWorkspaceKey)
+            ?? Path.Combine(AppContext.BaseDirectory, "workspace");
     }
 
     /// 获取是否开放注册。

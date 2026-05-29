@@ -18,6 +18,19 @@ public sealed partial class CodeIndexService
     private const int ChunkMaxLines = 80;
     private const int ChunkMinLines = 20;
 
+    /// <summary>
+    /// 附带 AST 上下文的分块结果
+    /// </summary>
+    public sealed record CodeChunkWithAstContext(
+        int StartLine,
+        int EndLine,
+        string Content,
+        string? OwningClass,
+        string? OwningMethod,
+        string[]? Modifiers,
+        string[]? CallerSymbols,
+        string[]? CalleeSymbols);
+
     public CodeIndexService(ILogger<CodeIndexService> logger, TreeSitterAnalyzer? analyzer = null)
     {
         _logger = logger;
@@ -170,11 +183,11 @@ public sealed partial class CodeIndexService
     }
 
     /// <summary>
-    /// 对单个文件按 AST 节点边界分块。
+    /// 对单个文件按 AST 节点边界分块，附带 AST 上下文元数据（所属类、调用关系、修饰符）。
     /// </summary>
-    public List<(int StartLine, int EndLine, string Content)> ChunkFile(string filePath, string language)
+    public List<CodeChunkWithAstContext> ChunkFileWithAstContext(string filePath, string language)
     {
-        var chunks = new List<(int, int, string)>();
+        var chunks = new List<CodeChunkWithAstContext>();
         if (!File.Exists(filePath)) return chunks;
 
         try
@@ -184,17 +197,60 @@ public sealed partial class CodeIndexService
 
             foreach (var chunk in result.Chunks)
             {
-                chunks.Add((chunk.StartLine, chunk.EndLine, chunk.Content));
+                // 查找覆盖此分块的符号
+                var overlappingSymbols = result.Symbols
+                    .Where(s => s.StartLine <= chunk.EndLine && s.EndLine >= chunk.StartLine)
+                    .ToList();
+
+                var owningType = overlappingSymbols
+                    .FirstOrDefault(s => s.Kind is "class" or "interface" or "struct" or "record");
+                var owningMethod = overlappingSymbols
+                    .FirstOrDefault(s => s.Kind is "method" or "function" or "constructor");
+                var modifiers = owningMethod?.Modifiers ?? owningType?.Modifiers;
+
+                // 查找调用关系
+                var symbolName = owningMethod?.Name ?? owningType?.Name;
+                var callers = string.IsNullOrWhiteSpace(symbolName) ? null :
+                    result.CallEdges
+                        .Where(e => e.CalleeSymbol == symbolName ||
+                                    e.CalleeSymbol == $"{owningType?.Name}.{symbolName}")
+                        .Select(e => e.CallerSymbol)
+                        .Where(c => !string.IsNullOrWhiteSpace(c))
+                        .Distinct()
+                        .Take(5)
+                        .ToArray();
+
+                var callees = string.IsNullOrWhiteSpace(symbolName) ? null :
+                    result.CallEdges
+                        .Where(e => e.CallerSymbol == symbolName ||
+                                    e.CallerSymbol == $"{owningType?.Name}.{symbolName}")
+                        .Select(e => e.CalleeSymbol)
+                        .Where(c => !string.IsNullOrWhiteSpace(c))
+                        .Distinct()
+                        .Take(5)
+                        .ToArray();
+
+                chunks.Add(new CodeChunkWithAstContext(
+                    chunk.StartLine,
+                    chunk.EndLine,
+                    chunk.Content,
+                    owningType?.Name,
+                    owningMethod?.Name,
+                    modifiers?.Length > 0 ? modifiers : null,
+                    callers?.Length > 0 ? callers : null,
+                    callees?.Length > 0 ? callees : null));
             }
 
             if (chunks.Count == 0)
             {
-                // 回退：按固定行分块
+                // 回退：按固定行分块（无 AST 上下文）
                 var lines = source.Split('\n');
                 for (int i = 0; i < lines.Length; i += ChunkMaxLines)
                 {
                     var end = Math.Min(i + ChunkMaxLines, lines.Length);
-                    chunks.Add((i + 1, end, string.Join('\n', lines[i..end])));
+                    chunks.Add(new CodeChunkWithAstContext(
+                        i + 1, end, string.Join('\n', lines[i..end]),
+                        null, null, null, null, null));
                 }
             }
         }
@@ -204,6 +260,16 @@ public sealed partial class CodeIndexService
         }
 
         return chunks;
+    }
+
+    /// <summary>
+    /// 对单个文件按 AST 节点边界分块（兼容旧签名）。
+    /// </summary>
+    public List<(int StartLine, int EndLine, string Content)> ChunkFile(string filePath, string language)
+    {
+        return ChunkFileWithAstContext(filePath, language)
+            .Select(c => (c.StartLine, c.EndLine, c.Content))
+            .ToList();
     }
 
     // ── 辅助方法 ──

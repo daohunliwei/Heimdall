@@ -36,10 +36,15 @@ public class TaskLlmCallLog
     public int TotalTokens { get; set; }
 
     [SugarColumn(ColumnName = "request_preview", ColumnDataType = "text", IsNullable = true)]
+    [Obsolete("已迁移到 Workspace 文件系统，请使用 log_file_path 定位 JSONL 日志文件")]
     public string? RequestPreview { get; set; }
 
     [SugarColumn(ColumnName = "response_preview", ColumnDataType = "text", IsNullable = true)]
+    [Obsolete("已迁移到 Workspace 文件系统，请使用 log_file_path 定位 JSONL 日志文件")]
     public string? ResponsePreview { get; set; }
+
+    [SugarColumn(ColumnName = "log_file_path", Length = 512, IsNullable = true)]
+    public string? LogFilePath { get; set; }
 
     [SugarColumn(ColumnName = "latency_ms")]
     public int LatencyMs { get; set; }
