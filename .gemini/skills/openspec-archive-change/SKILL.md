@@ -1,114 +1,117 @@
 ---
 name: openspec-archive-change
-description: Archive a completed change in the experimental workflow. Use when the user wants to finalize and archive a change after implementation is complete.
+description: 归档已完成的变更。当用户希望在实现完成后归档一个变更时使用。
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.3.1"
+  generatedBy: "1.4.1"
 ---
 
-Archive a completed change in the experimental workflow.
+归档已完成的变更。
 
-**Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**输入**：可选指定变更名称。如果省略，检查是否可以从对话上下文推断。如果模糊或不明确，你必须提示用户选择可用变更。
 
-**Steps**
+**步骤**
 
-1. **If no change name provided, prompt for selection**
+1. **如果未提供变更名称，提示用户选择**
 
-   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   运行 `openspec-cn list --json` 获取可用变更。使用 **AskUserQuestion tool** 让用户选择。
 
-   Show only active changes (not already archived).
-   Include the schema used for each change if available.
+   仅显示活跃变更（未归档的）。
+   如果可用，显示每个变更使用的 Schema。
 
-   **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
+   **重要**：不要猜测或自动选择变更。始终让用户选择。
 
-2. **Check artifact completion status**
+2. **检查产出物完成状态**
 
-   Run `openspec status --change "<name>" --json` to check artifact completion.
+   运行 `openspec-cn status --change "<name>" --json` 检查产出物完成情况。
 
-   Parse the JSON to understand:
-   - `schemaName`: The workflow being used
-   - `artifacts`: List of artifacts with their status (`done` or other)
+   解析 JSON 以了解：
+   - `schemaName`：使用的工作流
+   - `planningHome`、`changeRoot`、`artifactPaths` 和 `actionContext`：路径和范围上下文
+   - `artifacts`：产出物列表及其状态（`done` 或其他）
 
-   **If any artifacts are not `done`:**
-   - Display warning listing incomplete artifacts
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
+   如果状态报告 `actionContext.mode: "workspace-planning"`，说明工作区归档在当前版本中不支持并停止。不要将工作区变更移动到仓库本地归档或编辑链接的仓库。
 
-3. **Check task completion status**
+   **如果有产出物未完成（不是 `done`）：**
+   - 显示警告，列出未完成的产出物
+   - 使用 **AskUserQuestion tool** 确认用户是否要继续
+   - 用户确认后继续
 
-   Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
+3. **检查任务完成状态**
 
-   Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
+   读取任务文件（通常是 `tasks.md`）检查未完成的任务。
 
-   **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
+   统计标记为 `- [ ]`（未完成）和 `- [x]`（已完成）的任务。
 
-   **If no tasks file exists:** Proceed without task-related warning.
+   **如果发现未完成任务：**
+   - 显示警告，显示未完成任务数量
+   - 使用 **AskUserQuestion tool** 确认用户是否要继续
+   - 用户确认后继续
 
-4. **Assess delta spec sync state**
+   **如果没有任务文件：** 继续执行，不显示任务相关警告。
 
-   Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, proceed without sync prompt.
+4. **评估增量规范同步状态**
 
-   **If delta specs exist:**
-   - Compare each delta spec with its corresponding main spec at `openspec/specs/<capability>/spec.md`
-   - Determine what changes would be applied (adds, modifications, removals, renames)
-   - Show a combined summary before prompting
+   使用状态 JSON 中的 `artifactPaths.specs.existingOutputPaths` 检查增量规范。如果不存在，无需同步提示直接继续。
 
-   **Prompt options:**
-   - If changes needed: "Sync now (recommended)", "Archive without syncing"
-   - If already synced: "Archive now", "Sync anyway", "Cancel"
+   **如果增量规范存在：**
+   - 将每个增量规范与对应的主规范 `openspec/specs/<capability>/spec.md` 进行比较
+   - 确定将应用哪些变更（新增、修改、删除、重命名）
+   - 在提示前显示合并摘要
 
-   If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
+   **提示选项：**
+   - 如果需要变更："立即同步（推荐）"、"不同步直接归档"
+   - 如果已同步："立即归档"、"仍然同步"、"取消"
 
-5. **Perform the archive**
+   如果用户选择同步，使用 Task tool（subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"）。无论选择如何，继续归档。
 
-   Create the archive directory if it doesn't exist:
+5. **执行归档**
+
+   在 `planningHome.changesDir` 下创建 `archive` 目录（如果不存在）：
    ```bash
-   mkdir -p openspec/changes/archive
+   mkdir -p "<planningHome.changesDir>/archive"
    ```
 
-   Generate target name using current date: `YYYY-MM-DD-<change-name>`
+   使用当前日期生成目标名称：`YYYY-MM-DD-<change-name>`
 
-   **Check if target already exists:**
-   - If yes: Fail with error, suggest renaming existing archive or using different date
-   - If no: Move the change directory to archive
+   **检查目标是否已存在：**
+   - 如果存在：报错失败，建议重命名现有归档或使用不同日期
+   - 如果不存在：将 `changeRoot` 移动到归档目录
 
    ```bash
-   mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
+   mv "<changeRoot>" "<planningHome.changesDir>/archive/YYYY-MM-DD-<name>"
    ```
 
-6. **Display summary**
+6. **显示摘要**
 
-   Show archive completion summary including:
-   - Change name
-   - Schema that was used
-   - Archive location
-   - Whether specs were synced (if applicable)
-   - Note about any warnings (incomplete artifacts/tasks)
+   显示归档完成摘要，包括：
+   - 变更名称
+   - 使用的 Schema
+   - 归档位置
+   - 是否已同步规范（如果适用）
+   - 关于任何警告的说明（未完成的产出物/任务）
 
-**Output On Success**
+**成功输出**
 
 ```
-## Archive Complete
+## 归档完成
 
-**Change:** <change-name>
-**Schema:** <schema-name>
-**Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
-**Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
+**变更：** <change-name>
+**Schema：** <schema-name>
+**归档到：** 从 `planningHome.changesDir`/YYYY-MM-DD-<name>/ 派生的归档路径
+**规范：** ✓ 已同步到主规范（或"无增量规范"或"跳过同步"）
 
-All artifacts complete. All tasks complete.
+所有产出物已完成。所有任务已完成。
 ```
 
-**Guardrails**
-- Always prompt for change selection if not provided
-- Use artifact graph (openspec status --json) for completion checking
-- Don't block archive on warnings - just inform and confirm
-- Preserve .openspec.yaml when moving to archive (it moves with the directory)
-- Show clear summary of what happened
-- If sync is requested, use openspec-sync-specs approach (agent-driven)
-- If delta specs exist, always run the sync assessment and show the combined summary before prompting
+**护栏**
+- 如果未提供，始终提示用户选择变更
+- 使用产出物图（openspec-cn status --json）进行完成度检查
+- 不要因警告阻止归档 - 只需通知并确认
+- 移动到归档时保留 .openspec.yaml（它随目录一起移动）
+- 显示清晰的操作摘要
+- 如果请求同步，使用 openspec-sync-specs 方式（代理驱动）
+- 如果存在增量规范，始终运行同步评估并在提示前显示合并摘要

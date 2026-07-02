@@ -1,111 +1,112 @@
 ---
-description: Continue working on a change - create the next artifact (Experimental)
+description: 继续进行变更 - 创建下一个产出物
 ---
 
-Continue working on a change by creating the next artifact.
+继续进行变更，创建下一个产出物。
 
-**Input**: Optionally specify a change name after `/opsx:continue` (e.g., `/opsx:continue add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**输入**：可选在 `/opsx:continue` 后指定变更名称（如 `/opsx:continue add-auth`）。如果省略，检查是否可以从对话上下文推断。如果模糊或不明确，你必须提示用户选择可用变更。
 
-**Steps**
+**步骤**
 
-1. **If no change name provided, prompt for selection**
+1. **如果未提供变更名称，提示用户选择**
 
-   Run `openspec list --json` to get available changes sorted by most recently modified. Then use the **AskUserQuestion tool** to let the user select which change to work on.
+   运行 `openspec-cn list --json` 获取按最近修改时间排序的可用变更。然后使用 **AskUserQuestion tool** 让用户选择要继续的变更。
 
-   Present the top 3-4 most recently modified changes as options, showing:
-   - Change name
-   - Schema (from `schema` field if present, otherwise "spec-driven")
-   - Status (e.g., "0/5 tasks", "complete", "no tasks")
-   - How recently it was modified (from `lastModified` field)
+   展示最近修改的前 3-4 个变更作为选项，显示：
+   - 变更名称
+   - Schema（来自 `schema` 字段，如果没有则为 "spec-driven"）
+   - 状态（如 "0/5 任务"、"完成"、"无任务"）
+   - 最近修改时间（来自 `lastModified` 字段）
 
-   Mark the most recently modified change as "(Recommended)" since it's likely what the user wants to continue.
+   将最近修改的变更标记为"（推荐）"，因为它很可能是用户想要继续的。
 
-   **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
+   **重要**：不要猜测或自动选择变更。始终让用户选择。
 
-2. **Check current status**
+2. **检查当前状态**
    ```bash
-   openspec status --change "<name>" --json
+   openspec-cn status --change "<name>" --json
    ```
-   Parse the JSON to understand current state. The response includes:
-   - `schemaName`: The workflow schema being used (e.g., "spec-driven")
-   - `artifacts`: Array of artifacts with their status ("done", "ready", "blocked")
-   - `isComplete`: Boolean indicating if all artifacts are complete
+   解析 JSON 了解当前状态。响应包含：
+   - `schemaName`：使用的工作流 Schema（如 "spec-driven"）
+   - `artifacts`：产出物数组及其状态（"done"、"ready"、"blocked"）
+   - `isComplete`：布尔值，表示是否所有产出物已完成
+   - `planningHome`、`changeRoot`、`artifactPaths` 和 `actionContext`：路径和范围上下文。使用这些而非假设仓库本地路径。
 
-3. **Act based on status**:
-
-   ---
-
-   **If all artifacts are complete (`isComplete: true`)**:
-   - Congratulate the user
-   - Show final status including the schema used
-   - Suggest: "All artifacts created! You can now implement this change with `/opsx:apply` or archive it with `/opsx:archive`."
-   - STOP
+3. **根据状态采取行动**：
 
    ---
 
-   **If artifacts are ready to create** (status shows artifacts with `status: "ready"`):
-   - Pick the FIRST artifact with `status: "ready"` from the status output
-   - Get its instructions:
+   **如果所有产出物已完成（`isComplete: true`）**：
+   - 恭喜用户
+   - 显示最终状态，包括使用的 Schema
+   - 建议："所有产出物已创建！你现在可以使用 `/opsx:apply` 实现此变更或使用 `/opsx:archive` 归档它。"
+   - 停止
+
+   ---
+
+   **如果有产出物可以创建**（状态显示 `status: "ready"` 的产出物）：
+   - 选取状态输出中第一个 `status: "ready"` 的产出物
+   - 获取其指令：
      ```bash
-     openspec instructions <artifact-id> --change "<name>" --json
+     openspec-cn instructions <artifact-id> --change "<name>" --json
      ```
-   - Parse the JSON. The key fields are:
-     - `context`: Project background (constraints for you - do NOT include in output)
-     - `rules`: Artifact-specific rules (constraints for you - do NOT include in output)
-     - `template`: The structure to use for your output file
-     - `instruction`: Schema-specific guidance
-     - `outputPath`: Where to write the artifact
-     - `dependencies`: Completed artifacts to read for context
-   - **Create the artifact file**:
-     - Read any completed dependency files for context
-     - Use `template` as the structure - fill in its sections
-     - Apply `context` and `rules` as constraints when writing - but do NOT copy them into the file
-     - Write to the output path specified in instructions
-   - Show what was created and what's now unlocked
-   - STOP after creating ONE artifact
+   - 解析 JSON。关键字段：
+     - `context`：项目背景（你的约束 - 不要包含在输出中）
+     - `rules`：产出物特定规则（你的约束 - 不要包含在输出中）
+     - `template`：用于输出文件的结构
+     - `instruction`：Schema 特定的指导
+     - `resolvedOutputPath`：解析后的路径或写入产出物的模式
+     - `dependencies`：需要读取以获取上下文的已完成产出物
+   - **创建产出物文件**：
+     - 读取任何已完成的依赖文件以获取上下文
+     - 使用 `template` 作为结构 - 填充其各个部分
+     - 将 `context` 和 `rules` 作为写作时的约束应用 - 但不要复制到文件中
+     - 写入指令中指定的 `resolvedOutputPath`。如果是 glob 模式，使用 Schema 指令和工作区规划上下文选择具体文件路径
+   - 显示创建了什么以及现在解锁了什么
+   - 创建一个产出物后停止
 
    ---
 
-   **If no artifacts are ready (all blocked)**:
-   - This shouldn't happen with a valid schema
-   - Show status and suggest checking for issues
+   **如果没有产出物就绪（全部被阻塞）**：
+   - 对于有效的 Schema 这不应该发生
+   - 显示状态并建议检查问题
 
-4. **After creating an artifact, show progress**
+4. **创建产出物后，显示进度**
    ```bash
-   openspec status --change "<name>"
+   openspec-cn status --change "<name>"
    ```
 
-**Output**
+**输出**
 
-After each invocation, show:
-- Which artifact was created
-- Schema workflow being used
-- Current progress (N/M complete)
-- What artifacts are now unlocked
-- Prompt: "Run `/opsx:continue` to create the next artifact"
+每次调用后，显示：
+- 创建了哪个产出物
+- 使用的 Schema 工作流
+- 当前进度（N/M 完成）
+- 哪些产出物现在已解锁
+- 提示："运行 `/opsx:continue` 创建下一个产出物"
 
-**Artifact Creation Guidelines**
+**产出物创建指南**
 
-The artifact types and their purpose depend on the schema. Use the `instruction` field from the instructions output to understand what to create.
+产出物类型及其用途取决于 Schema。使用指令输出中的 `instruction` 字段了解要创建什么。
 
-Common artifact patterns:
+常见产出物模式：
 
-**spec-driven schema** (proposal → specs → design → tasks):
-- **proposal.md**: Ask user about the change if not clear. Fill in Why, What Changes, Capabilities, Impact.
-  - The Capabilities section is critical - each capability listed will need a spec file.
-- **specs/<capability>/spec.md**: Create one spec per capability listed in the proposal's Capabilities section (use the capability name, not the change name).
-- **design.md**: Document technical decisions, architecture, and implementation approach.
-- **tasks.md**: Break down implementation into checkboxed tasks.
+**spec-driven Schema**（提案 → 规范 → 设计 → 任务）：
+- **proposal.md**：如果不清楚，询问用户关于变更的信息。填写原因、变更内容、能力、影响。
+  - 能力部分至关重要 - 列出的每个能力都需要一个规范文件。
+- **specs/<capability>/spec.md**：为提案能力部分中列出的每个能力创建一个规范（使用能力名称，而非变更名称）。
+- **design.md**：记录技术决策、架构和实现方法。
+- **tasks.md**：将实现分解为复选框任务。
 
-For other schemas, follow the `instruction` field from the CLI output.
+对于其他 Schema，遵循 CLI 输出中的 `instruction` 字段。
 
-**Guardrails**
-- Create ONE artifact per invocation
-- Always read dependency artifacts before creating a new one
-- Never skip artifacts or create out of order
-- If context is unclear, ask the user before creating
-- Verify the artifact file exists after writing before marking progress
-- Use the schema's artifact sequence, don't assume specific artifact names
-- **IMPORTANT**: `context` and `rules` are constraints for YOU, not content for the file
-  - Do NOT copy `<context>`, `<rules>`, `<project_context>` blocks into the artifact
-  - These guide what you write, but should never appear in the output
+**护栏**
+- 每次调用创建一个产出物
+- 创建新产出物前始终读取依赖产出物
+- 永远不要跳过产出物或乱序创建
+- 如果上下文不清楚，创建前询问用户
+- 写入后验证产出物文件存在，然后再标记进度
+- 使用 Schema 的产出物序列，不要假设特定的产出物名称
+- **重要**：`context` 和 `rules` 是对你的约束，不是文件内容
+  - 不要将 `<context>`、`<rules>`、`<project_context>` 块复制到产出物中
+  - 这些指导你写什么，但永远不应出现在输出中
